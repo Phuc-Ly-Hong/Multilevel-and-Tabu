@@ -1,0 +1,67 @@
+name: Run Tabu Search Experiments
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:  # Cho phép chạy thủ công
+
+jobs:
+  run-experiments:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120  # 2 hours timeout
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y g++ make
+    
+    - name: Check repository structure
+      run: |
+        echo "=== Repository Structure ==="
+        ls -la
+        echo "=== Source files ==="
+        ls -la src/ || echo "src/ not found"
+        echo "=== Instance files ==="
+        ls -la instances/ || echo "instances/ not found"
+    
+    - name: Create results directory
+      run: mkdir -p results
+    
+    - name: Run experiments
+      run: python scripts/run_experiments.py
+      timeout-minutes: 100
+    
+    - name: Check results
+      run: |
+        if [ -f "results/results.csv" ]; then
+          echo "=== Results Summary ==="
+          echo "Number of instances processed:"
+          tail -n +2 results/results.csv | wc -l
+          echo ""
+          echo "First 10 lines of results:"
+          head -n 11 results/results.csv
+          echo ""
+          echo "Best fitness values (top 5):"
+          tail -n +2 results/results.csv | cut -d',' -f5 | sort -n | head -5
+        else
+          echo "No results file generated!"
+          exit 1
+        fi
+    
+    - name: Upload results as artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: tabu-search-results
+        path: results/results.csv
+        retention-days: 30
