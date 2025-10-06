@@ -555,7 +555,8 @@ Solution tabu_search(){
         bool improved = false;
         //string move_type = "2-opt";
 
-        int move_type_idx = select_move_type();
+        //int move_type_idx = select_move_type();
+        int move_type_idx = rand() % MOVE_SET.size();
         string move_type = MOVE_SET[move_type_idx];
         used_count[move_type_idx]++;
         bool segment_improved = false;
@@ -902,7 +903,7 @@ Solution tabu_search(){
             }
         } else no_improve_count++;
 
-        if ((iter + 1)% SEGMENT_LENGTH == 0) {
+        /*if ((iter + 1)% SEGMENT_LENGTH == 0) {
             update_weights();
             if (segment_improved) {
                 no_improve_segment_length = 0;
@@ -917,14 +918,14 @@ Solution tabu_search(){
             }
             cout << endl;
             cout << "Current best fitness: " << best_sol.fitness << endl;
-        }
+        }*/
     }
     return best_sol;
 }
 
 int main(){
     srand(time(nullptr));
-    read_dataset("D:\\New folder\\10.10.3.txt");
+    read_dataset("D:\\New folder\\10.10.1.txt");
     printf(" %d\n", MAX_ITER);
  
     // Khởi tạo danh sách xe 
