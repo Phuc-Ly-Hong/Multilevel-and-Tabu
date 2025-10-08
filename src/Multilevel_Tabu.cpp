@@ -68,9 +68,9 @@ vector<double> weights = {1.0, 1.0, 1.0, 1.0, 1.0};
 vector<double> scorePi = {0.0, 0.0, 0.0, 0.0, 0.0};
 vector<double> used_count = {0.0, 0.0, 0.0, 0.0, 0.0};
 
-const double delta1 = 3.0;
-const double delta2 = 2.0;
-const double delta3 = 1.0;
+const double delta1 = 0.3;
+const double delta2 = 0.2;
+const double delta3 = 0.1;
 const double delta4 = 0.3;
 
 int select_move_type(){
