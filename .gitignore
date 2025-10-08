@@ -1,3 +1,7 @@
 *.gz
 *.csv
 *.txt
+*.tsp
+/Vrp-Set-CMT/
+/vrpr-master/
+/vrpr-paperslot/
