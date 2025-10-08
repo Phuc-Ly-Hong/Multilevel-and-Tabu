@@ -58,11 +58,11 @@ double Beta = 0.5; // tham số điều chỉnh hệ số hàm phạt
 
 int MAX_ITER;
 int TABU_TENURE;
-int MAX_NO_IMPROVE = 4000;
+int MAX_NO_IMPROVE = 8000;
 double EPSILON = 1e-6;
 
 // Adaptive parameters
-int SEGMENT_LENGTH = 300;
+int SEGMENT_LENGTH = 500;
 vector<string> MOVE_SET = {"1-0", "1-1", "2-0", "2-1", "2-opt"};
 vector<double> weights = {1.0, 1.0, 1.0, 1.0, 1.0};
 vector<double> scorePi = {0.0, 0.0, 0.0, 0.0, 0.0};
@@ -118,9 +118,9 @@ void read_dataset(const string &filename){
 
     cout << "Read " << nodes.size() << " nodes (including depot)." << endl;
     if (nodes.size() > 100) {
-        MAX_ITER = 80 * nodes.size() / 2;
+        MAX_ITER = 140 * nodes.size() / 2;
     } else {
-        MAX_ITER = 4000;
+        MAX_ITER = 12000;
     }
     for (const auto& node : nodes) {
         if (node.id == depot_id) {
