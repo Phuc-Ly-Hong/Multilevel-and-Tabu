@@ -57,12 +57,12 @@ double alpha2 = 1.0; // tham số hàm phạt thứ hai
 double Beta = 0.5; // tham số điều chỉnh hệ số hàm phạt
 
 int MAX_ITER;
-int TABU_TENURE = 7;
-int MAX_NO_IMPROVE = 2000;
+int TABU_TENURE;
+int MAX_NO_IMPROVE = 4000;
 double EPSILON = 1e-6;
 
 // Adaptive parameters
-int SEGMENT_LENGTH;
+int SEGMENT_LENGTH = 300;
 vector<string> MOVE_SET = {"1-0", "1-1", "2-0", "2-1", "2-opt"};
 vector<double> weights = {1.0, 1.0, 1.0, 1.0, 1.0};
 vector<double> scorePi = {0.0, 0.0, 0.0, 0.0, 0.0};
@@ -118,7 +118,7 @@ void read_dataset(const string &filename){
 
     cout << "Read " << nodes.size() << " nodes (including depot)." << endl;
     if (nodes.size() > 100) {
-        MAX_ITER = 60 * nodes.size() / 2;
+        MAX_ITER = 80 * nodes.size() / 2;
     } else {
         MAX_ITER = 4000;
     }
@@ -153,8 +153,7 @@ void read_dataset(const string &filename){
     }
     cout << "C1 size: " << C1.size() << ", C2 size: " << C2.size() << endl;
     num_nodes = nodes.size();
-    SEGMENT_LENGTH = min((int)ceil(num_nodes/4.0), 10);
-    cout << "Segment length: " << SEGMENT_LENGTH << endl;
+    TABU_TENURE = min((int)ceil(num_nodes/4.0), 10);
 }
 
 void print_solution(const Solution &sol){
@@ -929,7 +928,7 @@ Solution tabu_search(){
 
 int main(){
     srand(time(nullptr));
-    read_dataset("D:\\New folder\\10.10.1.txt");
+    read_dataset("D:\\New folder\\in");
     printf(" %d\n", MAX_ITER);
  
     // Khởi tạo danh sách xe 
