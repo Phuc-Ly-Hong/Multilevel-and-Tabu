@@ -41,6 +41,10 @@ struct TabuMove {
     int tenure; // số vòng lặp còn lại move này bị tabu
 };
 
+struct MultilevelSolution {
+    vector<Solution> level_solutions; // lời giải ở các cấp độ
+};
+
 vector<vector<double>> distances;
 vector<Node> C1; // customers served only by technicians
 vector<Node> C2; // customers served by drones or technicians
@@ -64,10 +68,10 @@ vector<double> weights = {1.0, 1.0, 1.0, 1.0, 1.0};
 vector<double> scorePi = {0.0, 0.0, 0.0, 0.0, 0.0};
 vector<double> used_count = {0.0, 0.0, 0.0, 0.0, 0.0};
 
-const double delta1 = 5.0;
-const double delta2 = 3.0;
+const double delta1 = 3.0;
+const double delta2 = 2.0;
 const double delta3 = 1.0;
-const double delta4 = 0.6;
+const double delta4 = 0.3;
 
 int select_move_type(){
     double total_weight = accumulate(weights.begin(), weights.end(), 0.0);
