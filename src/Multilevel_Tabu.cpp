@@ -928,13 +928,23 @@ Solution tabu_search(){
 
 int main(){
     srand(time(nullptr));
-    read_dataset("D:\\New folder\\in");
+    read_dataset("D:\\New folder\\instances\\10.10.1.txt");
     printf(" %d\n", MAX_ITER);
  
     // Khởi tạo danh sách xe 
     vehicles.clear();
-    vehicles.push_back({1, 0.58f, false, 0.0}); // technician: id=1, speed=40m/h, không phải drone
-    vehicles.push_back({2, 0.83f, true, 120.0f}); // drone: id=2, speed=50m/h, là drone, giới hạn bay 120phút
+    int customers = num_nodes-1;
+    int pairs = 0;
+    if (customers >= 6 && customers <= 12) pairs = 1;
+    else if (customers <= 20) pairs = 2;
+    else if (customers <= 50) pairs = 3;
+    else if (customers <= 100) pairs = 4;
+    for (int i = 0; i < pairs; ++i) {
+        vehicles.push_back({ i+1, 0.58, false, 0.0 }); // technician
+    }
+    for (int i = 0; i < pairs; ++i) {
+        vehicles.push_back({ pairs + i + 1, 0.83, true, 120.0 }); // drone
+    }
 
     Solution sol = tabu_search();
     print_solution(sol);
