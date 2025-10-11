@@ -7,7 +7,7 @@ import time
 import csv
 
 def parse_output(output_text, instance_name, runtime):
-    """Parse output từ C++ program để extract thông tin"""
+    """Parse output từ C++ program để extract thông tin (hỗ trợ nhiều vehicle động)."""
     
     # Tìm số nodes
     nodes_match = re.search(r'Read (\d+) nodes', output_text)
@@ -17,45 +17,54 @@ def parse_output(output_text, instance_name, runtime):
     segment_match = re.search(r'Segment length: (\d+)', output_text)
     segment_length = int(segment_match.group(1)) if segment_match else 0
     
-    # Tìm kết quả cuối cùng
-    lines = output_text.split('\n')
+    lines = output_text.splitlines()
     
-    # Tìm route details cuối cùng
+    # Tìm section "Route details:" cuối cùng và đọc tất cả vehicles
     vehicle_routes = {}
-    for i, line in enumerate(lines):
-        if "Route details:" in line:
-            # Đọc các routes tiếp theo
-            j = i + 1
-            while j < len(lines) and lines[j].startswith("Vehicle "):
-                route_match = re.match(r'Vehicle (\d+): (.*)', lines[j].strip())
-                if route_match:
-                    vehicle_id = int(route_match.group(1))
-                    route = route_match.group(2).strip()
-                    vehicle_routes[f'Vehicle{vehicle_id}_Route'] = f'"{route}"'
-                j += 1
+    last_route_section = -1
+    
+    # Tìm section "Route details:" cuối cùng
+    for i in range(len(lines) - 1, -1, -1):
+        if "Route details:" in lines[i]:
+            last_route_section = i
+            break
+    
+    if last_route_section != -1:
+        # Đọc các routes từ section cuối cùng
+        j = last_route_section + 1
+        while j < len(lines):
+            line = lines[j].strip()
+            if not line.startswith("Vehicle "):
+                break
+            route_match = re.match(r'Vehicle\s+(\d+)\s*:\s*(.*)', line)
+            if route_match:
+                vehicle_id = int(route_match.group(1))
+                route = route_match.group(2).strip()
+                vehicle_routes[vehicle_id] = route
+            j += 1
     
     # Tìm fitness values cuối cùng (từ cuối lên)
-    makespan = 0
-    drone_violation = 0
-    waiting_violation = 0
-    fitness = 0
+    makespan = 0.0
+    drone_violation = 0.0
+    waiting_violation = 0.0
+    fitness = 0.0
     is_feasible = True
     
     for line in reversed(lines):
         if "Makespan:" in line:
-            makespan_match = re.search(r'Makespan: ([\d.]+)', line)
+            makespan_match = re.search(r'Makespan:\s*([\d.]+)', line)
             if makespan_match:
                 makespan = float(makespan_match.group(1))
         elif "Drone violation:" in line:
-            drone_match = re.search(r'Drone violation: ([\d.]+)', line)
+            drone_match = re.search(r'Drone violation:\s*([\d.]+)', line)
             if drone_match:
                 drone_violation = float(drone_match.group(1))
         elif "Waiting violation:" in line:
-            waiting_match = re.search(r'Waiting violation: ([\d.]+)', line)
+            waiting_match = re.search(r'Waiting violation:\s*([\d.]+)', line)
             if waiting_match:
                 waiting_violation = float(waiting_match.group(1))
         elif "Fitness:" in line:
-            fitness_match = re.search(r'Fitness: ([\d.]+)', line)
+            fitness_match = re.search(r'Fitness:\s*([\d.]+)', line)
             if fitness_match:
                 fitness = float(fitness_match.group(1))
                 break
@@ -65,9 +74,12 @@ def parse_output(output_text, instance_name, runtime):
     
     # Tìm iterations used
     iterations_used = 0
-    iter_matches = re.findall(r'Iter: (\d+)', output_text)
+    iter_matches = re.findall(r'Iter:\s*(\d+)', output_text)
     if iter_matches:
         iterations_used = int(iter_matches[-1]) + 1
+    
+    # Đếm số vehicles
+    num_vehicles = len(vehicle_routes)
     
     # Tạo result dict
     result = {
@@ -80,16 +92,10 @@ def parse_output(output_text, instance_name, runtime):
         'Iterations': iterations_used,
         'Runtime(s)': round(runtime, 2),
         'NumNodes': num_nodes,
-        'SegmentLength': segment_length
+        'SegmentLength': segment_length,
+        'NumVehicles': num_vehicles,
+        'VehicleRoutes': vehicle_routes  # dict: vehicle_id -> route_string
     }
-    
-    # Thêm routes (tối đa 2 vehicles)
-    for i in range(2):
-        key = f'Vehicle{i}_Route'
-        if key in vehicle_routes:
-            result[key] = vehicle_routes[key]
-        else:
-            result[key] = '""'
     
     return result
 
@@ -107,7 +113,7 @@ def run_single_instance(cpp_file, instance_file, timeout=1800):
         with open(cpp_file, 'r', encoding='utf-8') as f:
             cpp_content = f.read()
         
-        # Thay thế đường dẫn dataset - SỬA CHO ĐÚNG CẤU TRÚC
+        # Thay thế đường dẫn dataset
         old_path_pattern = r'read_dataset\(".*?"\);'
         new_path = f'read_dataset("{instance_file}");'
         cpp_content = re.sub(old_path_pattern, new_path, cpp_content)
@@ -151,7 +157,7 @@ def run_single_instance(cpp_file, instance_file, timeout=1800):
         # Parse kết quả
         result = parse_output(run_result.stdout, instance_name, runtime)
         
-        print(f"  ✓ {instance_name} completed: Fitness={result['Fitness']:.2f}, Time={runtime:.1f}s")
+        print(f"  ✓ {instance_name} completed: Fitness={result['Fitness']:.2f}, Time={runtime:.1f}s, Vehicles={result['NumVehicles']}")
         
         return result
         
@@ -172,7 +178,7 @@ def run_single_instance(cpp_file, instance_file, timeout=1800):
 
 def main():
     # Cấu hình
-    cpp_file = "src/Multilevel_Tabu.cpp"  # SỬA: đường dẫn trong src/
+    cpp_file = "src/Multilevel_Tabu.cpp"
     instances_dir = "instances"
     results_file = "results/results.csv"
     
@@ -232,15 +238,36 @@ def main():
     
     # Lưu kết quả
     if results:
-        # Define column order
+        # Determine maximum number of vehicles across all runs
+        max_vehicles = max(r['NumVehicles'] for r in results)
+        
+        # Define column order - dynamic vehicle columns
         columns = ['Instance', 'Makespan', 'DroneViolation', 'WaitingViolation', 
                   'Fitness', 'IsFeasible', 'Iterations', 'Runtime(s)', 'NumNodes', 
-                  'SegmentLength', 'Vehicle0_Route', 'Vehicle1_Route']
+                  'SegmentLength', 'NumVehicles']
+        
+        # Add vehicle route columns dynamically
+        for v in range(max_vehicles):
+            columns.append(f'Vehicle{v}_Route')
         
         with open(results_file, 'w', newline='', encoding='utf-8') as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=columns)
             writer.writeheader()
-            writer.writerows(results)
+            
+            for result in results:
+                # Prepare row data
+                row = {}
+                for col in columns:
+                    if col.startswith('Vehicle') and col.endswith('_Route'):
+                        # Extract vehicle number
+                        vehicle_num = int(col.replace('Vehicle', '').replace('_Route', ''))
+                        vehicle_routes = result.get('VehicleRoutes', {})
+                        route_str = vehicle_routes.get(vehicle_num, "")
+                        row[col] = f'"{route_str}"' if route_str else '""'
+                    else:
+                        row[col] = result.get(col, "")
+                
+                writer.writerow(row)
         
         print(f"\n✓ Results saved to {results_file}")
         
@@ -257,6 +284,7 @@ def main():
         print(f"Success rate: {successful/len(instance_files)*100:.1f}%")
         print(f"Total experiment time: {total_experiment_time/60:.1f} minutes")
         print(f"Average runtime per instance: {total_time/successful:.1f}s" if successful > 0 else "N/A")
+        print(f"Max vehicles used: {max_vehicles}")
         
         # Statistics
         if successful > 0:
@@ -272,7 +300,7 @@ def main():
             sorted_results = sorted(results, key=lambda x: x['Fitness'])
             for i, result in enumerate(sorted_results[:5], 1):
                 feasible = "✓" if result['IsFeasible'] else "✗"
-                print(f"{i}. {result['Instance']}: {result['Fitness']:.2f} {feasible} ({result['Runtime(s)']}s)")
+                print(f"{i}. {result['Instance']}: {result['Fitness']:.2f} {feasible} ({result['Runtime(s)']}s, {result['NumVehicles']} vehicles)")
     else:
         print("\n✗ No successful runs!")
 
