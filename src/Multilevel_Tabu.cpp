@@ -63,10 +63,10 @@ double EPSILON = 1e-6;
 
 // Adaptive parameters
 int SEGMENT_LENGTH = 500;
-vector<string> MOVE_SET = {"1-0", "1-1", "2-0", "2-1", "2-opt"};
-vector<double> weights = {1.0, 1.0, 1.0, 1.0, 1.0};
-vector<double> scorePi = {0.0, 0.0, 0.0, 0.0, 0.0};
-vector<double> used_count = {0.0, 0.0, 0.0, 0.0, 0.0};
+vector<string> MOVE_SET = {"1-0", "1-1", "2-0", "2-1", "2-2", "2-opt"};
+vector<double> weights = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
+vector<double> scorePi = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+vector<double> used_count = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 
 const double delta1 = 0.3;
 const double delta2 = 0.2;
@@ -556,7 +556,7 @@ Solution tabu_search(){
         TabuMove best_move;
         int best_move_node1 = -1, best_move_node2 = -1, best_move_node3 = -1, best_move_node4 = -1;
         bool improved = false;
-        //string move_type = "2-opt";
+        //string move_type = "2-2";
 
         int move_type_idx = select_move_type();
         //int move_type_idx = rand() % MOVE_SET.size();
@@ -732,6 +732,50 @@ Solution tabu_search(){
             }
         }
 
+        if (move_type == "2-2"){
+            for (size_t v1 = 0; v1 < vehicles.size(); v1++) {
+                for (size_t pos1 = 1; pos1 < current_sol.route[v1].size() -2; pos1++){
+                    int n1 = current_sol.route[v1][pos1];
+                    int n2 = current_sol.route[v1][pos1+1];
+                    if (n1 == depot_id || n2 == depot_id) continue;
+                    for (size_t v2 = 0; v2 < vehicles.size(); v2++){
+                        if (v1 == v2) continue;
+                        for (size_t pos2 = 1; pos2 < current_sol.route[v2].size() - 2; pos2++){
+                            int n3 = current_sol.route[v2][pos2];
+                            int n4 = current_sol.route[v2][pos2+1];
+                            if (n3 == depot_id || n4 == depot_id) continue;
+                            if ((get_type(n1) == 1 || get_type(n2) == 1) && vehicles[v2].is_drone) continue;
+                            if ((get_type(n3) == 1 || get_type(n4) == 1) && vehicles[v1].is_drone) continue;
+
+                            Solution new_sol = move_2_2(current_sol, v1, pos1, v2, pos2);
+                            TabuMove move = {"2-2", n1, n2, n3, n4, int(v1), int(v2), int(pos1), int(pos1+1), int(pos2), int(pos2+1), TABU_TENURE};
+                            bool tabu = is_tabu(tabu_list, move);
+                            if (new_sol.is_feasible && (new_sol.fitness < best_sol.fitness - EPSILON)) {
+                                best_Neighbor_fitness = new_sol.fitness;
+                                best_Neighbor_sol = new_sol;
+                                best_move = move;
+                                best_move_node1 = n1;
+                                best_move_node2 = n2;
+                                best_move_node3 = n3;
+                                best_move_node4 = n4;
+                                improved = true;
+                            } else if (improved == false) {
+                                if (!tabu && (new_sol.fitness < best_Neighbor_fitness - EPSILON)) {
+                                    best_Neighbor_fitness = new_sol.fitness;
+                                    best_Neighbor_sol = new_sol;
+                                    best_move = move;
+                                    best_move_node1 = n1;
+                                    best_move_node2 = n2;
+                                    best_move_node3 = n3;
+                                    best_move_node4 = n4;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // move 2-opt
         if (move_type == "2-opt") {
             // Intra-route 2-opt (cùng xe)
@@ -823,6 +867,9 @@ Solution tabu_search(){
         else if (move_type == "2-1") {
             should_apply_move = (best_move_node1 != -1 && best_move_node2 != -1 && best_move_node3 != -1);
         }
+        else if (move_type == "2-2") {
+            should_apply_move = (best_move_node1 != -1 && best_move_node2 != -1 && best_move_node3 != -1 && best_move_node4 != -1);
+        }
         else if (move_type == "2-opt") {
             should_apply_move = (best_move_node1 != -1 && best_move_node3 != -1);
         }
@@ -861,7 +908,9 @@ Solution tabu_search(){
                  << ", vehicle1=" << best_move.vehicle1
                  << ", vehicle2=" << best_move.vehicle2
                  << ", pos1=" << best_move.pos1
+                 << ", pos2=" << best_move.pos2
                  << ", pos3=" << best_move.pos3
+                 << ", pos4=" << best_move.pos4
                  << ", tenure=" << best_move.tenure << endl;
             TabuMove reverse_move;
             if (move_type == "1-0") {
@@ -876,6 +925,9 @@ Solution tabu_search(){
             else if (move_type == "2-1") {
                 reverse_move = {"2-1", best_move_node3, -1, best_move_node1, best_move_node2, best_move.vehicle2, best_move.vehicle1, best_move.pos3, -1, best_move.pos1, best_move.pos2, TABU_TENURE};
             }
+            else if (move_type == "2-2") {
+                reverse_move = {"2-2", best_move_node3, best_move_node4, best_move_node1, best_move_node2, best_move.vehicle2, best_move.vehicle1, best_move.pos3, best_move.pos4, best_move.pos1, best_move.pos2, TABU_TENURE};
+            }
             else if (move_type == "2-opt") {
                 reverse_move = {"2-opt", best_move_node3, -1, best_move_node1, -1, best_move.vehicle2, best_move.vehicle1, best_move.pos3, -1, best_move.pos1, -1, TABU_TENURE};
             }
@@ -889,7 +941,9 @@ Solution tabu_search(){
                  << ", vehicle1=" << reverse_move.vehicle1
                  << ", vehicle2=" << reverse_move.vehicle2
                  << ", pos1=" << reverse_move.pos1
+                 << ", pos2=" << reverse_move.pos2
                  << ", pos3=" << reverse_move.pos3
+                 << ", pos4=" << reverse_move.pos4
                  << ", tenure=" << reverse_move.tenure << endl;
             
             if (current_sol.is_feasible && current_sol.fitness < best_sol.fitness - EPSILON){
@@ -940,10 +994,10 @@ int main(){
     else if (customers <= 50) pairs = 3;
     else if (customers <= 100) pairs = 4;
     for (int i = 0; i < pairs; ++i) {
-        vehicles.push_back({ i+1, 0.58, false, 0.0 }); // technician
+        vehicles.push_back({ i+1, 0.58f, false, 0.0 }); // technician
     }
     for (int i = 0; i < pairs; ++i) {
-        vehicles.push_back({ pairs + i + 1, 0.83, true, 120.0 }); // drone
+        vehicles.push_back({ pairs + i + 1, 0.83f, true, 120.0 }); // drone
     }
 
     Solution sol = tabu_search();
