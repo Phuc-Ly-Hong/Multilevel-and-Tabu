@@ -99,14 +99,13 @@ def parse_output(output_text, instance_name, runtime):
     
     return result
 
-def run_single_instance(cpp_file, instance_file, timeout=1800):
-    """Chạy 1 instance và return kết quả"""
+def run_single_instance(cpp_file, instance_file, timeout=1800, run_id=1):
+    """Chạy 1 instance và return kết quả (với run_id để tạo file unique)"""
     
     instance_name = Path(instance_file).stem
-    print(f"Running {instance_name}...")
     
-    # Tạo file C++ tạm thời với đường dẫn instance
-    temp_cpp = f"temp_{instance_name}.cpp"
+    # Tạo file C++ tạm thời với đường dẫn instance (unique cho mỗi run)
+    temp_cpp = f"temp_{instance_name}_run{run_id}.cpp"
     
     try:
         # Đọc file C++ gốc
@@ -118,27 +117,29 @@ def run_single_instance(cpp_file, instance_file, timeout=1800):
         new_path = f'read_dataset("{instance_file}");'
         cpp_content = re.sub(old_path_pattern, new_path, cpp_content)
         
+        # Thay đổi random seed cho mỗi run để có kết quả khác nhau
+        seed_replacement = f'srand(time(nullptr) + {run_id * 1000});'
+        cpp_content = re.sub(r'srand\(time\(nullptr\)\);', seed_replacement, cpp_content)
+        
         # Ghi file tạm
         with open(temp_cpp, 'w', encoding='utf-8') as f:
             f.write(cpp_content)
         
         # Compile
-        executable = f"temp_{instance_name}"
+        executable = f"temp_{instance_name}_run{run_id}"
         if os.name == 'nt':  # Windows
             executable += ".exe"
             
         compile_cmd = ["g++", "-O2", "-std=c++17", "-o", executable, temp_cpp]
-        print(f"  Compiling: {' '.join(compile_cmd)}")
         
         compile_result = subprocess.run(compile_cmd, capture_output=True, text=True)
         
         if compile_result.returncode != 0:
-            print(f"  ✗ Compilation failed for {instance_name}")
-            print(f"  Error: {compile_result.stderr}")
+            print(f"    ✗ Compilation failed for {instance_name} run {run_id}")
+            print(f"    Error: {compile_result.stderr}")
             return None
         
         # Run
-        print(f"  Executing {executable}...")
         start_time = time.time()
         
         if os.name == 'nt':  # Windows
@@ -150,42 +151,86 @@ def run_single_instance(cpp_file, instance_file, timeout=1800):
         runtime = end_time - start_time
         
         if run_result.returncode != 0:
-            print(f"  ✗ Execution failed for {instance_name}")
-            print(f"  Error: {run_result.stderr}")
+            print(f"    ✗ Execution failed for {instance_name} run {run_id}")
+            print(f"    Error: {run_result.stderr}")
             return None
         
         # Parse kết quả
         result = parse_output(run_result.stdout, instance_name, runtime)
         
-        print(f"  ✓ {instance_name} completed: Fitness={result['Fitness']:.2f}, Time={runtime:.1f}s, Vehicles={result['NumVehicles']}")
-        
         return result
         
     except subprocess.TimeoutExpired:
-        print(f"  ✗ {instance_name} timed out (>{timeout/60:.0f} min)")
+        print(f"    ✗ {instance_name} run {run_id} timed out (>{timeout/60:.0f} min)")
         return None
     except Exception as e:
-        print(f"  ✗ {instance_name} failed: {e}")
+        print(f"    ✗ {instance_name} run {run_id} failed: {e}")
         return None
     finally:
         # Cleanup
-        for file_to_remove in [temp_cpp, f"temp_{instance_name}", f"temp_{instance_name}.exe"]:
+        for file_to_remove in [temp_cpp, f"temp_{instance_name}_run{run_id}", f"temp_{instance_name}_run{run_id}.exe"]:
             if os.path.exists(file_to_remove):
                 try:
                     os.remove(file_to_remove)
                 except:
                     pass
 
+def run_multiple_runs(cpp_file, instance_file, num_runs=5, timeout=1800):
+    """Chạy 1 instance nhiều lần và return list kết quả"""
+    
+    instance_name = Path(instance_file).stem
+    print(f"Running {instance_name} for {num_runs} runs...")
+    
+    results = []
+    
+    for run in range(1, num_runs + 1):
+        print(f"  Run {run}/{num_runs}...")
+        
+        result = run_single_instance(cpp_file, instance_file, timeout, run_id=run)
+        if result:
+            result['Run'] = run
+            results.append(result)
+            print(f"    ✓ Run {run}: Fitness={result['Fitness']:.2f}, Time={result['Runtime(s)']:.1f}s, Feasible={result['IsFeasible']}")
+        else:
+            print(f"    ✗ Run {run} failed")
+    
+    return results
+
+def calculate_statistics(values):
+    """Tính toán thống kê cơ bản"""
+    if not values:
+        return {'min': 0, 'max': 0, 'avg': 0, 'std': 0}
+    
+    min_val = min(values)
+    max_val = max(values)
+    avg_val = sum(values) / len(values)
+    
+    variance = sum((x - avg_val) ** 2 for x in values) / len(values)
+    std_val = variance ** 0.5
+    
+    return {
+        'min': min_val,
+        'max': max_val,
+        'avg': avg_val,
+        'std': std_val
+    }
+
 def main():
     # Cấu hình
     cpp_file = "src/Multilevel_Tabu.cpp"
     instances_dir = "instances"
-    results_file = "results/results.csv"
+    detailed_results_file = "results/detailed_results.csv"
+    summary_results_file = "results/summary_results.csv"
+    num_runs = 5  # Số lần chạy mỗi instance
+    timeout = 1800  # 30 phút timeout
     
-    print("=== TABU SEARCH EXPERIMENT RUNNER ===")
+    print("=== TABU SEARCH MULTI-RUN EXPERIMENT ===")
     print(f"C++ source: {cpp_file}")
     print(f"Instances directory: {instances_dir}")
-    print(f"Results file: {results_file}")
+    print(f"Runs per instance: {num_runs}")
+    print(f"Timeout per run: {timeout/60:.0f} minutes")
+    print(f"Detailed results: {detailed_results_file}")
+    print(f"Summary results: {summary_results_file}")
     
     # Tạo thư mục results nếu chưa có
     os.makedirs("results", exist_ok=True)
@@ -215,34 +260,74 @@ def main():
     for i, f in enumerate(instance_files, 1):
         print(f"  {i}. {f}")
     
-    # Chạy từng instance
-    results = []
-    successful = 0
-    failed = 0
-    total_time = 0
+    # Chạy từng instance multiple runs
+    all_detailed_results = []
+    summary_results = []
+    successful_instances = 0
+    failed_instances = 0
+    total_runs = 0
+    successful_runs = 0
     
-    start_time = time.time()
+    experiment_start_time = time.time()
     
     for i, instance_file in enumerate(instance_files, 1):
         print(f"\n[{i}/{len(instance_files)}] Processing {instance_file}")
-        print("-" * 50)
+        print("=" * 70)
         
-        result = run_single_instance(cpp_file, instance_file)
+        instance_results = run_multiple_runs(cpp_file, instance_file, num_runs, timeout)
         
-        if result:
-            results.append(result)
-            successful += 1
-            total_time += result['Runtime(s)']
+        if instance_results:
+            # Thêm vào detailed results
+            all_detailed_results.extend(instance_results)
+            successful_instances += 1
+            successful_runs += len(instance_results)
+            
+            # Tính thống kê cho instance này
+            fitnesses = [r['Fitness'] for r in instance_results]
+            runtimes = [r['Runtime(s)'] for r in instance_results]
+            feasible_count = sum(1 for r in instance_results if r['IsFeasible'])
+            
+            fitness_stats = calculate_statistics(fitnesses)
+            runtime_stats = calculate_statistics(runtimes)
+            
+            instance_name = Path(instance_file).stem
+            summary = {
+                'Instance': instance_name,
+                'TotalRuns': len(instance_results),
+                'SuccessfulRuns': len(instance_results),
+                'FeasibleRuns': feasible_count,
+                'FeasibilityRate(%)': round(feasible_count / len(instance_results) * 100, 1),
+                'BestFitness': round(fitness_stats['min'], 2),
+                'WorstFitness': round(fitness_stats['max'], 2),
+                'AvgFitness': round(fitness_stats['avg'], 2),
+                'StdDevFitness': round(fitness_stats['std'], 2),
+                'MinRuntime(s)': round(runtime_stats['min'], 2),
+                'MaxRuntime(s)': round(runtime_stats['max'], 2),
+                'AvgRuntime(s)': round(runtime_stats['avg'], 2),
+                'TotalRuntime(s)': round(sum(runtimes), 2)
+            }
+            summary_results.append(summary)
+            
+            print(f"\n  📊 {instance_name} SUMMARY:")
+            print(f"    Completed runs: {len(instance_results)}/{num_runs}")
+            print(f"    Feasible runs: {feasible_count}/{num_runs} ({feasible_count/num_runs*100:.1f}%)")
+            print(f"    Best fitness: {fitness_stats['min']:.2f}")
+            print(f"    Avg fitness: {fitness_stats['avg']:.2f} ± {fitness_stats['std']:.2f}")
+            print(f"    Avg runtime: {runtime_stats['avg']:.1f}s")
+            print(f"    Total time: {sum(runtimes)/60:.1f} minutes")
         else:
-            failed += 1
+            failed_instances += 1
+            print(f"  ❌ {Path(instance_file).stem} failed completely")
+        
+        total_runs += num_runs
     
-    # Lưu kết quả
-    if results:
+    # Lưu detailed results
+    if all_detailed_results:
         # Determine maximum number of vehicles across all runs
-        max_vehicles = max(r['NumVehicles'] for r in results)
+        max_vehicles = max(r['NumVehicles'] for r in all_detailed_results)
         
         # Define column order - dynamic vehicle columns
-        columns = ['Instance', 'Makespan', 'DroneViolation', 'WaitingViolation', 
+        columns = ['Instance', 'Run', 'Makespan', 'DroneViolation', 'WaitingViolation', 
                   'Fitness', 'IsFeasible', 'Iterations', 'Runtime(s)', 'NumNodes', 
                   'SegmentLength', 'NumVehicles']
         
@@ -250,11 +335,11 @@ def main():
         for v in range(max_vehicles):
             columns.append(f'Vehicle{v}_Route')
         
-        with open(results_file, 'w', newline='', encoding='utf-8') as csvfile:
+        with open(detailed_results_file, 'w', newline='', encoding='utf-8') as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=columns)
             writer.writeheader()
             
-            for result in results:
+            for result in all_detailed_results:
                 # Prepare row data
                 row = {}
                 for col in columns:
@@ -269,40 +354,61 @@ def main():
                 
                 writer.writerow(row)
         
-        print(f"\n✓ Results saved to {results_file}")
+        print(f"\n✅ Detailed results saved to {detailed_results_file}")
+    
+    # Lưu summary results
+    if summary_results:
+        summary_columns = ['Instance', 'TotalRuns', 'SuccessfulRuns', 'FeasibleRuns', 'FeasibilityRate(%)',
+                          'BestFitness', 'WorstFitness', 'AvgFitness', 'StdDevFitness', 
+                          'MinRuntime(s)', 'MaxRuntime(s)', 'AvgRuntime(s)', 'TotalRuntime(s)']
         
-        # Summary
-        end_time = time.time()
-        total_experiment_time = end_time - start_time
+        with open(summary_results_file, 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=summary_columns)
+            writer.writeheader()
+            writer.writerows(summary_results)
         
-        print(f"\n" + "=" * 60)
-        print(f"EXPERIMENT SUMMARY")
-        print(f"=" * 60)
-        print(f"Total instances: {len(instance_files)}")
-        print(f"Successful runs: {successful}")
-        print(f"Failed runs: {failed}")
-        print(f"Success rate: {successful/len(instance_files)*100:.1f}%")
-        print(f"Total experiment time: {total_experiment_time/60:.1f} minutes")
-        print(f"Average runtime per instance: {total_time/successful:.1f}s" if successful > 0 else "N/A")
-        print(f"Max vehicles used: {max_vehicles}")
+        print(f"✅ Summary results saved to {summary_results_file}")
+    
+    # Final experiment summary
+    experiment_end_time = time.time()
+    total_experiment_time = experiment_end_time - experiment_start_time
+    
+    print(f"\n" + "=" * 80)
+    print(f"🎯 FINAL EXPERIMENT SUMMARY")
+    print(f"=" * 80)
+    print(f"📁 Total instances processed: {len(instance_files)}")
+    print(f"✅ Successful instances: {successful_instances}")
+    print(f"❌ Failed instances: {failed_instances}")
+    print(f"🏃 Total runs attempted: {total_runs}")
+    print(f"✅ Successful runs: {successful_runs}")
+    print(f"📊 Success rate: {successful_runs/total_runs*100:.1f}%")
+    print(f"⏱️  Total experiment time: {total_experiment_time/60:.1f} minutes")
+    
+    if summary_results:
+        # Tính thống kê tổng quát
+        all_best_fitnesses = [s['BestFitness'] for s in summary_results]
+        all_avg_fitnesses = [s['AvgFitness'] for s in summary_results]
+        all_feasibility_rates = [s['FeasibilityRate(%)'] for s in summary_results]
         
-        # Statistics
-        if successful > 0:
-            fitnesses = [r['Fitness'] for r in results]
-            print(f"\nFITNESS STATISTICS:")
-            print(f"Best fitness: {min(fitnesses):.2f}")
-            print(f"Worst fitness: {max(fitnesses):.2f}")
-            print(f"Average fitness: {sum(fitnesses)/len(fitnesses):.2f}")
+        overall_stats = calculate_statistics(all_best_fitnesses)
         
-        # Top 5 results
-        if len(results) >= 5:
-            print(f"\nTOP 5 RESULTS:")
-            sorted_results = sorted(results, key=lambda x: x['Fitness'])
-            for i, result in enumerate(sorted_results[:5], 1):
-                feasible = "✓" if result['IsFeasible'] else "✗"
-                print(f"{i}. {result['Instance']}: {result['Fitness']:.2f} {feasible} ({result['Runtime(s)']}s, {result['NumVehicles']} vehicles)")
-    else:
-        print("\n✗ No successful runs!")
+        print(f"\n🏆 OVERALL PERFORMANCE:")
+        print(f"Best fitness found: {min(all_best_fitnesses):.2f}")
+        print(f"Average best fitness: {sum(all_best_fitnesses)/len(all_best_fitnesses):.2f}")
+        print(f"Average feasibility rate: {sum(all_feasibility_rates)/len(all_feasibility_rates):.1f}%")
+        
+        # Top 5 instances by best fitness
+        print(f"\n🥇 TOP 5 INSTANCES (by best fitness):")
+        sorted_summary = sorted(summary_results, key=lambda x: x['BestFitness'])
+        for i, result in enumerate(sorted_summary[:5], 1):
+            feasible_rate = result['FeasibilityRate(%)']
+            print(f"{i}. {result['Instance']}: {result['BestFitness']:.2f} "
+                  f"(avg: {result['AvgFitness']:.2f}, feasible: {feasible_rate}%)")
+    
+    print(f"\n📄 Check results files:")
+    print(f"  - Detailed: {detailed_results_file}")
+    print(f"  - Summary: {summary_results_file}")
+    print(f"\n🎉 Experiment completed successfully!")
 
 if __name__ == "__main__":
     main()
