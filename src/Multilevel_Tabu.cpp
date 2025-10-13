@@ -41,6 +41,17 @@ struct TabuMove {
     int tenure; // số vòng lặp còn lại move này bị tabu
 };
 
+struct RouteAnalysis {
+    vector<double> cumulative_flight_time;  // thời gian bay tích lũy từ depot gần nhất
+    vector<double> arrival_time;            // thời gian đến từng điểm
+    vector<double> waiting_times;           // thời gian chờ tại mỗi khách hàng
+    double total_flight_time;               // tổng thời gian bay từ depot cuối
+    double total_waiting;                   // tổng vi phạm waiting
+    double max_waiting;                     // vi phạm waiting lớn nhất
+    
+    RouteAnalysis() : total_flight_time(0), total_waiting(0), max_waiting(0) {}
+};
+
 struct MultilevelSolution {
     vector<Solution> level_solutions; // lời giải ở các cấp độ
 };
@@ -58,11 +69,11 @@ double Beta = 0.5; // tham số điều chỉnh hệ số hàm phạt
 
 int MAX_ITER;
 int TABU_TENURE;
-int MAX_NO_IMPROVE = 8000;
+int MAX_NO_IMPROVE = 10000;
 double EPSILON = 1e-6;
 
 // Adaptive parameters
-int SEGMENT_LENGTH = 500;
+int SEGMENT_LENGTH;
 vector<string> MOVE_SET = {"1-0", "1-1", "2-0", "2-1", "2-2", "2-opt"};
 vector<double> weights = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
 vector<double> scorePi = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
@@ -117,10 +128,15 @@ void read_dataset(const string &filename){
     file.close();
 
     cout << "Read " << nodes.size() << " nodes (including depot)." << endl;
-    if (nodes.size() > 100) {
-        MAX_ITER = 140 * nodes.size() / 2;
+    if (nodes.size() >= 100) {
+        MAX_ITER = 180 * nodes.size() / 2;
+        SEGMENT_LENGTH = 800;
+    } else if (nodes.size() > 50){
+        MAX_ITER = 12000;
+        SEGMENT_LENGTH = 800;
     } else {
         MAX_ITER = 12000;
+        SEGMENT_LENGTH = 500;
     }
     for (const auto& node : nodes) {
         if (node.id == depot_id) {
@@ -310,6 +326,237 @@ int get_type(int nid) {
     return -1;
 }
 
+RouteAnalysis analyze_drone_route(const vector<int> &route, int vehicle_idx) {
+    RouteAnalysis analysis;
+    
+    // ← XÓA check is_drone, vì cần phân tích cả tech
+    if (route.size() <= 2) {
+        return analysis;
+    }
+    
+    analysis.cumulative_flight_time.resize(route.size(), 0.0);
+    analysis.arrival_time.resize(route.size(), 0.0);
+    analysis.waiting_times.resize(route.size(), 0.0);
+    
+    double current_time = 0.0;
+    double flight_time_since_last_depot = 0.0;
+    double max_flight_segment = 0.0;
+    int last_pos = depot_id;
+    
+    vector<pair<int, double>> current_trip_customers;
+    double trip_start_time = 0.0;
+    
+    for (size_t i = 0; i < route.size(); i++) {
+        int current_node = route[i];
+        
+        if (i > 0) {
+            double travel_time = distances[last_pos][current_node] / vehicles[vehicle_idx].speed;
+            current_time += travel_time;
+            
+            if (current_node == depot_id) {
+                double trip_end_time = current_time;
+                
+                for (auto &p : current_trip_customers) {
+                    int idx = p.first;
+                    double service_time = p.second;
+                    double wait_time = trip_end_time - service_time;
+                    
+                    analysis.waiting_times[idx] = wait_time;
+                    
+                    if (wait_time > 60.0) {
+                        double violation = wait_time - 60.0;
+                        analysis.total_waiting += violation;
+                        analysis.max_waiting = max(analysis.max_waiting, wait_time);
+                    }
+                }
+                
+                max_flight_segment = max(max_flight_segment, flight_time_since_last_depot);
+                flight_time_since_last_depot = 0.0;
+                current_trip_customers.clear();
+                trip_start_time = current_time;
+            } else {
+                flight_time_since_last_depot += travel_time;
+                current_trip_customers.push_back({i, current_time});
+            }
+        }
+        
+        analysis.cumulative_flight_time[i] = flight_time_since_last_depot;
+        analysis.arrival_time[i] = current_time;
+        last_pos = current_node;
+    }
+    
+    analysis.total_flight_time = max_flight_segment;
+    
+    return analysis;
+}
+
+// Tìm vị trí tốt nhất để chèn depot vào route
+int find_best_depot_insertion(const vector<int> &route, int vehicle_idx) {
+    // Chỉ xử lý drone và route đủ dài
+    if (!vehicles[vehicle_idx].is_drone || route.size() <= 3) {
+        return -1;
+    }
+    
+    // Phân tích route hiện tại
+    RouteAnalysis original = analyze_drone_route(route, vehicle_idx);
+    
+    // Kiểm tra xem có vi phạm không
+    double original_violation = 0.0;
+    if (original.total_flight_time > vehicles[vehicle_idx].limit_drone) {
+        original_violation += alpha1 * (original.total_flight_time - vehicles[vehicle_idx].limit_drone);
+    }
+    original_violation += alpha2 * original.total_waiting;
+    
+    // Nếu không vi phạm gì thì không cần chèn
+    if (original_violation < EPSILON) {
+        return -1;
+    }
+    
+    double best_improvement = 0.0;
+    int best_pos = -1;
+    
+    // Thử chèn depot vào từng vị trí
+    for (size_t pos = 2; pos < route.size() - 1; pos++) {
+        // Không chèn depot liên tiếp
+        if (route[pos - 1] == depot_id || route[pos] == depot_id) {
+            continue;
+        }
+        
+        // Tạo route thử nghiệm với depot chèn vào
+        vector<int> test_route = route;
+        test_route.insert(test_route.begin() + pos, depot_id);
+        
+        // Phân tích route mới
+        RouteAnalysis test_analysis = analyze_drone_route(test_route, vehicle_idx);
+        
+        // Tính vi phạm của route mới
+        double test_violation = 0.0;
+        if (test_analysis.total_flight_time > vehicles[vehicle_idx].limit_drone) {
+            test_violation += alpha1 * (test_analysis.total_flight_time - vehicles[vehicle_idx].limit_drone);
+        }
+        test_violation += alpha2 * test_analysis.total_waiting;
+        
+        // Tính improvement (giảm bao nhiêu vi phạm)
+        double improvement = original_violation - test_violation;
+        
+        // Penalty nhỏ cho việc tăng quãng đường (vì phải về depot)
+        double detour_distance = distances[route[pos - 1]][depot_id] + 
+                                 distances[depot_id][route[pos]] - 
+                                 distances[route[pos - 1]][route[pos]];
+        double detour_penalty = 0.05 * detour_distance; // penalty nhỏ 5%
+        
+        improvement -= detour_penalty;
+        
+        // Lưu vị trí tốt nhất
+        if (improvement > best_improvement) {
+            best_improvement = improvement;
+            best_pos = pos;
+        }
+    }
+    
+    // Chỉ chèn nếu cải thiện đáng kể (> 0.5)
+    return (best_improvement > 0.5) ? best_pos : -1;
+}
+
+void optimize_all_drone_routes(Solution &sol) {
+    bool changed = true;
+    int max_rounds = 3; // Tối đa 3 vòng chèn
+    int round = 0;
+    
+    cout << "\n=== OPTIMIZING DRONE ROUTES ===" << endl;
+    
+    while (changed && round < max_rounds) {
+        changed = false;
+        round++;
+        cout << "Round " << round << ":" << endl;
+        
+        for (size_t v = 0; v < vehicles.size(); v++) {
+            if (!vehicles[v].is_drone) continue;
+            
+            int insert_pos = find_best_depot_insertion(sol.route[v], v);
+            
+            if (insert_pos != -1) {
+                // Lưu trạng thái trước khi chèn
+                double old_fitness = sol.fitness;
+                
+                // Chèn depot
+                sol.route[v].insert(sol.route[v].begin() + insert_pos, depot_id);
+                evaluate_solution(sol);
+                
+                changed = true;
+                
+                cout << "  Vehicle " << v << ": Inserted depot at position " << insert_pos 
+                     << " (fitness: " << old_fitness << " -> " << sol.fitness << ")" << endl;
+            }
+        }
+        
+        if (!changed) {
+            cout << "  No more beneficial insertions found." << endl;
+        }
+    }
+    
+    cout << "=== OPTIMIZATION COMPLETE ===" << endl;
+    cout << "Final fitness: " << sol.fitness << endl;
+}
+
+void remove_redundant_depots(Solution &sol) {
+    bool changed = true;
+    int round = 0;
+    
+    cout << "\n=== REMOVING REDUNDANT DEPOTS ===" << endl;
+    
+    while (changed && round < 5) {
+        changed = false;
+        round++;
+        cout << "Round " << round << ":" << endl;
+        
+        for (size_t v = 0; v < vehicles.size(); v++) {
+            if (!vehicles[v].is_drone) continue;
+            
+            vector<int> &route = sol.route[v];
+            
+            // Tìm các depot trung gian (không phải depot đầu/cuối)
+            for (size_t i = 1; i < route.size() - 1; ) {
+                if (route[i] == depot_id) {
+                    // Lưu trạng thái trước khi xóa
+                    double old_fitness = sol.fitness;
+                    
+                    // Thử xóa depot này
+                    vector<int> test_route = route;
+                    test_route.erase(test_route.begin() + i);
+                    
+                    Solution test_sol = sol;
+                    test_sol.route[v] = test_route;
+                    evaluate_solution(test_sol);
+                    
+                    // Nếu xóa mà fitness KHÔNG TỆ HƠN (hoặc tốt hơn)
+                    if (test_sol.fitness <= sol.fitness + EPSILON) {
+                        route = test_route;
+                        sol = test_sol;
+                        changed = true;
+                        
+                        cout << "  Vehicle " << v << ": Removed depot at position " << i 
+                             << " (fitness: " << old_fitness << " -> " << sol.fitness << ")" << endl;
+                        
+                        // Không tăng i vì đã xóa phần tử
+                    } else {
+                        i++; // Giữ depot này, chuyển sang vị trí tiếp theo
+                    }
+                } else {
+                    i++;
+                }
+            }
+        }
+        
+        if (!changed) {
+            cout << "  No more depots to remove." << endl;
+        }
+    }
+    
+    cout << "=== REMOVAL COMPLETE ===" << endl;
+    cout << "Final fitness: " << sol.fitness << endl;
+}
+
 bool is_tabu(const vector<TabuMove> &tabu_list, const TabuMove &move){
     for (const auto &tabu_move : tabu_list){
         if (tabu_move.type == move.type && tabu_move.tenure > 0){
@@ -371,13 +618,6 @@ bool is_tabu(const vector<TabuMove> &tabu_list, const TabuMove &move){
         }
     }
     return false;
-}
-
-Solution move_insert_depot(Solution current_sol, size_t drone_id, size_t pos) {
-    Solution new_sol = current_sol;
-    new_sol.route[drone_id].insert(new_sol.route[drone_id].begin() + pos, depot_id);
-    evaluate_solution(new_sol);
-    return new_sol;
 }
 
 Solution move_1_0(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_t pos2){
@@ -518,6 +758,10 @@ Solution move_2opt(Solution current_sol, size_t v1, size_t pos1, size_t v2, size
     else {
         if (pos1 >= new_sol.route[v1].size() - 1 || pos2 >= new_sol.route[v2].size() - 1) return current_sol;
         if (pos1 == 0 || pos2 == 0) return current_sol;
+
+        if (pos1 >= new_sol.route[v1].size() || pos2 >= new_sol.route[v2].size()) {
+            return current_sol;
+        }
         
         // SỬA: Lấy tail BẮT ĐẦU TỪ pos1 và pos2, không phải pos1+1, pos2+1
         vector<int> tail_v1(new_sol.route[v1].begin() + pos1, new_sol.route[v1].end() - 1);
@@ -538,18 +782,61 @@ Solution move_2opt(Solution current_sol, size_t v1, size_t pos1, size_t v2, size
 
 Solution tabu_search(){
     Solution initial_sol = init_greedy_solution();
+    optimize_all_drone_routes(initial_sol);
+    remove_redundant_depots(initial_sol);
+
     Solution best_sol = initial_sol;
     Solution current_sol = initial_sol;
 
     vector<TabuMove> tabu_list; // danh sách các move bị tabu
     int no_improve_count = 0;
+    int last_depot_opt_iter = 0;
 
     int no_improve_segment_length = 0;
-    const int max_no_improve_segment = 5;
+    const int max_no_improve_segment = 8;
 
     vector<string> move_types = {"1-0", "1-1", "2-0", "2-1", "2-2", "2-opt"};
     
     for (int iter = 0; iter < MAX_ITER && no_improve_count < MAX_NO_IMPROVE; iter++){
+        bool should_depot_opt = false;
+        if (iter > 0 && iter % 100 == 0) {
+            should_depot_opt = true;
+        }
+        if (no_improve_count >= 50 && (iter - last_depot_opt_iter) >=25) {
+            should_depot_opt = true;
+        }
+        if (current_sol.drone_violation > 10.0 || current_sol.waiting_violation > 100.0) {
+            if (iter - last_depot_opt_iter >= 20) {
+                should_depot_opt = true;
+            }
+        }
+        
+        if (should_depot_opt) {
+            cout << "\n=== DEPOT OPTIMIZATION at iter " << iter 
+                 << " (reason: " << (iter % 100 == 0 ? "periodic" : 
+                                   no_improve_count >= 50 ? "stuck" : "high_violation") 
+                 << ") ===" << endl;
+                 
+            Solution temp_sol = current_sol;
+            double old_fitness = temp_sol.fitness;
+            
+            optimize_all_drone_routes(temp_sol);
+            remove_redundant_depots(temp_sol);
+            
+            if (temp_sol.fitness < current_sol.fitness - EPSILON) {
+                current_sol = temp_sol;
+                last_depot_opt_iter = iter;
+                
+                cout << "  Depot opt success: " << old_fitness << " -> " << current_sol.fitness << endl;
+                
+                if (current_sol.fitness < best_sol.fitness - EPSILON) {
+                    best_sol = current_sol;
+                    no_improve_count = 0;
+                    cout << "  ✅ NEW BEST: " << best_sol.fitness << endl;
+                }
+            }
+        }
+
         double best_Neighbor_fitness = DBL_MAX;
         Solution best_Neighbor_sol = current_sol;
         double current_fitness = current_sol.fitness;
@@ -567,7 +854,7 @@ Solution tabu_search(){
         // move 1-0
         if (move_type == "1-0") {
             for (size_t v1 = 0; v1 < current_sol.route.size(); v1++) {
-                for (size_t pos1 = 0; pos1 < current_sol.route[v1].size(); pos1++) {
+                for (size_t pos1 = 1; pos1 < current_sol.route[v1].size()-1; pos1++) {
                     int n1 = current_sol.route[v1][pos1];
                     if (n1 == depot_id) continue;
 
@@ -609,11 +896,11 @@ Solution tabu_search(){
         // move 1-1
         if (move_type == "1-1") {
             for (size_t v1 = 0; v1 < vehicles.size(); v1++) {
-                for (size_t pos1 = 0; pos1 < current_sol.route[v1].size() ; pos1++) {
+                for (size_t pos1 = 1; pos1 < current_sol.route[v1].size() -1 ; pos1++) {
                     int n1 = current_sol.route[v1][pos1];
                     if (n1 == depot_id) continue;
                     for (size_t v2 = 0; v2 < vehicles.size(); v2++) {
-                        for (size_t pos2 = 0; pos2 < current_sol.route[v2].size(); pos2++) {
+                        for (size_t pos2 = 1; pos2 < current_sol.route[v2].size()-1; pos2++) {
                             int n2 = current_sol.route[v2][pos2];
                             if (n2 == depot_id || n1 == n2 || get_type(n1) != get_type(n2) || ((abs(int(pos1)-int(pos2)) <= 1) && (v1 == v2))) continue;
 
@@ -781,7 +1068,9 @@ Solution tabu_search(){
             // Intra-route 2-opt (cùng xe)
             for(size_t v1 = 0; v1 < vehicles.size(); v1++) {
                 for(size_t pos1 = 1; pos1 < current_sol.route[v1].size() - 1; pos1++) {
+                    if (current_sol.route[v1][pos1] == depot_id) continue;
                     for(size_t pos2 = pos1 + 2; pos2 < current_sol.route[v1].size() - 1; pos2++) {
+                        if (current_sol.route[v1][pos2] == depot_id) continue;
 
                         int customer_at_pos1 = current_sol.route[v1][pos1];
                         int customer_at_pos2 = current_sol.route[v1][pos2];
@@ -818,7 +1107,9 @@ Solution tabu_search(){
             for(size_t v1 = 0; v1 < vehicles.size(); v1++) {
                 for(size_t v2 = v1 + 1; v2 < vehicles.size(); v2++) {
                     for(size_t pos1 = 1; pos1 < current_sol.route[v1].size() - 1; pos1++) {
+                        if (current_sol.route[v1][pos1] == depot_id) continue;
                         for(size_t pos2 = 1; pos2 < current_sol.route[v2].size() - 1; pos2++) {
+                            if (current_sol.route[v2][pos2] == depot_id) continue;
 
                             int customer_at_pos1 = current_sol.route[v1][pos1];
                             int customer_at_pos2 = current_sol.route[v2][pos2];
@@ -968,7 +1259,7 @@ Solution tabu_search(){
                 no_improve_segment_length++;
             }
             cout << "SEGMENT " << (iter + 1)/SEGMENT_LENGTH << " COMPLETE" << endl;
-            cout << "No improve segments: " << no_improve_segment_length <<"/"<< SEGMENT_LENGTH << endl;
+            cout << "No improve segments: " << no_improve_segment_length <<"/"<< max_no_improve_segment << endl;
             cout << "Updated weights: ";
             for (size_t i = 0; i < MOVE_SET.size(); i++) {
                 cout << MOVE_SET[i] << "=" << weights[i] << " ";
@@ -977,12 +1268,14 @@ Solution tabu_search(){
             cout << "Current best fitness: " << best_sol.fitness << endl;
         }
     }
+    optimize_all_drone_routes(best_sol);
+    remove_redundant_depots(best_sol);
     return best_sol;
 }
 
 int main(){
     srand(time(nullptr));
-    read_dataset("D:\\New folder\\instances\\10.10.1.txt");
+    read_dataset("D:\\New folder\\instances\\100.40.1.txt");
     printf(" %d\n", MAX_ITER);
  
     // Khởi tạo danh sách xe 
