@@ -139,11 +139,11 @@ void read_dataset(const string &filename){
         MAX_ITER = 300 * nodes.size() / 2;
         SEGMENT_LENGTH = 750;
     } else if (nodes.size() >= 50){
-        MAX_ITER = 12000;
-        SEGMENT_LENGTH = 500;
-    } else {
-        MAX_ITER = 6000;
+        MAX_ITER = 8000;
         SEGMENT_LENGTH = 360;
+    } else {
+        MAX_ITER = 4000;
+        SEGMENT_LENGTH = 100;
     }
     for (const auto& node : nodes) {
         if (node.id == depot_id) {
@@ -1477,10 +1477,10 @@ void create_coarse_distance_matrix(LevelInfo& next_level, const LevelInfo& curre
         }
     }
 
-    cout << "\n=== REVERSE MAPPING (Original → Current Level) ===" << endl;
+    /*cout << "\n=== REVERSE MAPPING (Original → Current Level) ===" << endl;
     for (const auto& pair : original_to_current_node) {
         cout << "Original " << pair.first << " → Current level node " << pair.second << endl;
-    }
+    }*/
 
     for (int i = 0; i < n; i++){
         for (int j = 0; j < n; j++){
@@ -1493,13 +1493,13 @@ void create_coarse_distance_matrix(LevelInfo& next_level, const LevelInfo& curre
             vector<int> next_group_i = next_level.node_mapping[next_level.nodes[i].id];
             vector<int> next_group_j = next_level.node_mapping[next_level.nodes[j].id];
 
-            cout << "\nCalculating distance [" << next_level.nodes[i].id << "][" << next_level.nodes[j].id << "]" << endl;
+            /*cout << "\nCalculating distance [" << next_level.nodes[i].id << "][" << next_level.nodes[j].id << "]" << endl;
             cout << "  Next group i: [";
             for (int x : next_group_i) cout << x << " ";
             cout << "]" << endl;
             cout << "  Next group j: [";
             for (int x : next_group_j) cout << x << " ";
-            cout << "]" << endl;
+            cout << "]" << endl;*/
 
             vector<int> current_group_i, current_group_j;
             
@@ -1523,12 +1523,12 @@ void create_coarse_distance_matrix(LevelInfo& next_level, const LevelInfo& curre
                 }
             }
 
-            cout << "  Current level group i: [";
+            /*cout << "  Current level group i: [";
             for (int x : current_group_i) cout << x << " ";
             cout << "]" << endl;
             cout << "  Current level group j: [";
             for (int x : current_group_j) cout << x << " ";
-            cout << "]" << endl;
+            cout << "]" << endl;*/
 
             if (current_group_i.size() == 1 && current_group_j.size() == 1){
                 int curr_i = current_group_i[0];
@@ -1541,7 +1541,7 @@ void create_coarse_distance_matrix(LevelInfo& next_level, const LevelInfo& curre
                     next_distances[i][j] = curr_distances[idx_i][idx_j];
                     next_original_distances[i][j] = curr_original_distances[idx_i][idx_j];
                     
-                    cout << "  → Single to single: distance=" << next_distances[i][j] << endl;
+                    //cout << "  → Single to single: distance=" << next_distances[i][j] << endl;
                 }
             } else {
                 int exit_current_i = current_group_i.back();
@@ -1553,7 +1553,7 @@ void create_coarse_distance_matrix(LevelInfo& next_level, const LevelInfo& curre
                 double total_distance = 0.0;
                 
                 if (current_group_i.size() > 1) {
-                    cout << "  → Group i has " << current_group_i.size() << " nodes in current level" << endl;
+                    //cout << "  → Group i has " << current_group_i.size() << " nodes in current level" << endl;
                     for (size_t k = 0; k < current_group_i.size() - 1; k++) {
                         int from = current_group_i[k];
                         int to = current_group_i[k + 1];
@@ -1563,7 +1563,7 @@ void create_coarse_distance_matrix(LevelInfo& next_level, const LevelInfo& curre
                         if (idx_from != -1 && idx_to != -1) {
                             double d = curr_distances[idx_from][idx_to];
                             total_distance += d;
-                            cout << "    " << from << " → " << to << ": " << d << endl;
+                            //cout << "    " << from << " → " << to << ": " << d << endl;
                         }
                     }
                 }
@@ -1571,11 +1571,11 @@ void create_coarse_distance_matrix(LevelInfo& next_level, const LevelInfo& curre
                 if (idx_exit_i != -1 && idx_entry_j != -1) {
                     double d = curr_distances[idx_exit_i][idx_entry_j];
                     total_distance += d;
-                    cout << "  → Between groups: " << exit_current_i << " → " << entry_current_j << ": " << d << endl;
+                    //cout << "  → Between groups: " << exit_current_i << " → " << entry_current_j << ": " << d << endl;
                 }
 
                 if (current_group_j.size() > 1) {
-                    cout << "  → Group j has " << current_group_j.size() << " nodes in current level" << endl;
+                    //cout << "  → Group j has " << current_group_j.size() << " nodes in current level" << endl;
                     for (size_t k = 0; k < current_group_j.size() - 1; k++) {
                         int from = current_group_j[k];
                         int to = current_group_j[k + 1];
@@ -1585,17 +1585,17 @@ void create_coarse_distance_matrix(LevelInfo& next_level, const LevelInfo& curre
                         if (idx_from != -1 && idx_to != -1) {
                             double d = curr_distances[idx_from][idx_to];
                             total_distance += d;
-                            cout << "    " << from << " → " << to << ": " << d << endl;
+                            //cout << "    " << from << " → " << to << ": " << d << endl;
                         }
                     }
                 }
 
                 next_distances[i][j] = total_distance;
-                cout << "  → Total distance: " << total_distance << endl;
+                //cout << "  → Total distance: " << total_distance << endl;
 
                 if (idx_exit_i != -1 && idx_entry_j != -1){
                     next_original_distances[i][j] = curr_original_distances[idx_exit_i][idx_entry_j];
-                    cout << "  → Original distance: " << next_original_distances[i][j] << endl;
+                    //cout << "  → Original distance: " << next_original_distances[i][j] << endl;
                 }
             }
         }
@@ -1649,8 +1649,8 @@ vector<tuple<int, int, int>> collect_merge_candidates(const LevelInfo& current_l
         int idx_from = find_node_index(current_level, from_node);
         int idx_to = find_node_index(current_level, to_node);
         if (idx_from == -1 || idx_to == -1) {
-            cout << "  Skipping edge (" << from_node << ", " << to_node 
-                 << ") - node not found in current level" << endl;
+            /*cout << "  Skipping edge (" << from_node << ", " << to_node 
+                 << ") - node not found in current level" << endl;*/
             continue;
         }
 
@@ -2146,7 +2146,7 @@ Solution multilevel_tabu_search() {
 
 int main(){
     srand(time(nullptr));
-    read_dataset("D:\\New folder\\instances\\10.10.1.txt");
+    read_dataset("D:\\New folder\\instances\\10.5.2.txt");
     printf("MAX_ITER: %d\n", MAX_ITER);
     printf("Segment length: %d\n", SEGMENT_LENGTH);
  
