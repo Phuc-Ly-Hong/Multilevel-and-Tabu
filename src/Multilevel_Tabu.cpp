@@ -1995,27 +1995,24 @@ Solution unmerge_solution_to_previous_level(const Solution& coarse_sol, const Le
         for (int id : coarse_sol.route[v]) cout << id << " ";
         cout << endl;
         
-        for (int coarse_node_id : coarse_sol.route[v]) {
+        fine_sol.route[v].push_back(depot_id);
+        
+        for (size_t i = 0; i < coarse_sol.route[v].size(); i++) {
+            int coarse_node_id = coarse_sol.route[v][i];
+            
+            if (coarse_node_id == depot_id) continue;
+            
             auto it = coarse_to_fine_mapping.find(coarse_node_id);
             
             if (it != coarse_to_fine_mapping.end()) {
                 const vector<int>& fine_nodes = it->second;
                 
-                if (coarse_node_id == depot_id) {
-                    if (fine_sol.route[v].empty() || fine_sol.route[v].back() != depot_id) {
-                        fine_sol.route[v].push_back(depot_id);
-                    }
-                } else {
-                    cout << "  Coarse node " << coarse_node_id << " -> [";
-                    for (int fn : fine_nodes) cout << fn << " ";
-                    cout << "]" << endl;
-                    
-                    for (int fine_node_id : fine_nodes) {
-                        if (fine_sol.route[v].empty() || 
-                            fine_sol.route[v].back() != fine_node_id) {
-                            fine_sol.route[v].push_back(fine_node_id);
-                        }
-                    }
+                cout << "  Coarse node " << coarse_node_id << " -> [";
+                for (int fn : fine_nodes) cout << fn << " ";
+                cout << "]" << endl;
+                
+                for (int fine_node_id : fine_nodes) {
+                    fine_sol.route[v].push_back(fine_node_id);
                 }
             } else {
                 cerr << "ERROR: Coarse node " << coarse_node_id 
@@ -2023,10 +2020,7 @@ Solution unmerge_solution_to_previous_level(const Solution& coarse_sol, const Le
             }
         }
         
-        // Đảm bảo kết thúc bằng depot
-        if (fine_sol.route[v].empty() || fine_sol.route[v].back() != depot_id) {
-            fine_sol.route[v].push_back(depot_id);
-        }
+        fine_sol.route[v].push_back(depot_id);
         
         cout << "Vehicle " << v << " fine route: ";
         for (int id : fine_sol.route[v]) cout << id << " ";
@@ -2222,7 +2216,7 @@ Solution multilevel_tabu_search() {
 
 int main(){
     srand(time(nullptr));
-    read_dataset("D:\\New folder\\instances\\50.20.1.txt");
+    read_dataset("D:\\New folder\\instances\\20.20.1.txt");
     printf("MAX_ITER: %d\n", MAX_ITER);
     printf("Segment length: %d\n", SEGMENT_LENGTH);
  
