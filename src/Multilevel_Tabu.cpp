@@ -1457,6 +1457,8 @@ Solution tabu_search(Solution initial_sol, const LevelInfo &current_level, bool 
             cout << "Current best fitness: " << best_sol.fitness << endl;*/
         }
     }
+    optimize_all_drone_routes(best_sol, &current_level);
+    remove_redundant_depots(best_sol, &current_level);
     return best_sol;
 }
 
@@ -2207,7 +2209,7 @@ Solution multilevel_tabu_search() {
             cout << endl;
         }
     }
-    
+
     return best_overall;
 }
 
