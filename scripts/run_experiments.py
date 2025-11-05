@@ -143,7 +143,6 @@ def parse_output(output_text, instance_name, runtime):
     num_vehicles = len(vehicle_routes)
     num_levels = len(level_info)
     
-    # Tạo result dict
     result = {
         'Instance': instance_name,
         'Makespan': makespan,
@@ -164,12 +163,13 @@ def parse_output(output_text, instance_name, runtime):
     return result
 
 def run_single_instance(cpp_file, instance_file, timeout=600):
-    """Chạy 1 instance 1 lần và return kết quả"""
+    """Chạy 1 instance và return kết quả"""
     
     instance_name = Path(instance_file).stem
     temp_cpp = f"temp_{instance_name}.cpp"
     
     try:
+        # Modify C++ file với instance path mới
         with open(cpp_file, 'r', encoding='utf-8') as f:
             cpp_content = f.read()
         
@@ -183,40 +183,43 @@ def run_single_instance(cpp_file, instance_file, timeout=600):
         executable = f"temp_{instance_name}"
         if os.name == 'nt':
             executable += ".exe"
-            
+        
+        # Compile (không tính thời gian)
         compile_cmd = ["g++", "-O2", "-std=c++17", "-o", executable, temp_cpp]
         compile_result = subprocess.run(compile_cmd, capture_output=True, text=True)
         
         if compile_result.returncode != 0:
-            print(f"    ✗ Compilation failed for {instance_name}")
-            print(f"    Error: {compile_result.stderr}")
+            print(f"    ✗ Compilation failed")
             return None
         
+        # ✅ BẮT ĐẦU ĐO THỜI GIAN TẠI ĐÂY
         start_time = time.time()
         
+        # Run
         if os.name == 'nt':
             run_result = subprocess.run([executable], capture_output=True, text=True, timeout=timeout)
         else:
             run_result = subprocess.run([f"./{executable}"], capture_output=True, text=True, timeout=timeout)
         
+        # ✅ KẾT THÚC ĐO THỜI GIAN
         end_time = time.time()
         runtime = end_time - start_time
         
         if run_result.returncode != 0:
-            print(f"    ✗ Execution failed for {instance_name}")
-            print(f"    Error: {run_result.stderr}")
+            print(f"    ✗ Execution failed")
             return None
         
         result = parse_output(run_result.stdout, instance_name, runtime)
         return result
         
     except subprocess.TimeoutExpired:
-        print(f"    ✗ {instance_name} timed out (>{timeout/60:.0f} min)")
+        print(f"    ✗ Timed out")
         return None
     except Exception as e:
-        print(f"    ✗ {instance_name} failed: {e}")
+        print(f"    ✗ Failed: {e}")
         return None
     finally:
+        # Cleanup
         for file_to_remove in [temp_cpp, f"temp_{instance_name}", f"temp_{instance_name}.exe"]:
             if os.path.exists(file_to_remove):
                 try:
@@ -236,10 +239,9 @@ def main():
     print("=" * 80)
     print(f"📅 Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"📄 C++ source: {cpp_file}")
-    print(f"📁 Instances directory: {instances_dir}")
-    print(f"⏱️  Timeout per instance: {timeout/60:.0f} minutes")
-    print(f"💾 Results file: {results_file}")
-    print(f"📊 Level details file: {level_details_file}")
+    print(f"📁 Instances: {instances_dir}")
+    print(f"⏱️  Timeout: {timeout/60:.0f} min/instance")
+    print(f"💾 Results: {results_file}")
     print("=" * 80)
     
     os.makedirs("results", exist_ok=True)
@@ -249,67 +251,43 @@ def main():
         return
     
     if not os.path.exists(instances_dir):
-        print(f"❌ Error: {instances_dir} directory not found!")
+        print(f"❌ Error: {instances_dir} not found!")
         return
     
-    instance_files = []
-    for f in os.listdir(instances_dir):
-        if f.endswith('.txt'):
-            instance_files.append(os.path.join(instances_dir, f))
-    
-    instance_files.sort()
+    # Get all instance files
+    instance_files = sorted([os.path.join(instances_dir, f) 
+                            for f in os.listdir(instances_dir) 
+                            if f.endswith('.txt')])
     
     if not instance_files:
-        print(f"❌ No .txt files found in {instances_dir}")
+        print(f"❌ No .txt files in {instances_dir}")
         return
     
-    print(f"\n📋 Found {len(instance_files)} instances:")
-    for i, f in enumerate(instance_files, 1):
-        print(f"  {i:2d}. {Path(f).name}")
-    print()
+    print(f"\n📋 Found {len(instance_files)} instances\n")
     
     all_results = []
-    successful_instances = 0
-    failed_instances = 0
+    successful = 0
+    failed = 0
     
-    experiment_start_time = time.time()
+    exp_start = time.time()
     
+    # Run all instances
     for i, instance_file in enumerate(instance_files, 1):
-        print(f"\n{'='*80}")
-        print(f"[{i}/{len(instance_files)}] 🔄 Processing: {Path(instance_file).name}")
-        print(f"{'='*80}")
+        print(f"[{i}/{len(instance_files)}] 🔄 {Path(instance_file).name}")
         
         result = run_single_instance(cpp_file, instance_file, timeout)
         
         if result:
             all_results.append(result)
-            successful_instances += 1
-            
-            print(f"\n✅ SUCCESS: {result['Instance']}")
-            print(f"   📈 Final Fitness: {result['FinalFitness']:.4f}")
-            print(f"   ⏱️  Runtime: {result['Runtime(s)']:.2f}s")
-            print(f"   🏢 Levels: {result['NumLevels']}")
-            print(f"   ✔️  Feasible: {result['IsFeasible']}")
-            
-            # In thông tin từng level
-            if result['LevelInfo']:
-                print(f"\n   📊 COARSENING PHASE:")
-                for level in result['LevelInfo']:
-                    print(f"      Level {level['level']}: "
-                          f"Fitness={level['fitness']:.4f}, "
-                          f"Nodes: {level['nodes_before']}→{level['nodes_after']}")
-            
-            if result['RefinementInfo']:
-                print(f"\n   🔧 REFINEMENT PHASE:")
-                for ref in result['RefinementInfo']:
-                    print(f"      Level {ref['from_level']}→{ref['to_level']}: "
-                          f"Unmerged={ref['unmerged_fitness']:.4f}, "
-                          f"AfterTabu={ref['after_tabu_fitness']:.4f}")
+            successful += 1
+            print(f"   ✅ Runtime: {result['Runtime(s)']:.2f}s, Fitness: {result['FinalFitness']:.4f}")
         else:
-            failed_instances += 1
-            print(f"\n❌ FAILED: {Path(instance_file).stem}")
+            failed += 1
     
-    # Save main results
+    exp_end = time.time()
+    total_time = exp_end - exp_start
+    
+    # Save results
     if all_results:
         max_vehicles = max(r['NumVehicles'] for r in all_results)
         max_levels = max(r['NumLevels'] for r in all_results)
@@ -318,57 +296,50 @@ def main():
                   'WaitingViolation', 'IsFeasible', 'Runtime(s)', 'NumNodes', 
                   'SegmentLength', 'NumVehicles', 'NumLevels']
         
-        # Add level fitness columns
         for l in range(max_levels):
             columns.append(f'Level{l}_Fitness')
             columns.append(f'Level{l}_NodesReduction')
         
-        # Add vehicle route columns
         for v in range(max_vehicles):
             columns.append(f'Vehicle{v}_Route')
         
-        with open(results_file, 'w', newline='', encoding='utf-8') as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=columns)
+        with open(results_file, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=columns)
             writer.writeheader()
             
             for result in all_results:
                 row = {col: result.get(col, "") for col in columns[:11]}
                 
-                # Khởi tạo tất cả level columns
                 for l in range(max_levels):
                     row[f'Level{l}_Fitness'] = ""
                     row[f'Level{l}_NodesReduction'] = ""
                 
-                # Ghi đè chỉ các level tồn tại
                 for l, level in enumerate(result.get('LevelInfo', [])):
                     row[f'Level{l}_Fitness'] = level['fitness']
                     row[f'Level{l}_NodesReduction'] = f"{level['nodes_before']}→{level['nodes_after']}"
                 
-                # Khởi tạo tất cả vehicle columns
                 for v in range(max_vehicles):
                     row[f'Vehicle{v}_Route'] = ""
                 
-                # Ghi đè chỉ các vehicle tồn tại
                 vehicle_routes = result.get('VehicleRoutes', {})
                 for v_id, route_str in vehicle_routes.items():
                     if v_id < max_vehicles:
-                        row[f'Vehicle{v_id}_Route'] = f'"{route_str}"' if route_str else '""'
+                        row[f'Vehicle{v_id}_Route'] = f'"{route_str}"'
                 
                 writer.writerow(row)
         
-        print(f"\n✅ Main results saved to: {results_file}")
+        print(f"\n✅ Results saved: {results_file}")
         
-        # Save detailed level information
-        with open(level_details_file, 'w', newline='', encoding='utf-8') as csvfile:
-            detail_columns = ['Instance', 'Phase', 'FromLevel', 'ToLevel', 
-                            'Fitness', 'NodesReduction', 'Notes']
-            writer = csv.DictWriter(csvfile, fieldnames=detail_columns)
+        # Save level details
+        with open(level_details_file, 'w', newline='', encoding='utf-8') as f:
+            detail_cols = ['Instance', 'Phase', 'FromLevel', 'ToLevel', 
+                          'Fitness', 'NodesReduction', 'Notes']
+            writer = csv.DictWriter(f, fieldnames=detail_cols)
             writer.writeheader()
             
             for result in all_results:
                 instance = result['Instance']
                 
-                # Coarsening phase
                 for level in result.get('LevelInfo', []):
                     writer.writerow({
                         'Instance': instance,
@@ -377,10 +348,9 @@ def main():
                         'ToLevel': level['level'] + 1,
                         'Fitness': level['fitness'],
                         'NodesReduction': f"{level['nodes_before']}→{level['nodes_after']}" if level['nodes_before'] > 0 else "",
-                        'Notes': 'After tabu search'
+                        'Notes': 'After tabu'
                     })
                 
-                # Refinement phase
                 for ref in result.get('RefinementInfo', []):
                     writer.writerow({
                         'Instance': instance,
@@ -398,61 +368,33 @@ def main():
                         'ToLevel': ref['to_level'],
                         'Fitness': ref['after_tabu_fitness'],
                         'NodesReduction': '',
-                        'Notes': 'After tabu search'
+                        'Notes': 'After tabu'
                     })
         
-        print(f"✅ Level details saved to: {level_details_file}")
-    else:
-        # Nếu không có results nào, vẫn tạo file rỗng
-        print(f"\n⚠️  No successful results to save!")
-        with open(results_file, 'w', newline='', encoding='utf-8') as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow(['Instance', 'FinalFitness', 'Status'])
-            writer.writerow(['N/A', 'N/A', 'All instances failed'])
-        
-        with open(level_details_file, 'w', newline='', encoding='utf-8') as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow(['Instance', 'Phase', 'Status'])
-            writer.writerow(['N/A', 'N/A', 'All instances failed'])
+        print(f"✅ Details saved: {level_details_file}")
     
-    experiment_end_time = time.time()
-    total_experiment_time = experiment_end_time - experiment_start_time
-    
+    # Print summary
     print(f"\n{'='*80}")
-    print(f"🎯 EXPERIMENT SUMMARY")
+    print(f"🎯 SUMMARY")
     print(f"{'='*80}")
-    print(f"📁 Total instances: {len(instance_files)}")
-    print(f"✅ Successful: {successful_instances}")
-    print(f"❌ Failed: {failed_instances}")
-    print(f"📊 Success rate: {successful_instances/len(instance_files)*100:.1f}%")
-    print(f"⏱️  Total time: {total_experiment_time/60:.1f} minutes")
-    print(f"⏱️  Average per instance: {total_experiment_time/len(instance_files):.1f} seconds")
+    print(f"📁 Total: {len(instance_files)}")
+    print(f"✅ Success: {successful}")
+    print(f"❌ Failed: {failed}")
+    print(f"⏱️  Total time: {total_time/60:.1f} min")
+    print(f"⏱️  Avg per instance: {total_time/len(instance_files):.1f}s")
     
     if all_results:
         fitnesses = [r['FinalFitness'] for r in all_results]
         runtimes = [r['Runtime(s)'] for r in all_results]
-        feasible_count = sum(1 for r in all_results if r['IsFeasible'])
+        feasible = sum(1 for r in all_results if r['IsFeasible'])
         
-        print(f"\n📈 PERFORMANCE STATISTICS:")
-        print(f"✔️  Feasible solutions: {feasible_count}/{len(all_results)} ({feasible_count/len(all_results)*100:.1f}%)")
+        print(f"\n📈 STATISTICS:")
+        print(f"✔️  Feasible: {feasible}/{len(all_results)} ({feasible/len(all_results)*100:.1f}%)")
         print(f"🏆 Best fitness: {min(fitnesses):.4f}")
         print(f"📉 Worst fitness: {max(fitnesses):.4f}")
-        print(f"📊 Average fitness: {sum(fitnesses)/len(fitnesses):.4f}")
-        print(f"⏱️  Average runtime: {sum(runtimes)/len(runtimes):.2f} seconds")
-        
-        print(f"\n🏆 TOP 10 BEST INSTANCES:")
-        sorted_results = sorted(all_results, key=lambda x: x['FinalFitness'])
-        for i, result in enumerate(sorted_results[:10], 1):
-            feasible_str = "✅" if result['IsFeasible'] else "❌"
-            print(f"{i:2d}. {result['Instance']:20s}: {result['FinalFitness']:8.4f} "
-                  f"({result['Runtime(s)']:5.1f}s, {result['NumLevels']} levels) {feasible_str}")
+        print(f"📊 Avg fitness: {sum(fitnesses)/len(fitnesses):.4f}")
+        print(f"⏱️  Avg runtime: {sum(runtimes)/len(runtimes):.2f}s")
     
-    print(f"\n{'='*80}")
-    print(f"📄 Results saved to:")
-    print(f"   • {results_file}")
-    print(f"   • {level_details_file}")
-    print(f"{'='*80}")
-    print(f"🎉 Experiment completed successfully!")
     print(f"{'='*80}\n")
 
 if __name__ == "__main__":
