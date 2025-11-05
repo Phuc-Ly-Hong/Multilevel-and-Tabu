@@ -89,22 +89,53 @@ jobs:
             waiting_viol = 0.0
             fitness = 0.0
             
-            lines = content.split('\n')
-            for line in reversed(lines):
-                if "Makespan:" in line:
-                    m = re.search(r'Makespan:\s*([\d.]+)', line)
-                    if m: makespan = float(m.group(1))
-                elif "Drone violation:" in line:
-                    m = re.search(r'Drone violation:\s*([\d.]+)', line)
-                    if m: drone_viol = float(m.group(1))
-                elif "Waiting violation:" in line:
-                    m = re.search(r'Waiting violation:\s*([\d.]+)', line)
-                    if m: waiting_viol = float(m.group(1))
-                elif "Fitness:" in line and "Route details:" not in content[max(0,content.rfind(line)-200):content.rfind(line)]:
-                    m = re.search(r'Fitness:\s*([\d.]+)', line)
-                    if m: 
-                        fitness = float(m.group(1))
-                        break
+            # ✅ TÌM SECTION CUỐI CÙNG "Route details:"
+            last_route_section = content.rfind("Route details:")
+            
+            if last_route_section != -1:
+                # ✅ CHỈ PARSE PHẦN SAU "Route details:" cuối cùng
+                final_section = content[last_route_section:]
+                
+                lines = final_section.split('\n')
+                
+                for line in lines:
+                    if "Makespan:" in line:
+                        m = re.search(r'Makespan:\s*([\d.]+)', line)
+                        if m: 
+                            makespan = float(m.group(1))
+                            print(f"  Found Makespan: {makespan}")
+                    
+                    elif "Drone violation:" in line:
+                        m = re.search(r'Drone violation:\s*([\d.]+)', line)
+                        if m: 
+                            drone_viol = float(m.group(1))
+                            print(f"  Found Drone violation: {drone_viol}")
+                    
+                    elif "Waiting violation:" in line:
+                        m = re.search(r'Waiting violation:\s*([\d.]+)', line)
+                        if m: 
+                            waiting_viol = float(m.group(1))
+                            print(f"  Found Waiting violation: {waiting_viol}")
+                    
+                    elif "Fitness:" in line:
+                        m = re.search(r'Fitness:\s*([\d.]+)', line)
+                        if m: 
+                            fitness = float(m.group(1))
+                            print(f"  Found Fitness: {fitness}")
+            else:
+                print("⚠️  'Route details:' not found in output!")
+            
+            # ✅ VALIDATION: Fitness phải >= Makespan
+            expected_fitness = makespan + 10000*drone_viol + 10*waiting_viol
+            
+            if abs(fitness - expected_fitness) > 0.01:
+                print(f"⚠️  WARNING: Fitness mismatch!")
+                print(f"   Parsed: {fitness}")
+                print(f"   Expected: {expected_fitness}")
+                print(f"   (Makespan={makespan} + 10000*{drone_viol} + 10*{waiting_viol})")
+                
+                # ✅ FIX: Dùng giá trị tính toán
+                fitness = expected_fitness
             
             result = {
                 "instance": instance,
@@ -119,10 +150,16 @@ jobs:
                 json.dump(result, f, indent=2)
             
             status = "✅" if result["feasible"] else "⚠️"
-            print(f"{status} {instance} | Fitness: {fitness:.4f}")
+            print(f"\n{status} {instance}")
+            print(f"  Makespan: {makespan:.4f}")
+            print(f"  Fitness: {fitness:.4f}")
+            print(f"  Feasible: {result['feasible']}")
             
         except Exception as e:
             print(f"❌ ERROR {instance}: {e}")
+            import traceback
+            traceback.print_exc()
+            
             with open("result.json", "w") as f:
                 json.dump({"instance": instance, "error": str(e)}, f)
         EOF
