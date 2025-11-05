@@ -11,7 +11,6 @@ permissions:
   contents: read
 
 jobs:
-  # ✅ JOB 1: COMPILE (1 lần)
   compile:
     name: Compile C++
     runs-on: ubuntu-latest
@@ -23,7 +22,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y g++
+        sudo apt-get install -y g++ bc
     
     - name: Compile executable
       run: |
@@ -38,7 +37,6 @@ jobs:
         path: multilevel_tabu
         retention-days: 1
 
-  # ✅ JOB 2: SMALL INSTANCES (6-20 nodes) - NHANH
   run-small:
     name: Small ${{ matrix.instance }}
     needs: compile
@@ -47,7 +45,7 @@ jobs:
     
     strategy:
       fail-fast: false
-      max-parallel: 12  # Chạy nhiều cùng lúc vì nhanh
+      max-parallel: 12
       matrix:
         instance: [
           "10.5.1", "10.5.2", "10.5.3", "10.5.4",
@@ -70,98 +68,50 @@ jobs:
     - name: Run instance
       run: |
         chmod +x multilevel_tabu
+        START_TIME=$(date +%s.%N)
         timeout 8m ./multilevel_tabu instances/${{ matrix.instance }}.txt > output.txt 2>&1 || true
-        echo "=== EXECUTION COMPLETE ==="
+        END_TIME=$(date +%s.%N)
+        RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
+        echo "RUNTIME_SECONDS=$RUNTIME" >> runtime.txt
+        echo "⏱️  Runtime: ${RUNTIME}s"
     
     - name: Parse results
       run: |
         python3 <<'EOF'
-        import re, json
-        
+        import re, json, os
         instance = "${{ matrix.instance }}"
-        
         try:
             with open("output.txt", "r") as f:
                 content = f.read()
-            
-            makespan = 0.0
-            drone_viol = 0.0
-            waiting_viol = 0.0
-            fitness = 0.0
-            
-            # ✅ TÌM SECTION CUỐI CÙNG "Route details:"
-            last_route_section = content.rfind("Route details:")
-            
-            if last_route_section != -1:
-                # ✅ CHỈ PARSE PHẦN SAU "Route details:" cuối cùng
-                final_section = content[last_route_section:]
-                
-                lines = final_section.split('\n')
-                
-                for line in lines:
+            runtime = 0.0
+            if os.path.exists("runtime.txt"):
+                with open("runtime.txt", "r") as f:
+                    for line in f:
+                        if "RUNTIME_SECONDS=" in line:
+                            runtime = float(line.split("=")[1].strip())
+            last_route_idx = content.rfind("Route details:")
+            makespan = drone_viol = waiting_viol = fitness = 0.0
+            if last_route_idx != -1:
+                for line in content[last_route_idx:].split('\n'):
                     if "Makespan:" in line:
                         m = re.search(r'Makespan:\s*([\d.]+)', line)
-                        if m: 
-                            makespan = float(m.group(1))
-                            print(f"  Found Makespan: {makespan}")
-                    
-                    elif "Drone violation:" in line:
+                        if m: makespan = float(m.group(1))
+                    if "Drone violation:" in line:
                         m = re.search(r'Drone violation:\s*([\d.]+)', line)
-                        if m: 
-                            drone_viol = float(m.group(1))
-                            print(f"  Found Drone violation: {drone_viol}")
-                    
-                    elif "Waiting violation:" in line:
+                        if m: drone_viol = float(m.group(1))
+                    if "Waiting violation:" in line:
                         m = re.search(r'Waiting violation:\s*([\d.]+)', line)
-                        if m: 
-                            waiting_viol = float(m.group(1))
-                            print(f"  Found Waiting violation: {waiting_viol}")
-                    
-                    elif "Fitness:" in line:
+                        if m: waiting_viol = float(m.group(1))
+                    if "Fitness:" in line:
                         m = re.search(r'Fitness:\s*([\d.]+)', line)
-                        if m: 
-                            fitness = float(m.group(1))
-                            print(f"  Found Fitness: {fitness}")
-            else:
-                print("⚠️  'Route details:' not found in output!")
-            
-            # ✅ VALIDATION: Fitness phải >= Makespan
-            expected_fitness = makespan + 10000*drone_viol + 10*waiting_viol
-            
-            if abs(fitness - expected_fitness) > 0.01:
-                print(f"⚠️  WARNING: Fitness mismatch!")
-                print(f"   Parsed: {fitness}")
-                print(f"   Expected: {expected_fitness}")
-                print(f"   (Makespan={makespan} + 10000*{drone_viol} + 10*{waiting_viol})")
-                
-                # ✅ FIX: Dùng giá trị tính toán
-                fitness = expected_fitness
-            
-            result = {
-                "instance": instance,
-                "makespan": makespan,
-                "drone_violation": drone_viol,
-                "waiting_violation": waiting_viol,
-                "fitness": fitness,
-                "feasible": (drone_viol < 0.01 and waiting_viol < 0.01)
-            }
-            
-            with open("result.json", "w") as f:
-                json.dump(result, f, indent=2)
-            
-            status = "✅" if result["feasible"] else "⚠️"
-            print(f"\n{status} {instance}")
-            print(f"  Makespan: {makespan:.4f}")
-            print(f"  Fitness: {fitness:.4f}")
-            print(f"  Feasible: {result['feasible']}")
-            
+                        if m: fitness = float(m.group(1))
+            if makespan == 0.0 and fitness > 0.0: makespan = fitness
+            result = {"instance": instance, "makespan": round(makespan,4), "drone_violation": round(drone_viol,4), "waiting_violation": round(waiting_viol,4), "fitness": round(fitness,4), "runtime_seconds": round(runtime,3), "feasible": (drone_viol < 0.01 and waiting_viol < 0.01)}
+            with open("result.json", "w") as f: json.dump(result, f, indent=2)
+            print(f"{'✅' if result['feasible'] else '⚠️'} {instance} | M:{makespan:.2f} F:{fitness:.2f} T:{runtime:.2f}s")
         except Exception as e:
-            print(f"❌ ERROR {instance}: {e}")
-            import traceback
-            traceback.print_exc()
-            
-            with open("result.json", "w") as f:
-                json.dump({"instance": instance, "error": str(e)}, f)
+            print(f"❌ {instance}: {e}")
+            with open("result.json", "w") as f: json.dump({"instance": instance, "error": str(e)}, f)
         EOF
     
     - name: Upload result
@@ -173,7 +123,6 @@ jobs:
           output.txt
         retention-days: 30
 
-  # ✅ JOB 3: MEDIUM INSTANCES (50 nodes) - VỪA PHẢI
   run-medium:
     name: Medium ${{ matrix.instance }}
     needs: compile
@@ -182,7 +131,7 @@ jobs:
     
     strategy:
       fail-fast: false
-      max-parallel: 8  # Vừa phải
+      max-parallel: 8
       matrix:
         instance: [
           "50.10.1", "50.10.2", "50.10.3", "50.10.4",
@@ -203,61 +152,50 @@ jobs:
     - name: Run instance
       run: |
         chmod +x multilevel_tabu
+        START_TIME=$(date +%s.%N)
         timeout 18m ./multilevel_tabu instances/${{ matrix.instance }}.txt > output.txt 2>&1 || true
-        echo "=== EXECUTION COMPLETE ==="
+        END_TIME=$(date +%s.%N)
+        RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
+        echo "RUNTIME_SECONDS=$RUNTIME" >> runtime.txt
+        echo "⏱️  Runtime: ${RUNTIME}s"
     
     - name: Parse results
       run: |
         python3 <<'EOF'
-        import re, json
-        
+        import re, json, os
         instance = "${{ matrix.instance }}"
-        
         try:
             with open("output.txt", "r") as f:
                 content = f.read()
-            
-            makespan = 0.0
-            drone_viol = 0.0
-            waiting_viol = 0.0
-            fitness = 0.0
-            
-            lines = content.split('\n')
-            for line in reversed(lines):
-                if "Makespan:" in line:
-                    m = re.search(r'Makespan:\s*([\d.]+)', line)
-                    if m: makespan = float(m.group(1))
-                elif "Drone violation:" in line:
-                    m = re.search(r'Drone violation:\s*([\d.]+)', line)
-                    if m: drone_viol = float(m.group(1))
-                elif "Waiting violation:" in line:
-                    m = re.search(r'Waiting violation:\s*([\d.]+)', line)
-                    if m: waiting_viol = float(m.group(1))
-                elif "Fitness:" in line and "Route details:" not in content[max(0,content.rfind(line)-200):content.rfind(line)]:
-                    m = re.search(r'Fitness:\s*([\d.]+)', line)
-                    if m: 
-                        fitness = float(m.group(1))
-                        break
-            
-            result = {
-                "instance": instance,
-                "makespan": makespan,
-                "drone_violation": drone_viol,
-                "waiting_violation": waiting_viol,
-                "fitness": fitness,
-                "feasible": (drone_viol < 0.01 and waiting_viol < 0.01)
-            }
-            
-            with open("result.json", "w") as f:
-                json.dump(result, f, indent=2)
-            
-            status = "✅" if result["feasible"] else "⚠️"
-            print(f"{status} {instance} | Fitness: {fitness:.4f}")
-            
+            runtime = 0.0
+            if os.path.exists("runtime.txt"):
+                with open("runtime.txt", "r") as f:
+                    for line in f:
+                        if "RUNTIME_SECONDS=" in line:
+                            runtime = float(line.split("=")[1].strip())
+            last_route_idx = content.rfind("Route details:")
+            makespan = drone_viol = waiting_viol = fitness = 0.0
+            if last_route_idx != -1:
+                for line in content[last_route_idx:].split('\n'):
+                    if "Makespan:" in line:
+                        m = re.search(r'Makespan:\s*([\d.]+)', line)
+                        if m: makespan = float(m.group(1))
+                    if "Drone violation:" in line:
+                        m = re.search(r'Drone violation:\s*([\d.]+)', line)
+                        if m: drone_viol = float(m.group(1))
+                    if "Waiting violation:" in line:
+                        m = re.search(r'Waiting violation:\s*([\d.]+)', line)
+                        if m: waiting_viol = float(m.group(1))
+                    if "Fitness:" in line:
+                        m = re.search(r'Fitness:\s*([\d.]+)', line)
+                        if m: fitness = float(m.group(1))
+            if makespan == 0.0 and fitness > 0.0: makespan = fitness
+            result = {"instance": instance, "makespan": round(makespan,4), "drone_violation": round(drone_viol,4), "waiting_violation": round(waiting_viol,4), "fitness": round(fitness,4), "runtime_seconds": round(runtime,3), "feasible": (drone_viol < 0.01 and waiting_viol < 0.01)}
+            with open("result.json", "w") as f: json.dump(result, f, indent=2)
+            print(f"{'✅' if result['feasible'] else '⚠️'} {instance} | M:{makespan:.2f} F:{fitness:.2f} T:{runtime:.2f}s")
         except Exception as e:
-            print(f"❌ ERROR {instance}: {e}")
-            with open("result.json", "w") as f:
-                json.dump({"instance": instance, "error": str(e)}, f)
+            print(f"❌ {instance}: {e}")
+            with open("result.json", "w") as f: json.dump({"instance": instance, "error": str(e)}, f)
         EOF
     
     - name: Upload result
@@ -269,7 +207,6 @@ jobs:
           output.txt
         retention-days: 30
 
-  # ✅ JOB 4: LARGE INSTANCES (100 nodes) - CHẬM
   run-large:
     name: Large ${{ matrix.instance }}
     needs: compile
@@ -278,7 +215,7 @@ jobs:
     
     strategy:
       fail-fast: false
-      max-parallel: 6  # Ít hơn vì chậm
+      max-parallel: 6
       matrix:
         instance: [
           "100.10.1", "100.10.2", "100.10.3", "100.10.4",
@@ -299,61 +236,50 @@ jobs:
     - name: Run instance
       run: |
         chmod +x multilevel_tabu
+        START_TIME=$(date +%s.%N)
         timeout 35m ./multilevel_tabu instances/${{ matrix.instance }}.txt > output.txt 2>&1 || true
-        echo "=== EXECUTION COMPLETE ==="
+        END_TIME=$(date +%s.%N)
+        RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
+        echo "RUNTIME_SECONDS=$RUNTIME" >> runtime.txt
+        echo "⏱️  Runtime: ${RUNTIME}s"
     
     - name: Parse results
       run: |
         python3 <<'EOF'
-        import re, json
-        
+        import re, json, os
         instance = "${{ matrix.instance }}"
-        
         try:
             with open("output.txt", "r") as f:
                 content = f.read()
-            
-            makespan = 0.0
-            drone_viol = 0.0
-            waiting_viol = 0.0
-            fitness = 0.0
-            
-            lines = content.split('\n')
-            for line in reversed(lines):
-                if "Makespan:" in line:
-                    m = re.search(r'Makespan:\s*([\d.]+)', line)
-                    if m: makespan = float(m.group(1))
-                elif "Drone violation:" in line:
-                    m = re.search(r'Drone violation:\s*([\d.]+)', line)
-                    if m: drone_viol = float(m.group(1))
-                elif "Waiting violation:" in line:
-                    m = re.search(r'Waiting violation:\s*([\d.]+)', line)
-                    if m: waiting_viol = float(m.group(1))
-                elif "Fitness:" in line and "Route details:" not in content[max(0,content.rfind(line)-200):content.rfind(line)]:
-                    m = re.search(r'Fitness:\s*([\d.]+)', line)
-                    if m: 
-                        fitness = float(m.group(1))
-                        break
-            
-            result = {
-                "instance": instance,
-                "makespan": makespan,
-                "drone_violation": drone_viol,
-                "waiting_violation": waiting_viol,
-                "fitness": fitness,
-                "feasible": (drone_viol < 0.01 and waiting_viol < 0.01)
-            }
-            
-            with open("result.json", "w") as f:
-                json.dump(result, f, indent=2)
-            
-            status = "✅" if result["feasible"] else "⚠️"
-            print(f"{status} {instance} | Fitness: {fitness:.4f}")
-            
+            runtime = 0.0
+            if os.path.exists("runtime.txt"):
+                with open("runtime.txt", "r") as f:
+                    for line in f:
+                        if "RUNTIME_SECONDS=" in line:
+                            runtime = float(line.split("=")[1].strip())
+            last_route_idx = content.rfind("Route details:")
+            makespan = drone_viol = waiting_viol = fitness = 0.0
+            if last_route_idx != -1:
+                for line in content[last_route_idx:].split('\n'):
+                    if "Makespan:" in line:
+                        m = re.search(r'Makespan:\s*([\d.]+)', line)
+                        if m: makespan = float(m.group(1))
+                    if "Drone violation:" in line:
+                        m = re.search(r'Drone violation:\s*([\d.]+)', line)
+                        if m: drone_viol = float(m.group(1))
+                    if "Waiting violation:" in line:
+                        m = re.search(r'Waiting violation:\s*([\d.]+)', line)
+                        if m: waiting_viol = float(m.group(1))
+                    if "Fitness:" in line:
+                        m = re.search(r'Fitness:\s*([\d.]+)', line)
+                        if m: fitness = float(m.group(1))
+            if makespan == 0.0 and fitness > 0.0: makespan = fitness
+            result = {"instance": instance, "makespan": round(makespan,4), "drone_violation": round(drone_viol,4), "waiting_violation": round(waiting_viol,4), "fitness": round(fitness,4), "runtime_seconds": round(runtime,3), "feasible": (drone_viol < 0.01 and waiting_viol < 0.01)}
+            with open("result.json", "w") as f: json.dump(result, f, indent=2)
+            print(f"{'✅' if result['feasible'] else '⚠️'} {instance} | M:{makespan:.2f} F:{fitness:.2f} T:{runtime:.2f}s")
         except Exception as e:
-            print(f"❌ ERROR {instance}: {e}")
-            with open("result.json", "w") as f:
-                json.dump({"instance": instance, "error": str(e)}, f)
+            print(f"❌ {instance}: {e}")
+            with open("result.json", "w") as f: json.dump({"instance": instance, "error": str(e)}, f)
         EOF
     
     - name: Upload result
@@ -365,7 +291,6 @@ jobs:
           output.txt
         retention-days: 30
 
-  # ✅ JOB 5: AGGREGATE
   aggregate:
     name: Aggregate Results
     needs: [run-small, run-medium, run-large]
@@ -382,37 +307,19 @@ jobs:
       run: |
         python3 <<'EOF'
         import json, glob, csv
-        
         results = []
         for f in sorted(glob.glob("result.json")):
             try:
-                with open(f) as file:
-                    results.append(json.load(file))
+                with open(f) as file: results.append(json.load(file))
             except: pass
-        
         results.sort(key=lambda x: x.get("instance", ""))
-        
-        # CSV
         with open("all_results.csv", "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=["instance", "fitness", "makespan", 
-                                                   "drone_violation", "waiting_violation", "feasible"])
+            writer = csv.DictWriter(f, fieldnames=["instance", "fitness", "makespan", "drone_violation", "waiting_violation", "runtime_seconds", "feasible"])
             writer.writeheader()
             for r in results:
                 if "error" not in r:
-                    writer.writerow({
-                        "instance": r.get("instance"),
-                        "fitness": r.get("fitness", 0),
-                        "makespan": r.get("makespan", 0),
-                        "drone_violation": r.get("drone_violation", 0),
-                        "waiting_violation": r.get("waiting_violation", 0),
-                        "feasible": r.get("feasible", False)
-                    })
-        
-        # Summary by size
-        print("\n" + "="*80)
-        print("📊 EXPERIMENT SUMMARY")
-        print("="*80)
-        
+                    writer.writerow({"instance": r.get("instance"), "fitness": r.get("fitness", 0), "makespan": r.get("makespan", 0), "drone_violation": r.get("drone_violation", 0), "waiting_violation": r.get("waiting_violation", 0), "runtime_seconds": r.get("runtime_seconds", 0), "feasible": r.get("feasible", False)})
+        print("\n" + "="*80 + "\n📊 EXPERIMENT SUMMARY\n" + "="*80)
         for size in ["10", "20", "50", "100"]:
             size_results = [r for r in results if r.get("instance", "").startswith(size + ".") and "error" not in r]
             if size_results:
@@ -420,19 +327,17 @@ jobs:
                 print(f"\n📦 {size} nodes: {len(feasible)}/{len(size_results)} feasible ({len(feasible)/len(size_results)*100:.1f}%)")
                 if feasible:
                     fits = [r["fitness"] for r in feasible]
-                    print(f"   Best: {min(fits):.4f} | Avg: {sum(fits)/len(fits):.4f} | Worst: {max(fits):.4f}")
-        
-        # Overall
+                    times = [r.get("runtime_seconds", 0) for r in feasible]
+                    print(f"   Fitness  → Best: {min(fits):.4f} | Avg: {sum(fits)/len(fits):.4f} | Worst: {max(fits):.4f}")
+                    print(f"   Runtime  → Best: {min(times):.2f}s | Avg: {sum(times)/len(times):.2f}s | Worst: {max(times):.2f}s")
         total = len([r for r in results if "error" not in r])
         feasible_all = [r for r in results if r.get("feasible", False)]
         print(f"\n🎯 OVERALL: {len(feasible_all)}/{total} feasible ({len(feasible_all)/total*100:.1f}%)")
-        
         if feasible_all:
             fits = [r["fitness"] for r in feasible_all]
-            print(f"   🏆 Best: {min(fits):.4f}")
-            print(f"   📊 Avg: {sum(fits)/len(fits):.4f}")
-            print(f"   📉 Worst: {max(fits):.4f}")
-        
+            times = [r.get("runtime_seconds", 0) for r in feasible_all]
+            print(f"   🏆 Best fitness: {min(fits):.4f}\n   📊 Avg fitness: {sum(fits)/len(fits):.4f}\n   📉 Worst fitness: {max(fits):.4f}")
+            print(f"\n   ⏱️  Best runtime: {min(times):.2f}s\n   ⏱️  Avg runtime: {sum(times)/len(times):.2f}s\n   ⏱️  Worst runtime: {max(times):.2f}s\n   ⏱️  Total runtime: {sum(times):.2f}s")
         print("="*80 + "\n")
         EOF
     
