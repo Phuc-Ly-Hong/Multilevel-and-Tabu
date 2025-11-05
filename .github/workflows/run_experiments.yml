@@ -1,67 +1,407 @@
-name: Run Tabu Search Experiments
+name: Run Experiments (Matrix - Fast)
 
 on:
   push:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
-  workflow_dispatch:  # Cho phép chạy thủ công
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  run-experiments:
+  # ✅ JOB 1: COMPILE (1 lần)
+  compile:
+    name: Compile C++
     runs-on: ubuntu-latest
-    timeout-minutes: 120  # 2 hours timeout
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
     
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.9'
-    
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y g++ make
+        sudo apt-get install -y g++
     
-    - name: Check repository structure
+    - name: Compile executable
       run: |
-        echo "=== Repository Structure ==="
-        ls -la
-        echo "=== Source files ==="
-        ls -la src/ || echo "src/ not found"
-        echo "=== Instance files ==="
-        ls -la instances/ || echo "instances/ not found"
+        g++ -O2 -std=c++17 -o multilevel_tabu src/Multilevel_Tabu.cpp
+        chmod +x multilevel_tabu
+        ls -lh multilevel_tabu
     
-    - name: Create results directory
-      run: mkdir -p results
-    
-    - name: Run experiments
-      run: python scripts/run_experiments.py
-      timeout-minutes: 100
-    
-    - name: Check results
-      run: |
-        if [ -f "results/results.csv" ]; then
-          echo "=== Results Summary ==="
-          echo "Number of instances processed:"
-          tail -n +2 results/results.csv | wc -l
-          echo ""
-          echo "First 10 lines of results:"
-          head -n 11 results/results.csv
-          echo ""
-          echo "Best fitness values (top 5):"
-          tail -n +2 results/results.csv | cut -d',' -f5 | sort -n | head -5
-        else
-          echo "No results file generated!"
-          exit 1
-        fi
-    
-    - name: Upload results as artifact
+    - name: Upload executable
       uses: actions/upload-artifact@v4
       with:
-        name: tabu-search-results
-        path: results/results.csv
+        name: multilevel-executable
+        path: multilevel_tabu
+        retention-days: 1
+
+  # ✅ JOB 2: SMALL INSTANCES (6-20 nodes) - NHANH
+  run-small:
+    name: Small ${{ matrix.instance }}
+    needs: compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    strategy:
+      fail-fast: false
+      max-parallel: 12  # Chạy nhiều cùng lúc vì nhanh
+      matrix:
+        instance: [
+          "10.5.1", "10.5.2", "10.5.3", "10.5.4",
+          "10.10.1", "10.10.2", "10.10.3", "10.10.4",
+          "10.20.1", "10.20.2", "10.20.3", "10.20.4",
+          "20.5.1", "20.5.2", "20.5.3", "20.5.4",
+          "20.10.1", "20.10.2", "20.10.3", "20.10.4",
+          "20.20.1", "20.20.2", "20.20.3", "20.20.4"
+        ]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Download executable
+      uses: actions/download-artifact@v4
+      with:
+        name: multilevel-executable
+    
+    - name: Run instance
+      run: |
+        chmod +x multilevel_tabu
+        timeout 8m ./multilevel_tabu instances/${{ matrix.instance }}.txt > output.txt 2>&1 || true
+        echo "=== EXECUTION COMPLETE ==="
+    
+    - name: Parse results
+      run: |
+        python3 <<'EOF'
+        import re, json
+        
+        instance = "${{ matrix.instance }}"
+        
+        try:
+            with open("output.txt", "r") as f:
+                content = f.read()
+            
+            makespan = 0.0
+            drone_viol = 0.0
+            waiting_viol = 0.0
+            fitness = 0.0
+            
+            lines = content.split('\n')
+            for line in reversed(lines):
+                if "Makespan:" in line:
+                    m = re.search(r'Makespan:\s*([\d.]+)', line)
+                    if m: makespan = float(m.group(1))
+                elif "Drone violation:" in line:
+                    m = re.search(r'Drone violation:\s*([\d.]+)', line)
+                    if m: drone_viol = float(m.group(1))
+                elif "Waiting violation:" in line:
+                    m = re.search(r'Waiting violation:\s*([\d.]+)', line)
+                    if m: waiting_viol = float(m.group(1))
+                elif "Fitness:" in line and "Route details:" not in content[max(0,content.rfind(line)-200):content.rfind(line)]:
+                    m = re.search(r'Fitness:\s*([\d.]+)', line)
+                    if m: 
+                        fitness = float(m.group(1))
+                        break
+            
+            result = {
+                "instance": instance,
+                "makespan": makespan,
+                "drone_violation": drone_viol,
+                "waiting_violation": waiting_viol,
+                "fitness": fitness,
+                "feasible": (drone_viol < 0.01 and waiting_viol < 0.01)
+            }
+            
+            with open("result.json", "w") as f:
+                json.dump(result, f, indent=2)
+            
+            status = "✅" if result["feasible"] else "⚠️"
+            print(f"{status} {instance} | Fitness: {fitness:.4f}")
+            
+        except Exception as e:
+            print(f"❌ ERROR {instance}: {e}")
+            with open("result.json", "w") as f:
+                json.dump({"instance": instance, "error": str(e)}, f)
+        EOF
+    
+    - name: Upload result
+      uses: actions/upload-artifact@v4
+      with:
+        name: result-${{ matrix.instance }}
+        path: |
+          result.json
+          output.txt
         retention-days: 30
+
+  # ✅ JOB 3: MEDIUM INSTANCES (50 nodes) - VỪA PHẢI
+  run-medium:
+    name: Medium ${{ matrix.instance }}
+    needs: compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    
+    strategy:
+      fail-fast: false
+      max-parallel: 8  # Vừa phải
+      matrix:
+        instance: [
+          "50.10.1", "50.10.2", "50.10.3", "50.10.4",
+          "50.20.1", "50.20.2", "50.20.3", "50.20.4",
+          "50.30.1", "50.30.2", "50.30.3", "50.30.4",
+          "50.40.1", "50.40.2", "50.40.3", "50.40.4"
+        ]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Download executable
+      uses: actions/download-artifact@v4
+      with:
+        name: multilevel-executable
+    
+    - name: Run instance
+      run: |
+        chmod +x multilevel_tabu
+        timeout 18m ./multilevel_tabu instances/${{ matrix.instance }}.txt > output.txt 2>&1 || true
+        echo "=== EXECUTION COMPLETE ==="
+    
+    - name: Parse results
+      run: |
+        python3 <<'EOF'
+        import re, json
+        
+        instance = "${{ matrix.instance }}"
+        
+        try:
+            with open("output.txt", "r") as f:
+                content = f.read()
+            
+            makespan = 0.0
+            drone_viol = 0.0
+            waiting_viol = 0.0
+            fitness = 0.0
+            
+            lines = content.split('\n')
+            for line in reversed(lines):
+                if "Makespan:" in line:
+                    m = re.search(r'Makespan:\s*([\d.]+)', line)
+                    if m: makespan = float(m.group(1))
+                elif "Drone violation:" in line:
+                    m = re.search(r'Drone violation:\s*([\d.]+)', line)
+                    if m: drone_viol = float(m.group(1))
+                elif "Waiting violation:" in line:
+                    m = re.search(r'Waiting violation:\s*([\d.]+)', line)
+                    if m: waiting_viol = float(m.group(1))
+                elif "Fitness:" in line and "Route details:" not in content[max(0,content.rfind(line)-200):content.rfind(line)]:
+                    m = re.search(r'Fitness:\s*([\d.]+)', line)
+                    if m: 
+                        fitness = float(m.group(1))
+                        break
+            
+            result = {
+                "instance": instance,
+                "makespan": makespan,
+                "drone_violation": drone_viol,
+                "waiting_violation": waiting_viol,
+                "fitness": fitness,
+                "feasible": (drone_viol < 0.01 and waiting_viol < 0.01)
+            }
+            
+            with open("result.json", "w") as f:
+                json.dump(result, f, indent=2)
+            
+            status = "✅" if result["feasible"] else "⚠️"
+            print(f"{status} {instance} | Fitness: {fitness:.4f}")
+            
+        except Exception as e:
+            print(f"❌ ERROR {instance}: {e}")
+            with open("result.json", "w") as f:
+                json.dump({"instance": instance, "error": str(e)}, f)
+        EOF
+    
+    - name: Upload result
+      uses: actions/upload-artifact@v4
+      with:
+        name: result-${{ matrix.instance }}
+        path: |
+          result.json
+          output.txt
+        retention-days: 30
+
+  # ✅ JOB 4: LARGE INSTANCES (100 nodes) - CHẬM
+  run-large:
+    name: Large ${{ matrix.instance }}
+    needs: compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    
+    strategy:
+      fail-fast: false
+      max-parallel: 6  # Ít hơn vì chậm
+      matrix:
+        instance: [
+          "100.10.1", "100.10.2", "100.10.3", "100.10.4",
+          "100.20.1", "100.20.2", "100.20.3", "100.20.4",
+          "100.30.1", "100.30.2", "100.30.3", "100.30.4",
+          "100.40.1", "100.40.2", "100.40.3", "100.40.4"
+        ]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Download executable
+      uses: actions/download-artifact@v4
+      with:
+        name: multilevel-executable
+    
+    - name: Run instance
+      run: |
+        chmod +x multilevel_tabu
+        timeout 35m ./multilevel_tabu instances/${{ matrix.instance }}.txt > output.txt 2>&1 || true
+        echo "=== EXECUTION COMPLETE ==="
+    
+    - name: Parse results
+      run: |
+        python3 <<'EOF'
+        import re, json
+        
+        instance = "${{ matrix.instance }}"
+        
+        try:
+            with open("output.txt", "r") as f:
+                content = f.read()
+            
+            makespan = 0.0
+            drone_viol = 0.0
+            waiting_viol = 0.0
+            fitness = 0.0
+            
+            lines = content.split('\n')
+            for line in reversed(lines):
+                if "Makespan:" in line:
+                    m = re.search(r'Makespan:\s*([\d.]+)', line)
+                    if m: makespan = float(m.group(1))
+                elif "Drone violation:" in line:
+                    m = re.search(r'Drone violation:\s*([\d.]+)', line)
+                    if m: drone_viol = float(m.group(1))
+                elif "Waiting violation:" in line:
+                    m = re.search(r'Waiting violation:\s*([\d.]+)', line)
+                    if m: waiting_viol = float(m.group(1))
+                elif "Fitness:" in line and "Route details:" not in content[max(0,content.rfind(line)-200):content.rfind(line)]:
+                    m = re.search(r'Fitness:\s*([\d.]+)', line)
+                    if m: 
+                        fitness = float(m.group(1))
+                        break
+            
+            result = {
+                "instance": instance,
+                "makespan": makespan,
+                "drone_violation": drone_viol,
+                "waiting_violation": waiting_viol,
+                "fitness": fitness,
+                "feasible": (drone_viol < 0.01 and waiting_viol < 0.01)
+            }
+            
+            with open("result.json", "w") as f:
+                json.dump(result, f, indent=2)
+            
+            status = "✅" if result["feasible"] else "⚠️"
+            print(f"{status} {instance} | Fitness: {fitness:.4f}")
+            
+        except Exception as e:
+            print(f"❌ ERROR {instance}: {e}")
+            with open("result.json", "w") as f:
+                json.dump({"instance": instance, "error": str(e)}, f)
+        EOF
+    
+    - name: Upload result
+      uses: actions/upload-artifact@v4
+      with:
+        name: result-${{ matrix.instance }}
+        path: |
+          result.json
+          output.txt
+        retention-days: 30
+
+  # ✅ JOB 5: AGGREGATE
+  aggregate:
+    name: Aggregate Results
+    needs: [run-small, run-medium, run-large]
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Download all results
+      uses: actions/download-artifact@v4
+      with:
+        pattern: result-*
+        merge-multiple: true
+    
+    - name: Create summary
+      run: |
+        python3 <<'EOF'
+        import json, glob, csv
+        
+        results = []
+        for f in sorted(glob.glob("result.json")):
+            try:
+                with open(f) as file:
+                    results.append(json.load(file))
+            except: pass
+        
+        results.sort(key=lambda x: x.get("instance", ""))
+        
+        # CSV
+        with open("all_results.csv", "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=["instance", "fitness", "makespan", 
+                                                   "drone_violation", "waiting_violation", "feasible"])
+            writer.writeheader()
+            for r in results:
+                if "error" not in r:
+                    writer.writerow({
+                        "instance": r.get("instance"),
+                        "fitness": r.get("fitness", 0),
+                        "makespan": r.get("makespan", 0),
+                        "drone_violation": r.get("drone_violation", 0),
+                        "waiting_violation": r.get("waiting_violation", 0),
+                        "feasible": r.get("feasible", False)
+                    })
+        
+        # Summary by size
+        print("\n" + "="*80)
+        print("📊 EXPERIMENT SUMMARY")
+        print("="*80)
+        
+        for size in ["10", "20", "50", "100"]:
+            size_results = [r for r in results if r.get("instance", "").startswith(size + ".") and "error" not in r]
+            if size_results:
+                feasible = [r for r in size_results if r.get("feasible", False)]
+                print(f"\n📦 {size} nodes: {len(feasible)}/{len(size_results)} feasible ({len(feasible)/len(size_results)*100:.1f}%)")
+                if feasible:
+                    fits = [r["fitness"] for r in feasible]
+                    print(f"   Best: {min(fits):.4f} | Avg: {sum(fits)/len(fits):.4f} | Worst: {max(fits):.4f}")
+        
+        # Overall
+        total = len([r for r in results if "error" not in r])
+        feasible_all = [r for r in results if r.get("feasible", False)]
+        print(f"\n🎯 OVERALL: {len(feasible_all)}/{total} feasible ({len(feasible_all)/total*100:.1f}%)")
+        
+        if feasible_all:
+            fits = [r["fitness"] for r in feasible_all]
+            print(f"   🏆 Best: {min(fits):.4f}")
+            print(f"   📊 Avg: {sum(fits)/len(fits):.4f}")
+            print(f"   📉 Worst: {max(fits):.4f}")
+        
+        print("="*80 + "\n")
+        EOF
+    
+    - name: Upload final results
+      uses: actions/upload-artifact@v4
+      with:
+        name: all-results
+        path: all_results.csv
+        retention-days: 90

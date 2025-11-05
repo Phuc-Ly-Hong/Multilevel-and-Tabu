@@ -1457,8 +1457,6 @@ Solution tabu_search(Solution initial_sol, const LevelInfo &current_level, bool 
             cout << "Current best fitness: " << best_sol.fitness << endl;*/
         }
     }
-    optimize_all_drone_routes(best_sol, &current_level);
-    remove_redundant_depots(best_sol, &current_level);
     return best_sol;
 }
 
@@ -2214,9 +2212,16 @@ Solution multilevel_tabu_search() {
 }
 
 
-int main(){
+int main(int argc, char* argv[]) {
     srand(time(nullptr));
-    read_dataset("D:\\New folder\\instances\\20.20.1.txt");
+
+    string dataset_path;
+    if (argc > 1) {
+        dataset_path = argv[1];
+    } else {
+        dataset_path = "D:\\New folder\\instances\\100.10.1.txt"; 
+    }
+    read_dataset(dataset_path);
     printf("MAX_ITER: %d\n", MAX_ITER);
     printf("Segment length: %d\n", SEGMENT_LENGTH);
  
