@@ -76,7 +76,7 @@ double Beta = 0.5; // tham số điều chỉnh hệ số hàm phạt
 
 int MAX_ITER;
 int TABU_TENURE;
-int MAX_NO_IMPROVE = 10000;
+int MAX_NO_IMPROVE = 4000;
 double EPSILON = 1e-6;
 
 // Adaptive parameters
@@ -139,11 +139,11 @@ void read_dataset(const string &filename){
         MAX_ITER = 300 * nodes.size() / 2;
         SEGMENT_LENGTH = 750;
     } else if (nodes.size() >= 50){
-        MAX_ITER = 8000;
-        SEGMENT_LENGTH = 360;
-    } else {
         MAX_ITER = 4000;
-        SEGMENT_LENGTH = 100;
+        SEGMENT_LENGTH = 250;
+    } else {
+        MAX_ITER = 2000;
+        SEGMENT_LENGTH = 80;
     }
     for (const auto& node : nodes) {
         if (node.id == depot_id) {
@@ -192,17 +192,20 @@ void print_solution(const Solution &sol){
     cout << "Fitness: " << sol.fitness << endl;
 }
 
-int find_node_index(const LevelInfo& level, int id){
-    for (size_t i = 0; i < level.nodes.size(); i++){
-        if (level.nodes[i].id == id) return i;
-    }
-    
-    cout << "DEBUG: find_node_index() - Node " << id << " not found in level. Available nodes: ";
+map <int, int> node_id_to_index_cache;
+
+void update_node_index_cache(const LevelInfo& level) {
+    node_id_to_index_cache.clear();
     for (size_t i = 0; i < level.nodes.size(); i++) {
-        cout << level.nodes[i].id << "(" << i << ") ";
+        node_id_to_index_cache[level.nodes[i].id] = i; 
     }
-    cout << endl;
-    
+}
+
+int find_node_index_fast(int node_id) {
+    auto it = node_id_to_index_cache.find(node_id);
+    if (it != node_id_to_index_cache.end()) {
+        return it->second;  
+    }
     return -1;
 }
 
@@ -227,7 +230,7 @@ void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) 
                     double travel_distance = 0.0;
                     
                     if (current_level != nullptr) {
-                        int prev_idx = find_node_index(*current_level, prev);
+                        int prev_idx = find_node_index_fast(prev);
                         if (prev_idx == -1) {
                             cerr << "ERROR: Cannot find node " << prev << " in level " 
                                 << current_level->level_id << endl;
@@ -300,8 +303,8 @@ void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) 
                 double travel_distance = 0.0;
                 
                 if (current_level != nullptr) {
-                    int prev_idx = find_node_index(*current_level, prev);
-                    int cid_idx = find_node_index(*current_level, cid);
+                    int prev_idx = find_node_index_fast(prev);
+                    int cid_idx = find_node_index_fast(cid);
 
                     if (prev_idx >= 0 && cid_idx >= 0 && 
                         prev_idx < current_level->nodes.size() && 
@@ -491,8 +494,8 @@ RouteAnalysis analyze_drone_route(const vector<int> &route, int vehicle_idx, con
             double travel_distance = 0.0;
             
             if (current_level != nullptr) {
-                int last_idx = find_node_index(*current_level, last_node);
-                int curr_idx = find_node_index(*current_level, current_node);
+                int last_idx = find_node_index_fast(last_node);
+                int curr_idx = find_node_index_fast(current_node);
                 
                 if (last_idx == -1 || curr_idx == -1) {
                     cerr << "ERROR in analyze_drone_route: Cannot find nodes " 
@@ -610,10 +613,10 @@ int find_best_depot_insertion(const vector<int> &route, int vehicle_idx, const L
         // Tính detour distance với index
         double detour_distance = 0.0;
         if (current_level != nullptr) {
-            int idx_prev = find_node_index(*current_level, route[pos - 1]);
+            int idx_prev = find_node_index_fast(route[pos - 1]);
             int idx_depot = 0;
-            int idx_curr = find_node_index(*current_level, route[pos]);
-            
+            int idx_curr = find_node_index_fast(route[pos]);
+
             if (idx_prev != -1 && idx_curr != -1) {
                 detour_distance = distances[idx_prev][idx_depot] + 
                                  distances[idx_depot][idx_curr] - 
@@ -709,7 +712,7 @@ void update_edge_frequency(const Solution& best_solution) {
             if (from_node != depot_id && to_node != depot_id) {
                 pair<int,int> edge = make_pair(from_node, to_node);
                 edge_frequency[edge]++;
-                cout << "Edge (" << from_node << ", " << to_node << ") frequency: " << edge_frequency[edge] << endl;
+                //cout << "Edge (" << from_node << ", " << to_node << ") frequency: " << edge_frequency[edge] << endl;
             }
         }
     }
@@ -936,6 +939,7 @@ Solution move_2opt(Solution current_sol, size_t v1, size_t pos1, size_t v2, size
 }
 
 Solution tabu_search(Solution initial_sol, const LevelInfo &current_level, bool track_edge = true){
+    update_node_index_cache(current_level);
     optimize_all_drone_routes(initial_sol, &current_level);
     remove_redundant_depots(initial_sol, &current_level);
 
@@ -1534,8 +1538,8 @@ void create_coarse_distance_matrix(LevelInfo& next_level, const LevelInfo& curre
                 int curr_i = current_group_i[0];
                 int curr_j = current_group_j[0];
 
-                int idx_i = find_node_index(current_level, curr_i);
-                int idx_j = find_node_index(current_level, curr_j);
+                int idx_i = find_node_index_fast(curr_i);
+                int idx_j = find_node_index_fast(curr_j);
 
                 if (idx_i != -1 && idx_j != -1){
                     next_distances[i][j] = curr_distances[idx_i][idx_j];
@@ -1545,10 +1549,10 @@ void create_coarse_distance_matrix(LevelInfo& next_level, const LevelInfo& curre
                 }
             } else {
                 int exit_current_i = current_group_i.back();
-                int idx_exit_i = find_node_index(current_level, exit_current_i);
+                int idx_exit_i = find_node_index_fast(exit_current_i);
                 
                 int entry_current_j = current_group_j.front();
-                int idx_entry_j = find_node_index(current_level, entry_current_j);
+                int idx_entry_j = find_node_index_fast(entry_current_j);
 
                 double total_distance = 0.0;
                 
@@ -1557,9 +1561,9 @@ void create_coarse_distance_matrix(LevelInfo& next_level, const LevelInfo& curre
                     for (size_t k = 0; k < current_group_i.size() - 1; k++) {
                         int from = current_group_i[k];
                         int to = current_group_i[k + 1];
-                        int idx_from = find_node_index(current_level, from);
-                        int idx_to = find_node_index(current_level, to);
-                        
+                        int idx_from = find_node_index_fast(from);
+                        int idx_to = find_node_index_fast(to);
+
                         if (idx_from != -1 && idx_to != -1) {
                             double d = curr_distances[idx_from][idx_to];
                             total_distance += d;
@@ -1579,9 +1583,9 @@ void create_coarse_distance_matrix(LevelInfo& next_level, const LevelInfo& curre
                     for (size_t k = 0; k < current_group_j.size() - 1; k++) {
                         int from = current_group_j[k];
                         int to = current_group_j[k + 1];
-                        int idx_from = find_node_index(current_level, from);
-                        int idx_to = find_node_index(current_level, to);
-                        
+                        int idx_from = find_node_index_fast(from);
+                        int idx_to = find_node_index_fast(to);
+
                         if (idx_from != -1 && idx_to != -1) {
                             double d = curr_distances[idx_from][idx_to];
                             total_distance += d;
@@ -1646,8 +1650,8 @@ vector<tuple<int, int, int>> collect_merge_candidates(const LevelInfo& current_l
         }
         
         // Kiểm tra xem node có tồn tại trong level hiện tại không
-        int idx_from = find_node_index(current_level, from_node);
-        int idx_to = find_node_index(current_level, to_node);
+        int idx_from = find_node_index_fast(from_node);
+        int idx_to = find_node_index_fast(to_node);
         if (idx_from == -1 || idx_to == -1) {
             /*cout << "  Skipping edge (" << from_node << ", " << to_node 
                  << ") - node not found in current level" << endl;*/
@@ -1675,55 +1679,106 @@ vector<tuple<int, int, int>> collect_merge_candidates(const LevelInfo& current_l
     return candidates;
 }
 
-LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_solution, const vector<vector<double>>& curr_distances,const vector<vector<double>>& curr_original_distances) {
+LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_solution, 
+                         const vector<vector<double>>& curr_distances,
+                         const vector<vector<double>>& curr_original_distances) {
     LevelInfo next_level;
     next_level.level_id = current_level.level_id + 1;
     
     vector<tuple<int,int,int>> candidates = collect_merge_candidates(current_level, best_solution);
-
-    int total_customer_nodes = current_level.nodes.size() - 1;
-    int target_reduction = max(1, int(0.2 * total_customer_nodes));
+    
+    // ✅ Tính 20% số CẠNH, không phải nodes
+    int num_to_merge = max(1, (int)(candidates.size() * 0.2));
+    
+    cout << "\n=== MERGING " << num_to_merge << " / " << candidates.size() 
+         << " EDGES (20%) ===" << endl;
     
     set<int> merged_nodes;
     vector<vector<int>> merged_groups;
-    int nodes_reduced = 0;
-
-    for (int i = 0; i < candidates.size() && nodes_reduced < target_reduction; i++){
+    
+    for (int i = 0; i < num_to_merge && i < candidates.size(); i++) {
         int frequency = get<0>(candidates[i]);
         int node_a = get<1>(candidates[i]);
         int node_b = get<2>(candidates[i]);
-        if (merged_nodes.find(node_a) != merged_nodes.end() || 
-            merged_nodes.find(node_b) != merged_nodes.end()){
+        
+        bool already_merged_together = false;
+        for (const auto& group : merged_groups) {
+            bool has_a = (find(group.begin(), group.end(), node_a) != group.end());
+            bool has_b = (find(group.begin(), group.end(), node_b) != group.end());
+            if (has_a && has_b) {
+                already_merged_together = true;
+                break;
+            }
+        }
+        
+        if (already_merged_together) {
             continue;
         }
         
-        bool found_in_order = false;
-        for (size_t v = 0; v < best_solution.route.size(); v++) {
-            const vector<int>& route = best_solution.route[v];
-            for (size_t j = 0; j < route.size() - 1; j++) {
-                if (route[j] == node_a && route[j+1] == node_b) {
-                    found_in_order = true;
-                    break;
+        // Tìm hoặc tạo group chứa node_a và node_b
+        int group_idx_a = -1, group_idx_b = -1;
+        
+        for (size_t g = 0; g < merged_groups.size(); g++) {
+            if (find(merged_groups[g].begin(), merged_groups[g].end(), node_a) 
+                != merged_groups[g].end()) {
+                group_idx_a = g;
+            }
+            if (find(merged_groups[g].begin(), merged_groups[g].end(), node_b) 
+                != merged_groups[g].end()) {
+                group_idx_b = g;
+            }
+        }
+        
+        // Case 1: Cả 2 đều chưa có trong group nào -> Tạo group mới
+        if (group_idx_a == -1 && group_idx_b == -1) {
+            merged_groups.push_back({node_a, node_b});
+            merged_nodes.insert(node_a);
+            merged_nodes.insert(node_b);
+            cout << "Edge " << (i+1) << ": (" << node_a << " → " << node_b 
+                 << ") freq=" << frequency << " → NEW GROUP" << endl;
+        }
+        // Case 2: node_a đã có group, node_b chưa -> Thêm node_b vào group của node_a
+        else if (group_idx_a != -1 && group_idx_b == -1) {
+            merged_groups[group_idx_a].push_back(node_b);
+            merged_nodes.insert(node_b);
+            cout << "Edge " << (i+1) << ": (" << node_a << " → " << node_b 
+                 << ") freq=" << frequency << " → ADD TO GROUP " << group_idx_a << endl;
+        }
+        // Case 3: node_b đã có group, node_a chưa -> Thêm node_a vào group của node_b
+        else if (group_idx_a == -1 && group_idx_b != -1) {
+            merged_groups[group_idx_b].push_back(node_a);
+            merged_nodes.insert(node_a);
+            cout << "Edge " << (i+1) << ": (" << node_a << " → " << node_b 
+                 << ") freq=" << frequency << " → ADD TO GROUP " << group_idx_b << endl;
+        }
+        // Case 4: Cả 2 đã có group khác nhau → Merge 2 groups
+        else if (group_idx_a != group_idx_b) {
+            // Merge group_b vào group_a
+            for (int node : merged_groups[group_idx_b]) {
+                if (find(merged_groups[group_idx_a].begin(), 
+                        merged_groups[group_idx_a].end(), node) 
+                    == merged_groups[group_idx_a].end()) {
+                    merged_groups[group_idx_a].push_back(node);
                 }
             }
-            if (found_in_order) break;
+            merged_groups.erase(merged_groups.begin() + group_idx_b);
+            cout << "Edge " << (i+1) << ": (" << node_a << " → " << node_b 
+                 << ") freq=" << frequency << " → MERGE GROUPS" << endl;
         }
-        
-        if (!found_in_order) {
-            cout << "WARNING: Edge (" << node_a << ", " << node_b << ") not found in order in best solution, skipping" << endl;
-            continue;
+    }
+    
+    cout << "\n=== FINAL MERGED GROUPS ===" << endl;
+    for (size_t i = 0; i < merged_groups.size(); i++) {
+        cout << "Group " << (i+1) << ": [";
+        for (size_t j = 0; j < merged_groups[i].size(); j++) {
+            cout << merged_groups[i][j];
+            if (j < merged_groups[i].size() - 1) cout << ", ";
         }
-        
-        vector<int> new_group = {node_a, node_b};
-        merged_groups.push_back(new_group);
-        merged_nodes.insert(node_a);
-        merged_nodes.insert(node_b);
-        nodes_reduced++;
-        cout << "Merging edge (" << node_a << " -> " << node_b << ") frequency=" << frequency << endl;
+        cout << "]" << endl;
     }
     
     if (merged_groups.empty()) {
-        cout << "No edges merged! Returning current level." << endl;
+        cout << "⚠️  No groups formed! Returning current level." << endl;
         return current_level;
     }
     
@@ -1732,13 +1787,14 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
     next_level.nodes.push_back({depot_id, 0.0, 0.0, -1.0, DBL_MAX});
     next_level.node_mapping[depot_id] = {depot_id};
     
-    for (const auto& group : merged_groups){
+    for (const auto& group : merged_groups) {
         int first_node_id = group[0];
-        int idx = find_node_index(current_level, first_node_id);
-        if (idx != -1){
+        int idx = find_node_index_fast(first_node_id);
+        
+        if (idx != -1) {
             const Node& first_node = current_level.nodes[idx];
             Node merged_node = {
-                next_node_id++,  
+                next_node_id++,
                 first_node.x,
                 first_node.y,
                 first_node.c1_or_c2,
@@ -1747,23 +1803,30 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
             next_level.nodes.push_back(merged_node);
             
             vector<int> original_nodes;
-            for (int node_id : group){
+            for (int node_id : group) {
                 auto it = current_level.node_mapping.find(node_id);
-                if (it != current_level.node_mapping.end()){
-                    original_nodes.insert(original_nodes.end(), it->second.begin(), it->second.end());
+                if (it != current_level.node_mapping.end()) {
+                    for (int orig : it->second) {
+                        if (find(original_nodes.begin(), original_nodes.end(), orig) 
+                            == original_nodes.end()) {
+                            original_nodes.push_back(orig);
+                        }
+                    }
                 } else {
-                    original_nodes.push_back(node_id);
+                    if (find(original_nodes.begin(), original_nodes.end(), node_id) 
+                        == original_nodes.end()) {
+                        original_nodes.push_back(node_id);
+                    }
                 }
             }
-
+            
             next_level.node_mapping[merged_node.id] = original_nodes;
         }
     }
     
-    // Thêm nodes không merge
     for (const auto& node : current_level.nodes) {
         if (node.id == depot_id) continue;
-        if (merged_nodes.find(node.id) == merged_nodes.end()){
+        if (merged_nodes.find(node.id) == merged_nodes.end()) {
             next_level.nodes.push_back(node);
             auto it = current_level.node_mapping.find(node.id);
             if (it != current_level.node_mapping.end()) {
@@ -1773,8 +1836,13 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
             }
         }
     }
-
+    
     classify_customers(next_level);
+    
+    cout << "\n✅ Level " << next_level.level_id << " created: " 
+         << current_level.nodes.size() << " → " << next_level.nodes.size() 
+         << " nodes (merged " << (current_level.nodes.size() - next_level.nodes.size()) 
+         << ")" << endl;
     
     return next_level;
 }
@@ -1934,7 +2002,6 @@ Solution unmerge_solution_to_previous_level(const Solution& coarse_sol, const Le
                 const vector<int>& fine_nodes = it->second;
                 
                 if (coarse_node_id == depot_id) {
-                    // Depot: chỉ thêm nếu chưa có
                     if (fine_sol.route[v].empty() || fine_sol.route[v].back() != depot_id) {
                         fine_sol.route[v].push_back(depot_id);
                     }
@@ -1943,7 +2010,6 @@ Solution unmerge_solution_to_previous_level(const Solution& coarse_sol, const Le
                     for (int fn : fine_nodes) cout << fn << " ";
                     cout << "]" << endl;
                     
-                    // Thêm tất cả fine nodes (theo thứ tự)
                     for (int fine_node_id : fine_nodes) {
                         if (fine_sol.route[v].empty() || 
                             fine_sol.route[v].back() != fine_node_id) {
@@ -1990,6 +2056,7 @@ Solution multilevel_tabu_search() {
     }
 
     classify_customers(current_level);
+    update_node_index_cache(current_level);
     evaluate_solution(s, &current_level);
 
     vector<LevelInfo> all_levels;
@@ -2003,9 +2070,14 @@ Solution multilevel_tabu_search() {
 
     while (coarsening && L < max_levels) {
         cout << "\n--- LEVEL " << L << " ---" << endl;   
+        update_node_index_cache(all_levels[L]);
 
-        edge_frequency.clear();
         Solution s_current = tabu_search(s, all_levels[L], true);
+
+        if (edge_frequency.empty()){
+            update_edge_frequency(s_current);
+        }
+
         for (size_t v = 0; v < s_current.route.size(); v++) {
             cout << "Vehicle " << v << ": ";
             for (int cid : s_current.route[v]) cout << cid << " ";
@@ -2058,11 +2130,13 @@ Solution multilevel_tabu_search() {
         C2 = next_level.C2_level;
         num_nodes = next_level.nodes.size();
         
+        update_node_index_cache(next_level);
         // Evaluate projected solution
         evaluate_solution(s, &next_level);
         cout << "Projected solution fitness: " << s.fitness << endl;
         
         L++;
+        edge_frequency.clear();
     }
     Solution best_overall = s;
     
@@ -2118,6 +2192,7 @@ Solution multilevel_tabu_search() {
         cout << "  Matrix: " << distances.size() << "x" 
              << (distances.empty() ? 0 : distances[0].size()) << endl;
         
+        update_node_index_cache(all_levels[prev_level_id]);
         evaluate_solution(s, &all_levels[prev_level_id]);
         cout << "Unmerged fitness: " << s.fitness << endl;
         
@@ -2126,6 +2201,7 @@ Solution multilevel_tabu_search() {
         
         edge_frequency.clear();
         s = tabu_search(s, all_levels[prev_level_id], false);
+        update_node_index_cache(all_levels[prev_level_id]);
         evaluate_solution(s, &all_levels[prev_level_id]);
         
         MAX_ITER = original_max_iter;
@@ -2146,7 +2222,7 @@ Solution multilevel_tabu_search() {
 
 int main(){
     srand(time(nullptr));
-    read_dataset("D:\\New folder\\instances\\10.5.2.txt");
+    read_dataset("D:\\New folder\\instances\\50.20.1.txt");
     printf("MAX_ITER: %d\n", MAX_ITER);
     printf("Segment length: %d\n", SEGMENT_LENGTH);
  
