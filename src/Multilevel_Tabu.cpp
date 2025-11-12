@@ -1469,11 +1469,6 @@ void create_coarse_distance_matrix(LevelInfo& next_level, const LevelInfo& curre
         }
     }
 
-    /*cout << "\n=== REVERSE MAPPING (Original → Current Level) ===" << endl;
-    for (const auto& pair : original_to_current_node) {
-        cout << "Original " << pair.first << " → Current level node " << pair.second << endl;
-    }*/
-
     for (int i = 0; i < n; i++){
         for (int j = 0; j < n; j++){
             if (i == j){
@@ -1484,14 +1479,6 @@ void create_coarse_distance_matrix(LevelInfo& next_level, const LevelInfo& curre
 
             vector<int> next_group_i = next_level.node_mapping[next_level.nodes[i].id];
             vector<int> next_group_j = next_level.node_mapping[next_level.nodes[j].id];
-
-            /*cout << "\nCalculating distance [" << next_level.nodes[i].id << "][" << next_level.nodes[j].id << "]" << endl;
-            cout << "  Next group i: [";
-            for (int x : next_group_i) cout << x << " ";
-            cout << "]" << endl;
-            cout << "  Next group j: [";
-            for (int x : next_group_j) cout << x << " ";
-            cout << "]" << endl;*/
 
             vector<int> current_group_i, current_group_j;
             
@@ -1515,13 +1502,7 @@ void create_coarse_distance_matrix(LevelInfo& next_level, const LevelInfo& curre
                 }
             }
 
-            /*cout << "  Current level group i: [";
-            for (int x : current_group_i) cout << x << " ";
-            cout << "]" << endl;
-            cout << "  Current level group j: [";
-            for (int x : current_group_j) cout << x << " ";
-            cout << "]" << endl;*/
-
+            // ✅ SINGLE TO SINGLE - KHÔNG ĐỔI
             if (current_group_i.size() == 1 && current_group_j.size() == 1){
                 int curr_i = current_group_i[0];
                 int curr_j = current_group_j[0];
@@ -1532,63 +1513,95 @@ void create_coarse_distance_matrix(LevelInfo& next_level, const LevelInfo& curre
                 if (idx_i != -1 && idx_j != -1){
                     next_distances[i][j] = curr_distances[idx_i][idx_j];
                     next_original_distances[i][j] = curr_original_distances[idx_i][idx_j];
+                }
+            } 
+            else {
+                auto calculate_distance = [&](const vector<int>& group_i, const vector<int>& group_j) -> pair<double, double> {
+                    double total_dist = 0.0;
+                    double total_orig = 0.0;
                     
-                    //cout << "  → Single to single: distance=" << next_distances[i][j] << endl;
-                }
-            } else {
-                int exit_current_i = current_group_i.back();
-                int idx_exit_i = find_node_index_fast(exit_current_i);
-                
-                int entry_current_j = current_group_j.front();
-                int idx_entry_j = find_node_index_fast(entry_current_j);
+                    // Khoảng cách trong group i
+                    for (size_t k = 0; k < group_i.size() - 1; k++) {
+                        int from = group_i[k];
+                        int to = group_i[k + 1];
+                        int idx_from = find_node_index_fast(from);
+                        int idx_to = find_node_index_fast(to);
 
-                double total_distance = 0.0;
+                        if (idx_from != -1 && idx_to != -1) {
+                            total_dist += curr_distances[idx_from][idx_to];
+                        }
+                    }
+                    
+                    // Khoảng cách giữa 2 groups
+                    int exit_i = group_i.back();
+                    int entry_j = group_j.front();
+                    int idx_exit = find_node_index_fast(exit_i);
+                    int idx_entry = find_node_index_fast(entry_j);
+                    
+                    if (idx_exit != -1 && idx_entry != -1) {
+                        total_dist += curr_distances[idx_exit][idx_entry];
+                        total_orig = curr_original_distances[idx_exit][idx_entry];
+                    }
+                    
+                    // Khoảng cách trong group j
+                    for (size_t k = 0; k < group_j.size() - 1; k++) {
+                        int from = group_j[k];
+                        int to = group_j[k + 1];
+                        int idx_from = find_node_index_fast(from);
+                        int idx_to = find_node_index_fast(to);
+
+                        if (idx_from != -1 && idx_to != -1) {
+                            total_dist += curr_distances[idx_from][idx_to];
+                        }
+                    }
+                    
+                    return {total_dist, total_orig};
+                };
                 
+                vector<pair<double, double>> candidates; // {distance, original_distance}
+                
+                // 1. Chiều thuận cả 2: i → j
+                candidates.push_back(calculate_distance(current_group_i, current_group_j));
+                
+                // 2. Đảo i: reverse(i) → j
                 if (current_group_i.size() > 1) {
-                    //cout << "  → Group i has " << current_group_i.size() << " nodes in current level" << endl;
-                    for (size_t k = 0; k < current_group_i.size() - 1; k++) {
-                        int from = current_group_i[k];
-                        int to = current_group_i[k + 1];
-                        int idx_from = find_node_index_fast(from);
-                        int idx_to = find_node_index_fast(to);
-
-                        if (idx_from != -1 && idx_to != -1) {
-                            double d = curr_distances[idx_from][idx_to];
-                            total_distance += d;
-                            //cout << "    " << from << " → " << to << ": " << d << endl;
-                        }
-                    }
+                    vector<int> reversed_i = current_group_i;
+                    reverse(reversed_i.begin(), reversed_i.end());
+                    candidates.push_back(calculate_distance(reversed_i, current_group_j));
                 }
-
-                if (idx_exit_i != -1 && idx_entry_j != -1) {
-                    double d = curr_distances[idx_exit_i][idx_entry_j];
-                    total_distance += d;
-                    //cout << "  → Between groups: " << exit_current_i << " → " << entry_current_j << ": " << d << endl;
-                }
-
+                
+                // 3. Đảo j: i → reverse(j)
                 if (current_group_j.size() > 1) {
-                    //cout << "  → Group j has " << current_group_j.size() << " nodes in current level" << endl;
-                    for (size_t k = 0; k < current_group_j.size() - 1; k++) {
-                        int from = current_group_j[k];
-                        int to = current_group_j[k + 1];
-                        int idx_from = find_node_index_fast(from);
-                        int idx_to = find_node_index_fast(to);
-
-                        if (idx_from != -1 && idx_to != -1) {
-                            double d = curr_distances[idx_from][idx_to];
-                            total_distance += d;
-                            //cout << "    " << from << " → " << to << ": " << d << endl;
-                        }
+                    vector<int> reversed_j = current_group_j;
+                    reverse(reversed_j.begin(), reversed_j.end());
+                    candidates.push_back(calculate_distance(current_group_i, reversed_j));
+                }
+                
+                // 4. Đảo cả 2: reverse(i) → reverse(j)
+                if (current_group_i.size() > 1 && current_group_j.size() > 1) {
+                    vector<int> reversed_i = current_group_i;
+                    vector<int> reversed_j = current_group_j;
+                    reverse(reversed_i.begin(), reversed_i.end());
+                    reverse(reversed_j.begin(), reversed_j.end());
+                    candidates.push_back(calculate_distance(reversed_i, reversed_j));
+                }
+                
+                // ✅ CHỌN ORIENTATION TỐT NHẤT (KHOẢNG CÁCH NHỎ NHẤT)
+                double best_dist = DBL_MAX;
+                double best_orig = 0.0;
+                
+                for (const auto& candidate : candidates) {
+                    if (candidate.first < best_dist) {
+                        best_dist = candidate.first;
+                        best_orig = candidate.second;
                     }
                 }
-
-                next_distances[i][j] = total_distance;
-                //cout << "  → Total distance: " << total_distance << endl;
-
-                if (idx_exit_i != -1 && idx_entry_j != -1){
-                    next_original_distances[i][j] = curr_original_distances[idx_exit_i][idx_entry_j];
-                    //cout << "  → Original distance: " << next_original_distances[i][j] << endl;
-                }
+                
+                next_distances[i][j] = best_dist;
+                next_original_distances[i][j] = best_orig;
+                
+                /*cout << "  [" << i << "][" << j << "] tried " << candidates.size() 
+                     << " orientations → best: " << best_dist << endl;*/
             }
         }
     }
