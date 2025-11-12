@@ -132,35 +132,16 @@ jobs:
                         vehicle_id = int(match.group(1))
                         vehicle_text = match.group(2)
                         
-                        # Parse route
                         route_nodes = []
                         for token in vehicle_text.split():
                             if token.isdigit():
                                 route_nodes.append(int(token))
                         
-                        if len(route_nodes) >= 2:  # At least depot-depot
-                            veh_makespan = veh_drone_viol = veh_waiting_viol = 0.0
-                            
-                            # Tìm metrics của xe này
-                            remaining_text = solution_section[match.end():match.end()+200]
-                            for line in remaining_text.split('\n')[:5]:
-                                if "Makespan:" in line:
-                                    m = re.search(r'Makespan:\s*([\d.]+)', line)
-                                    if m: veh_makespan = float(m.group(1))
-                                if "Drone violation:" in line:
-                                    m = re.search(r'Drone violation:\s*([\d.]+)', line)
-                                    if m: veh_drone_viol = float(m.group(1))
-                                if "Waiting violation:" in line:
-                                    m = re.search(r'Waiting violation:\s*([\d.]+)', line)
-                                    if m: veh_waiting_viol = float(m.group(1))
-                            
+                        if len(route_nodes) >= 2:
                             vehicle_details.append({
                                 "vehicle_id": vehicle_id,
                                 "route": route_nodes,
                                 "route_str": " -> ".join(map(str, route_nodes)),
-                                "makespan": round(veh_makespan, 4),
-                                "drone_violation": round(veh_drone_viol, 4),
-                                "waiting_violation": round(veh_waiting_viol, 4),
                                 "num_customers": len(route_nodes) - 2
                             })
                 
@@ -181,7 +162,7 @@ jobs:
             except Exception as e:
                 return {"error": str(e), "fitness": float('inf')}
         
-        # ========== PARSE TẤT CẢ 5 RUNS ==========
+        # Parse tất cả 5 runs
         all_runs = []
         for run in range(1, 6):
             output_file = f"output_run{run}.txt"
@@ -197,7 +178,7 @@ jobs:
                 runtime = result.get('runtime_seconds', 0)
                 print(f"{status} Run {run}: Fitness={fitness:.4f}, Runtime={runtime:.2f}s")
         
-        # ========== CHỌN BEST RUN (FITNESS THẤP NHẤT) ==========
+        # Chọn best run
         best_run = min(all_runs, key=lambda x: x.get('fitness', float('inf')))
         
         print(f"\n🏆 BEST RUN: Run {best_run['run_number']}")
@@ -206,15 +187,14 @@ jobs:
         print(f"   Feasible: {best_run['feasible']}")
         print(f"   Runtime: {best_run['runtime_seconds']:.2f}s")
         
-        # ========== LƯU BEST RESULT ==========
+        # Lưu results
         with open("result.json", "w") as f:
             json.dump(best_run, f, indent=2)
         
-        # ========== LƯU ALL RUNS SUMMARY ==========
         with open("all_runs.json", "w") as f:
             json.dump(all_runs, f, indent=2)
         
-        # ========== TẠO SUMMARY TABLE ==========
+        # Summary table
         print("\n" + "="*80)
         print(f"📊 SUMMARY FOR {instance}")
         print("="*80)
@@ -563,29 +543,77 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         pattern: result-*
-        merge-multiple: true
+        merge-multiple: false
+    
+    - name: List downloaded files
+      run: |
+        echo "📁 Downloaded artifacts structure:"
+        find . -name "*.json" -type f
+        echo ""
+        echo "📂 Directory structure:"
+        ls -R
     
     - name: Create master comprehensive CSV
       run: |
         python3 <<'EOF'
-        import json, glob, csv
+        import json, glob, csv, os
         
         results = []
-        for f in sorted(glob.glob("result.json")):
-            try:
-                with open(f) as file:
-                    data = json.load(file)
-                    if "error" not in data:
-                        results.append(data)
-            except:
-                pass
         
+        print("🔍 Searching for result.json files...")
+        
+        # Tìm tất cả file result.json trong các thư mục result-*
+        for result_dir in glob.glob("result-*"):
+            result_file = os.path.join(result_dir, "result.json")
+            
+            if os.path.exists(result_file):
+                try:
+                    with open(result_file) as f:
+                        data = json.load(f)
+                        if "error" not in data:
+                            results.append(data)
+                            print(f"  ✅ Loaded: {result_file} - Instance: {data.get('instance', 'unknown')}")
+                        else:
+                            print(f"  ⚠️  Skipped (has error): {result_file}")
+                except Exception as e:
+                    print(f"  ❌ Failed to parse: {result_file} - {e}")
+        
+        print(f"\n📊 Total valid results: {len(results)}")
+        
+        if len(results) == 0:
+            print("❌ ERROR: No valid results found!")
+            print("\nTrying alternative search method...")
+            
+            for result_file in glob.glob("**/result.json", recursive=True):
+                print(f"  Found: {result_file}")
+                try:
+                    with open(result_file) as f:
+                        data = json.load(f)
+                        if "error" not in data and "instance" in data:
+                            results.append(data)
+                            print(f"    ✅ Added: {data['instance']}")
+                except:
+                    pass
+        
+        if len(results) == 0:
+            print("❌ FATAL: Still no results found! Creating empty CSV.")
+            with open("MASTER_RESULTS.csv", "w") as f:
+                f.write("Instance,Error\n")
+                f.write("NO_RESULTS,No valid result files found\n")
+            exit(0)
+        
+        # Sắp xếp theo instance
         results.sort(key=lambda x: (
             int(x["instance"].split(".")[0]),
             int(x["instance"].split(".")[1]),
             int(x["instance"].split(".")[2])
         ))
         
+        print("\n📋 Instances in final CSV:")
+        for idx, r in enumerate(results, 1):
+            print(f"  {idx}. {r['instance']} - Run {r.get('run_number', '?')} - Fitness: {r.get('fitness', 0):.4f}")
+        
+        # Tạo CSV
         with open("MASTER_RESULTS.csv", "w", newline="", encoding="utf-8") as f:
             max_vehicles = max((r.get("num_vehicles", 0) for r in results), default=0)
             
@@ -631,8 +659,32 @@ jobs:
                 
                 writer.writerow(row)
         
-        print("✅ MASTER CSV CREATED with best results from 5 runs per instance")
+        print(f"\n✅ MASTER CSV CREATED: {len(results)} instances (best of 5 runs each)")
+        
+        # Statistics summary
+        feasible_count = sum(1 for r in results if r.get("feasible", False))
+        print(f"\n📈 FINAL SUMMARY:")
+        print(f"   Total instances: {len(results)}")
+        print(f"   Feasible solutions: {feasible_count} ({100*feasible_count/len(results):.1f}%)")
+        print(f"   Infeasible: {len(results) - feasible_count}")
+        
+        if feasible_count > 0:
+            feasible_results = [r for r in results if r.get("feasible", False)]
+            avg_fitness = sum(r["fitness"] for r in feasible_results) / len(feasible_results)
+            avg_runtime = sum(r["runtime_seconds"] for r in feasible_results) / len(feasible_results)
+            
+            print(f"\n   Average fitness (feasible): {avg_fitness:.4f}")
+            print(f"   Average runtime (feasible): {avg_runtime:.2f}s")
+        
         EOF
+    
+    - name: Verify CSV content
+      run: |
+        echo "📄 CSV Preview (first 10 lines):"
+        head -10 MASTER_RESULTS.csv
+        echo ""
+        echo "📊 Total rows:"
+        wc -l MASTER_RESULTS.csv
     
     - name: Upload master CSV
       uses: actions/upload-artifact@v4
@@ -640,3 +692,46 @@ jobs:
         name: master-results
         path: MASTER_RESULTS.csv
         retention-days: 90
+    
+    - name: Create summary report
+      run: |
+        python3 <<'EOF'
+        import csv
+        
+        with open("MASTER_RESULTS.csv", "r") as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+        
+        print("\n" + "="*80)
+        print("📊 EXPERIMENT SUMMARY REPORT")
+        print("="*80)
+        
+        by_size = {}
+        for row in rows:
+            size = row["Instance_Size"]
+            if size not in by_size:
+                by_size[size] = {"total": 0, "feasible": 0, "avg_fitness": 0.0, "avg_runtime": 0.0}
+            
+            by_size[size]["total"] += 1
+            if row["Is_Feasible"] == "YES":
+                by_size[size]["feasible"] += 1
+                by_size[size]["avg_fitness"] += float(row["Final_Fitness"])
+                by_size[size]["avg_runtime"] += float(row["Runtime_Seconds"])
+        
+        for size in sorted(by_size.keys(), key=int):
+            data = by_size[size]
+            feasible = data["feasible"]
+            total = data["total"]
+            
+            print(f"\n📦 Instance Size: {size}")
+            print(f"   Total: {total} instances")
+            print(f"   Feasible: {feasible}/{total} ({100*feasible/total:.1f}%)")
+            
+            if feasible > 0:
+                avg_fit = data["avg_fitness"] / feasible
+                avg_time = data["avg_runtime"] / feasible
+                print(f"   Avg Fitness: {avg_fit:.4f}")
+                print(f"   Avg Runtime: {avg_time:.2f}s")
+        
+        print("\n" + "="*80)
+        EOF
