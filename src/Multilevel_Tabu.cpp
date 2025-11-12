@@ -62,11 +62,21 @@ struct LevelInfo {
     LevelInfo() : level_id(0), num_customers(0) {}
 };
 
+struct MergedNodeOrientation {
+    int merged_node_id;      // ID của merged node
+    bool is_reversed;        // Có đảo chiều không
+    int level_id;            // Level nào
+    
+    MergedNodeOrientation(int id = -1, bool rev = false, int lvl = -1) 
+        : merged_node_id(id), is_reversed(rev), level_id(lvl) {}
+};
+
 vector<vector<double>> distances;
 vector<vector<double>> original_distances; // dùng khi merge các khách hàng cho level
 vector<Node> C1; // customers served only by technicians
 vector<Node> C2; // customers served by drones or technicians
 vector<VehicleFamily> vehicles;
+map<int, MergedNodeOrientation> merged_node_orientations;
 
 int depot_id = 0;
 int num_nodes = 0;
@@ -358,7 +368,7 @@ void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) 
     sol.fitness = sol.makespan + alpha1*sol.drone_violation + alpha2*sol.waiting_violation;
 }
 
-Solution init_greedy_solution() {
+/* Solution init_greedy_solution() {
     Solution sol;
     sol.route.resize(vehicles.size());
 
@@ -366,7 +376,7 @@ Solution init_greedy_solution() {
     for (size_t v = 0; v < vehicles.size(); ++v)
         sol.route[v].push_back(depot_id);
 
-    /*// --- Gán C1 cho technician trước ---
+    /// --- Gán C1 cho technician trước ---
     vector<int> unserved_C1;
     for (const auto& n : C1) unserved_C1.push_back(n.id);
 
@@ -399,7 +409,7 @@ Solution init_greedy_solution() {
         sol.route[vehicle_id].push_back(best_cid);
         tech_pos[best_tech] = best_cid;
         unserved_C1.erase(unserved_C1.begin() + best_idx);
-    } */
+    } /
 
     // --- Gán C2 cho tất cả xe ---
     vector<int> unserved_C2;
@@ -442,6 +452,99 @@ Solution init_greedy_solution() {
     }
 
     evaluate_solution(sol);
+    return sol;
+} */
+
+Solution init_greedy_solution() {
+    Solution sol;
+    sol.route.resize(vehicles.size());
+
+    // Khởi tạo: mỗi xe bắt đầu từ depot
+    for (size_t v = 0; v < vehicles.size(); ++v)
+        sol.route[v].push_back(depot_id);
+
+    // ✅ ROUND-ROBIN ASSIGNMENT - ĐẢM BẢO MỖI XE ĐỀU CÓ KHÁCH
+    vector<int> unserved_C2;
+    for (const auto& n : C2) unserved_C2.push_back(n.id);
+
+    // Sắp xếp theo khoảng cách từ depot (gần nhất trước)
+    sort(unserved_C2.begin(), unserved_C2.end(), [](int a, int b) {
+        return distances[depot_id][a] < distances[depot_id][b];
+    });
+
+    // ✅ PHÂN BỔ ĐỀU CHO TẤT CẢ XE THEO VÒNG TRÒN
+    size_t current_vehicle = 0;
+    
+    while (!unserved_C2.empty()) {
+        int cid = unserved_C2.front();
+        unserved_C2.erase(unserved_C2.begin());
+        
+        // Gán cho xe tiếp theo
+        sol.route[current_vehicle].push_back(cid);
+        
+        // Chuyển sang xe tiếp theo (vòng tròn)
+        current_vehicle = (current_vehicle + 1) % vehicles.size();
+    }
+
+    // ✅ KIỂM TRA VÀ TÁI PHÂN BỔ NẾU CÓ XE TRỐNG
+    cout << "\n=== INITIAL CUSTOMER DISTRIBUTION ===" << endl;
+    
+    for (size_t v = 0; v < vehicles.size(); v++) {
+        int count = sol.route[v].size() - 1; // Không tính depot đầu
+        cout << "  Vehicle " << v << ": " << count << " customers";
+        if (count == 0) cout << " ⚠️ EMPTY!";
+        cout << endl;
+    }
+
+    // ✅ NẾU CÓ XE TRỐNG, LẤY KHÁCH TỪ XE ĐÔNG NHẤT
+    bool rebalanced = false;
+    for (size_t v = 0; v < vehicles.size(); v++) {
+        if (sol.route[v].size() <= 1) { // Chỉ có depot
+            // Tìm xe có nhiều khách nhất
+            size_t max_vehicle = 0;
+            int max_customers = 0;
+            
+            for (size_t v2 = 0; v2 < vehicles.size(); v2++) {
+                int count = sol.route[v2].size() - 1;
+                if (count > max_customers) {
+                    max_customers = count;
+                    max_vehicle = v2;
+                }
+            }
+            
+            // Chuyển 1 khách từ xe đông nhất sang xe trống
+            if (max_customers > 1) {
+                int customer = sol.route[max_vehicle][1]; // Lấy khách đầu tiên (sau depot)
+                sol.route[max_vehicle].erase(sol.route[max_vehicle].begin() + 1);
+                sol.route[v].push_back(customer);
+                
+                cout << "  → Rebalanced: Moved customer " << customer 
+                     << " from Vehicle " << max_vehicle 
+                     << " to Vehicle " << v << endl;
+                rebalanced = true;
+            }
+        }
+    }
+
+    // Kết thúc: đảm bảo mỗi route kết thúc bằng depot
+    for (size_t v = 0; v < vehicles.size(); v++) {
+        if (sol.route[v].empty() || sol.route[v].back() != depot_id) {
+            sol.route[v].push_back(depot_id);
+        }
+    }
+
+    // ✅ IN RA PHÂN BỔ CUỐI CÙNG
+    if (rebalanced) {
+        cout << "\n=== FINAL BALANCED DISTRIBUTION ===" << endl;
+        for (size_t v = 0; v < vehicles.size(); v++) {
+            int count = sol.route[v].size() - 2; // Không tính 2 depots
+            cout << "  Vehicle " << v << ": " << count << " customers" << endl;
+        }
+    }
+
+    evaluate_solution(sol);
+    cout << "Initial solution fitness: " << sol.fitness << endl;
+    
     return sol;
 }
 
@@ -719,68 +822,109 @@ vector<int> get_merged_group(int node_id, const LevelInfo& level) {
     return {node_id};
 }
 
-double calculate_orientation_cost(int prev_node, int next_node, 
-                                   const vector<int>& group, 
-                                   bool reverse_group,
-                                   const LevelInfo* level) {
+double calculate_orientation_cost(int prev_node, int next_node, const vector<int>& group, bool reverse_group, const LevelInfo* level) {
     if (group.size() <= 1) return 0.0;
     
+    // ✅ KIỂM TRA LEVEL
+    if (level == nullptr) {
+        cerr << "ERROR: level is null in calculate_orientation_cost" << endl;
+        return DBL_MAX;
+    }
+    
+    // Entry và exit nodes dựa trên orientation
     int entry_node = reverse_group ? group.back() : group.front();
     int exit_node = reverse_group ? group.front() : group.back();
     
+    // ✅ TÌM INDEX CHO TẤT CẢ NODES - BỎ QUA NẾU KHÔNG TÌM THẤY
     int idx_prev = find_node_index_fast(prev_node);
     int idx_entry = find_node_index_fast(entry_node);
     int idx_exit = find_node_index_fast(exit_node);
     int idx_next = find_node_index_fast(next_node);
     
+    // ✅ KIỂM TRA CÁC TRƯỜNG HỢP LỖI
     if (idx_prev < 0 || idx_entry < 0 || idx_exit < 0 || idx_next < 0) {
+        // Không tìm thấy node trong level hiện tại - SKIP
         return DBL_MAX;
     }
     
-    if (idx_prev >= distances.size() || idx_next >= distances[0].size()) {
+    if (idx_prev >= distances.size() || idx_next >= distances.size() ||
+        idx_entry >= distances.size() || idx_exit >= distances.size()) {
+        cerr << "ERROR: Index out of bounds in calculate_orientation_cost" << endl;
+        cerr << "  prev=" << idx_prev << ", entry=" << idx_entry 
+             << ", exit=" << idx_exit << ", next=" << idx_next 
+             << ", matrix_size=" << distances.size() << endl;
+        return DBL_MAX;
+    }
+    
+    if (distances.empty() || distances[0].size() < distances.size()) {
+        cerr << "ERROR: Invalid distance matrix dimensions" << endl;
         return DBL_MAX;
     }
     
     double cost = 0.0;
     
-    // Khoảng cách từ prev đến entry
-    cost += distances[idx_prev][idx_entry];
+    // ✅ KHOẢNG CÁCH TỪ PREV ĐẾN ENTRY
+    if (idx_prev < distances.size() && idx_entry < distances[0].size()) {
+        cost += distances[idx_prev][idx_entry];
+    } else {
+        return DBL_MAX;
+    }
     
-    // Khoảng cách TRONG group
+    // ✅ KHOẢNG CÁCH TRONG GROUP
     if (reverse_group) {
         // Đảo chiều: group.back() -> ... -> group.front()
         for (int i = group.size() - 1; i > 0; i--) {
             int from_idx = find_node_index_fast(group[i]);
             int to_idx = find_node_index_fast(group[i - 1]);
-            if (from_idx >= 0 && to_idx >= 0 && 
-                from_idx < distances.size() && to_idx < distances[0].size()) {
-                cost += distances[from_idx][to_idx];
+            
+            if (from_idx < 0 || to_idx < 0) {
+                // Node trong group không tồn tại ở level hiện tại
+                // Đây là trường hợp node gốc bị merge
+                return DBL_MAX;
             }
+            
+            if (from_idx >= distances.size() || to_idx >= distances[0].size()) {
+                return DBL_MAX;
+            }
+            
+            cost += distances[from_idx][to_idx];
         }
     } else {
         // Thuận: group.front() -> ... -> group.back()
         for (size_t i = 0; i < group.size() - 1; i++) {
             int from_idx = find_node_index_fast(group[i]);
             int to_idx = find_node_index_fast(group[i + 1]);
-            if (from_idx >= 0 && to_idx >= 0 && 
-                from_idx < distances.size() && to_idx < distances[0].size()) {
-                cost += distances[from_idx][to_idx];
+            
+            if (from_idx < 0 || to_idx < 0) {
+                // Node trong group không tồn tại ở level hiện tại
+                return DBL_MAX;
             }
+            
+            if (from_idx >= distances.size() || to_idx >= distances[0].size()) {
+                return DBL_MAX;
+            }
+            
+            cost += distances[from_idx][to_idx];
         }
     }
     
-    // Khoảng cách từ exit đến next
-    cost += distances[idx_exit][idx_next];
+    // ✅ KHOẢNG CÁCH TỪ EXIT ĐẾN NEXT
+    if (idx_exit < distances.size() && idx_next < distances[0].size()) {
+        cost += distances[idx_exit][idx_next];
+    } else {
+        return DBL_MAX;
+    }
     
     return cost;
 }
 
-pair<bool, double> find_best_orientation(const vector<int>& route, 
-                                         int pos, 
-                                         int merged_node_id,
-                                         const LevelInfo* level) {
+pair<bool, double> find_best_orientation(const vector<int>& route, int pos, int merged_node_id, const LevelInfo* level) {
+    if (level == nullptr) {
+        return {false, 0.0};
+    }
+    
     if (!is_merged_node(merged_node_id, *level)) {
-        return {false, 0.0}; // Không phải merged node
+        return {false, 0.0};
     }
     
     vector<int> group = get_merged_group(merged_node_id, *level);
@@ -788,7 +932,6 @@ pair<bool, double> find_best_orientation(const vector<int>& route,
         return {false, 0.0};
     }
     
-    // Lấy prev và next node
     int prev_node = depot_id;
     int next_node = depot_id;
     
@@ -799,21 +942,43 @@ pair<bool, double> find_best_orientation(const vector<int>& route,
         next_node = route[pos + 1];
     }
     
-    // Tính cost cho cả 2 orientations
     double cost_normal = calculate_orientation_cost(prev_node, next_node, group, false, level);
     double cost_reversed = calculate_orientation_cost(prev_node, next_node, group, true, level);
     
-    cout << "    Orientation check: node=" << merged_node_id 
-         << " normal=" << cost_normal 
-         << " reversed=" << cost_reversed;
-    
-    if (cost_reversed < cost_normal - EPSILON) {
-        cout << " → REVERSED ✓" << endl;
-        return {true, cost_reversed};
-    } else {
-        cout << " → NORMAL" << endl;
-        return {false, cost_normal};
+    if (cost_normal >= DBL_MAX - 1.0 && cost_reversed >= DBL_MAX - 1.0) {
+        return {false, 0.0};
     }
+    
+    bool should_reverse = false;
+    double chosen_cost = 0.0;
+    
+    if (cost_normal < DBL_MAX - 1.0 || cost_reversed < DBL_MAX - 1.0) {
+        if (cost_reversed < cost_normal - EPSILON) {
+            should_reverse = true;
+            chosen_cost = cost_reversed;
+            
+            // ✅ LƯU ORIENTATION INFO
+            merged_node_orientations[merged_node_id] = 
+                MergedNodeOrientation(merged_node_id, true, level->level_id);
+            
+            cout << "    Orientation: node=" << merged_node_id 
+                 << " normal=" << cost_normal 
+                 << " reversed=" << cost_reversed << " → REVERSED ✓" << endl;
+        } else {
+            should_reverse = false;
+            chosen_cost = cost_normal;
+            
+            // ✅ LƯU ORIENTATION INFO (NORMAL)
+            merged_node_orientations[merged_node_id] = 
+                MergedNodeOrientation(merged_node_id, false, level->level_id);
+            
+            cout << "    Orientation: node=" << merged_node_id 
+                 << " normal=" << cost_normal 
+                 << " reversed=" << cost_reversed << " → NORMAL" << endl;
+        }
+    }
+    
+    return {should_reverse, chosen_cost};
 }
 
 bool is_tabu(const vector<TabuMove> &tabu_list, const TabuMove &move){
@@ -883,7 +1048,15 @@ Solution move_1_0(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
     Solution new_sol = current_sol;
     int cid = new_sol.route[v1][pos1];
     if (cid == depot_id) return current_sol; // không di chuyển depot
-        // Kiểm tra không được chèn vào vị trí 0 (trước depot xuất phát)
+    int customer_count = 0;
+    for (int node : new_sol.route[v1]) {
+        if (node != depot_id) customer_count++;
+    }
+    
+    if (customer_count <= 1) {
+        // Xe chỉ còn 1 khách - không được di chuyển
+        return current_sol;
+    }
     if (pos2 == 0) {
         return current_sol;
     }
@@ -1002,6 +1175,15 @@ Solution move_1_1(Solution current_sol, size_t v1, size_t node1, size_t v2, size
 
 Solution move_2_0(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_t pos2, const LevelInfo *current_level){
     Solution new_sol = current_sol;
+    int customer_count = 0;
+    for (int node : new_sol.route[v1]) {
+        if (node != depot_id) customer_count++;
+    }
+    
+    if (customer_count <= 2) {
+        // Xe chỉ còn 2 khách - không được di chuyển cả 2
+        return current_sol;
+    }
     int cid1 = new_sol.route[v1][pos1];
     int cid2 = new_sol.route[v1][pos1+1];
     new_sol.route[v1].erase(new_sol.route[v1].begin() + pos1 + 1);
@@ -1035,6 +1217,25 @@ Solution move_2_1(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
     }
     
     if (pos1 + 1 >= new_sol.route[v1].size() - 1) {
+        return current_sol;
+    }
+    int customer_count_v1 = 0;
+    for (int node : new_sol.route[v1]) {
+        if (node != depot_id) customer_count_v1++;
+    }
+    
+    if (customer_count_v1 <= 2) {
+        // Xe chỉ còn 2 khách - swap sẽ tạo xe trống
+        return current_sol;
+    }
+    
+    int customer_count_v2 = 0;
+    for (int node : new_sol.route[v2]) {
+        if (node != depot_id) customer_count_v2++;
+    }
+    
+    if (customer_count_v2 <= 1) {
+        // Xe chỉ còn 1 khách - swap sẽ tạo xe trống
         return current_sol;
     }
     
@@ -1120,6 +1321,21 @@ Solution move_2_2(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
     }
     
     if (pos1 + 1 >= new_sol.route[v1].size() - 1 || pos2 + 1 >= new_sol.route[v2].size() - 1) {
+        return current_sol;
+    }
+
+    int customer_count_v1 = 0;
+    for (int node : new_sol.route[v1]) {
+        if (node != depot_id) customer_count_v1++;
+    }
+    
+    int customer_count_v2 = 0;
+    for (int node : new_sol.route[v2]) {
+        if (node != depot_id) customer_count_v2++;
+    }
+    
+    if (customer_count_v1 <= 2 || customer_count_v2 <= 2) {
+        // Swap 2-2 sẽ tạo xe trống
         return current_sol;
     }
     
@@ -1334,6 +1550,25 @@ Solution move_2opt(Solution current_sol, size_t v1, size_t pos1, size_t v2, size
     return new_sol;
 }
 
+bool would_create_empty_vehicle(const Solution& sol, size_t vehicle_idx) {
+    if (sol.route[vehicle_idx].size() <= 2) {
+        for (int node : sol.route[vehicle_idx]) {
+            if (node != depot_id) return false;
+        }
+        return true; // Xe trống
+    }
+    return false;
+}
+
+// ✅ HELPER: Đếm số khách hàng của xe (không tính depot)
+int count_customers_in_vehicle(const Solution& sol, size_t vehicle_idx) {
+    int count = 0;
+    for (int node : sol.route[vehicle_idx]) {
+        if (node != depot_id) count++;
+    }
+    return count;
+}
+
 Solution tabu_search(Solution initial_sol, const LevelInfo &current_level, bool track_edge = true){
     update_node_index_cache(current_level);
     optimize_all_drone_routes(initial_sol, &current_level);
@@ -1420,6 +1655,11 @@ Solution tabu_search(Solution initial_sol, const LevelInfo &current_level, bool 
                 for (size_t pos1 = 1; pos1 < current_sol.route[v1].size()-1; pos1++) {
                     int n1 = current_sol.route[v1][pos1];
                     if (n1 == depot_id) continue;
+
+                    int customer_count_v1 = count_customers_in_vehicle(current_sol, v1);
+                    if (customer_count_v1 <= 1) {
+                        continue; 
+                    }
 
                     for (size_t v2 = 0; v2 < current_sol.route.size(); v2++) {
                         if (v1 == v2) continue;
@@ -2362,7 +2602,6 @@ Solution unmerge_solution_to_previous_level(const Solution& coarse_sol, const Le
     fine_sol.route.resize(coarse_sol.route.size());
     
     map<int, vector<int>> coarse_to_fine_mapping;
-    
     coarse_to_fine_mapping[depot_id] = {depot_id};
     
     for (const auto& coarse_node : coarse_level.nodes) {
@@ -2372,7 +2611,6 @@ Solution unmerge_solution_to_previous_level(const Solution& coarse_sol, const Le
         if (it_coarse == coarse_level.node_mapping.end()) continue;
         
         const vector<int>& coarse_original_nodes = it_coarse->second;
-        
         vector<int> corresponding_fine_nodes;
         
         for (int orig : coarse_original_nodes) {
@@ -2391,22 +2629,33 @@ Solution unmerge_solution_to_previous_level(const Solution& coarse_sol, const Le
                                 fine_node.id) == corresponding_fine_nodes.end()) {
                             corresponding_fine_nodes.push_back(fine_node.id);
                         }
-                        break; 
+                        break;
                     }
                 }
             }
         }
         
-        coarse_to_fine_mapping[coarse_node.id] = corresponding_fine_nodes;
+        // ✅ KIỂM TRA VÀ ÁP DỤNG ORIENTATION
+        auto orient_it = merged_node_orientations.find(coarse_node.id);
+        if (orient_it != merged_node_orientations.end() && orient_it->second.is_reversed) {
+            reverse(corresponding_fine_nodes.begin(), corresponding_fine_nodes.end());
+            cout << "Coarse node " << coarse_node.id << " [";
+            for (int orig : coarse_original_nodes) cout << orig << " ";
+            cout << "] -> Fine nodes [";
+            for (int fn : corresponding_fine_nodes) cout << fn << " ";
+            cout << "] 🔄 REVERSED" << endl;
+        } else {
+            cout << "Coarse node " << coarse_node.id << " [";
+            for (int orig : coarse_original_nodes) cout << orig << " ";
+            cout << "] -> Fine nodes [";
+            for (int fn : corresponding_fine_nodes) cout << fn << " ";
+            cout << "]" << endl;
+        }
         
-        cout << "Coarse node " << coarse_node.id << " [";
-        for (int orig : coarse_original_nodes) cout << orig << " ";
-        cout << "] -> Fine nodes [";
-        for (int fn : corresponding_fine_nodes) cout << fn << " ";
-        cout << "]" << endl;
+        coarse_to_fine_mapping[coarse_node.id] = corresponding_fine_nodes;
     }
     
-    // ✅ Unmerge routes
+    // ✅ Unmerge routes (giữ nguyên phần này)
     for (size_t v = 0; v < coarse_sol.route.size(); v++) {
         cout << "\nVehicle " << v << " coarse route: ";
         for (int id : coarse_sol.route[v]) cout << id << " ";
@@ -2426,7 +2675,14 @@ Solution unmerge_solution_to_previous_level(const Solution& coarse_sol, const Le
                 
                 cout << "  Coarse node " << coarse_node_id << " -> [";
                 for (int fn : fine_nodes) cout << fn << " ";
-                cout << "]" << endl;
+                cout << "]";
+                
+                // ✅ HIỂN THỊ ORIENTATION STATUS
+                auto orient_it = merged_node_orientations.find(coarse_node_id);
+                if (orient_it != merged_node_orientations.end() && orient_it->second.is_reversed) {
+                    cout << " 🔄";
+                }
+                cout << endl;
                 
                 for (int fine_node_id : fine_nodes) {
                     fine_sol.route[v].push_back(fine_node_id);
@@ -2556,6 +2812,13 @@ Solution multilevel_tabu_search() {
         int prev_level_id = L - i - 1;
         
         cout << "\n=== REFINING FROM LEVEL " << current_level_id << " TO LEVEL " << prev_level_id << " ===" << endl;
+
+        cout << "\n📋 Current Orientation Info:" << endl;
+        for (const auto& pair : merged_node_orientations) {
+            cout << "  Node " << pair.first 
+                 << " (Level " << pair.second.level_id << "): " 
+                 << (pair.second.is_reversed ? "REVERSED 🔄" : "NORMAL") << endl;
+        }
         
         // Unmerge solution
         s = unmerge_solution_to_previous_level(s, all_levels[current_level_id], all_levels[prev_level_id]);
@@ -2638,7 +2901,7 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\10.10.1.txt"; 
+        dataset_path = "D:\\New folder\\instances\\100.10.1.txt"; 
     }
     read_dataset(dataset_path);
     printf("MAX_ITER: %d\n", MAX_ITER);

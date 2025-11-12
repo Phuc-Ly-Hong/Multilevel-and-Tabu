@@ -41,7 +41,7 @@ jobs:
     name: Small ${{ matrix.instance }}
     needs: compile
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 50
     
     strategy:
       fail-fast: false
@@ -65,126 +65,201 @@ jobs:
       with:
         name: multilevel-executable
     
-    - name: Run instance
+    - name: Run instance 5 times
       run: |
         chmod +x multilevel_tabu
-        START_TIME=$(date +%s.%N)
-        timeout 8m ./multilevel_tabu instances/${{ matrix.instance }}.txt > output.txt 2>&1 || true
-        END_TIME=$(date +%s.%N)
-        RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
-        echo "RUNTIME_SECONDS=$RUNTIME" >> runtime.txt
-        echo "⏱️  Runtime: ${RUNTIME}s"
+        
+        echo "🔄 Running instance ${{ matrix.instance }} for 5 iterations..."
+        
+        for run in {1..5}; do
+          echo ""
+          echo "=========================================="
+          echo "   RUN $run / 5"
+          echo "=========================================="
+          
+          START_TIME=$(date +%s.%N)
+          timeout 8m ./multilevel_tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1 || true
+          END_TIME=$(date +%s.%N)
+          RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
+          echo "$RUNTIME" > runtime_run${run}.txt
+          
+          echo "⏱️  Run $run completed in ${RUNTIME}s"
+        done
+        
+        echo ""
+        echo "✅ All 5 runs completed!"
     
-    - name: Parse comprehensive results
+    - name: Parse and select best result
       run: |
         python3 <<'EOF'
-        import re, json, os
+        import re, json, os, glob
         instance = "${{ matrix.instance }}"
         
-        try:
-            with open("output.txt", "r") as f:
-                content = f.read()
-            
-            runtime = 0.0
-            if os.path.exists("runtime.txt"):
-                with open("runtime.txt", "r") as f:
-                    for line in f:
-                        if "RUNTIME_SECONDS=" in line:
-                            runtime = float(line.split("=")[1].strip())
-            
-            last_route_idx = content.rfind("Route details:")
-            makespan = drone_viol = waiting_viol = fitness = 0.0
-            vehicle_details = []
-            
-            if last_route_idx != -1:
-                solution_section = content[last_route_idx:]
+        def parse_output(output_file, runtime_file):
+            """Parse một output file và trả về result dict"""
+            try:
+                with open(output_file, "r") as f:
+                    content = f.read()
                 
-                for line in solution_section.split('\n'):
-                    if "Makespan:" in line:
-                        m = re.search(r'Makespan:\s*([\d.]+)', line)
-                        if m: makespan = float(m.group(1))
-                    if "Drone violation:" in line:
-                        m = re.search(r'Drone violation:\s*([\d.]+)', line)
-                        if m: drone_viol = float(m.group(1))
-                    if "Waiting violation:" in line:
-                        m = re.search(r'Waiting violation:\s*([\d.]+)', line)
-                        if m: waiting_viol = float(m.group(1))
-                    if "Fitness:" in line:
-                        m = re.search(r'Fitness:\s*([\d.]+)', line)
-                        if m: fitness = float(m.group(1))
+                runtime = 0.0
+                if os.path.exists(runtime_file):
+                    with open(runtime_file, "r") as f:
+                        runtime = float(f.read().strip())
                 
-                vehicle_pattern = re.compile(r'Vehicle (\d+):(.+?)(?=Vehicle \d+:|$)', re.DOTALL)
-                for match in vehicle_pattern.finditer(solution_section):
-                    vehicle_id = int(match.group(1))
-                    vehicle_text = match.group(2)
+                last_route_idx = content.rfind("Route details:")
+                makespan = drone_viol = waiting_viol = fitness = 0.0
+                vehicle_details = []
+                
+                if last_route_idx != -1:
+                    solution_section = content[last_route_idx:]
                     
-                    route_match = re.search(r'Route:\s*(.+?)(?=\n|$)', vehicle_text)
-                    if route_match:
-                        route_str = route_match.group(1).strip()
-                        route_nodes = [int(x) for x in route_str.split() if x.isdigit()]
+                    for line in solution_section.split('\n'):
+                        if "Makespan:" in line:
+                            m = re.search(r'Makespan:\s*([\d.]+)', line)
+                            if m: makespan = float(m.group(1))
+                        if "Drone violation:" in line:
+                            m = re.search(r'Drone violation:\s*([\d.]+)', line)
+                            if m: drone_viol = float(m.group(1))
+                        if "Waiting violation:" in line:
+                            m = re.search(r'Waiting violation:\s*([\d.]+)', line)
+                            if m: waiting_viol = float(m.group(1))
+                        if "Fitness:" in line:
+                            m = re.search(r'Fitness:\s*([\d.]+)', line)
+                            if m: fitness = float(m.group(1))
+                    
+                    vehicle_pattern = re.compile(r'Vehicle (\d+):\s*(.+?)(?=Vehicle \d+:|Makespan:|$)', re.DOTALL)
+                    for match in vehicle_pattern.finditer(solution_section):
+                        vehicle_id = int(match.group(1))
+                        vehicle_text = match.group(2)
                         
-                        veh_makespan = veh_drone_viol = veh_waiting_viol = 0.0
-                        for line in vehicle_text.split('\n'):
-                            if "Makespan:" in line:
-                                m = re.search(r'Makespan:\s*([\d.]+)', line)
-                                if m: veh_makespan = float(m.group(1))
-                            if "Drone violation:" in line:
-                                m = re.search(r'Drone violation:\s*([\d.]+)', line)
-                                if m: veh_drone_viol = float(m.group(1))
-                            if "Waiting violation:" in line:
-                                m = re.search(r'Waiting violation:\s*([\d.]+)', line)
-                                if m: veh_waiting_viol = float(m.group(1))
+                        # Parse route
+                        route_nodes = []
+                        for token in vehicle_text.split():
+                            if token.isdigit():
+                                route_nodes.append(int(token))
                         
-                        vehicle_details.append({
-                            "vehicle_id": vehicle_id,
-                            "route": route_nodes,
-                            "route_str": " -> ".join(map(str, route_nodes)),
-                            "makespan": round(veh_makespan, 4),
-                            "drone_violation": round(veh_drone_viol, 4),
-                            "waiting_violation": round(veh_waiting_viol, 4),
-                            "num_customers": len(route_nodes) - 2
-                        })
+                        if len(route_nodes) >= 2:  # At least depot-depot
+                            veh_makespan = veh_drone_viol = veh_waiting_viol = 0.0
+                            
+                            # Tìm metrics của xe này
+                            remaining_text = solution_section[match.end():match.end()+200]
+                            for line in remaining_text.split('\n')[:5]:
+                                if "Makespan:" in line:
+                                    m = re.search(r'Makespan:\s*([\d.]+)', line)
+                                    if m: veh_makespan = float(m.group(1))
+                                if "Drone violation:" in line:
+                                    m = re.search(r'Drone violation:\s*([\d.]+)', line)
+                                    if m: veh_drone_viol = float(m.group(1))
+                                if "Waiting violation:" in line:
+                                    m = re.search(r'Waiting violation:\s*([\d.]+)', line)
+                                    if m: veh_waiting_viol = float(m.group(1))
+                            
+                            vehicle_details.append({
+                                "vehicle_id": vehicle_id,
+                                "route": route_nodes,
+                                "route_str": " -> ".join(map(str, route_nodes)),
+                                "makespan": round(veh_makespan, 4),
+                                "drone_violation": round(veh_drone_viol, 4),
+                                "waiting_violation": round(veh_waiting_viol, 4),
+                                "num_customers": len(route_nodes) - 2
+                            })
+                
+                if makespan == 0.0 and fitness > 0.0: 
+                    makespan = fitness
+                
+                return {
+                    "instance": instance,
+                    "makespan": round(makespan, 4),
+                    "drone_violation": round(drone_viol, 4),
+                    "waiting_violation": round(waiting_viol, 4),
+                    "fitness": round(fitness, 4),
+                    "runtime_seconds": round(runtime, 3),
+                    "feasible": (drone_viol < 0.01 and waiting_viol < 0.01),
+                    "num_vehicles": len(vehicle_details),
+                    "vehicles": vehicle_details
+                }
+            except Exception as e:
+                return {"error": str(e), "fitness": float('inf')}
+        
+        # ========== PARSE TẤT CẢ 5 RUNS ==========
+        all_runs = []
+        for run in range(1, 6):
+            output_file = f"output_run{run}.txt"
+            runtime_file = f"runtime_run{run}.txt"
             
-            if makespan == 0.0 and fitness > 0.0: makespan = fitness
+            if os.path.exists(output_file):
+                result = parse_output(output_file, runtime_file)
+                result["run_number"] = run
+                all_runs.append(result)
+                
+                status = '✅' if result.get('feasible', False) else '⚠️'
+                fitness = result.get('fitness', float('inf'))
+                runtime = result.get('runtime_seconds', 0)
+                print(f"{status} Run {run}: Fitness={fitness:.4f}, Runtime={runtime:.2f}s")
+        
+        # ========== CHỌN BEST RUN (FITNESS THẤP NHẤT) ==========
+        best_run = min(all_runs, key=lambda x: x.get('fitness', float('inf')))
+        
+        print(f"\n🏆 BEST RUN: Run {best_run['run_number']}")
+        print(f"   Fitness: {best_run['fitness']:.4f}")
+        print(f"   Makespan: {best_run['makespan']:.4f}")
+        print(f"   Feasible: {best_run['feasible']}")
+        print(f"   Runtime: {best_run['runtime_seconds']:.2f}s")
+        
+        # ========== LƯU BEST RESULT ==========
+        with open("result.json", "w") as f:
+            json.dump(best_run, f, indent=2)
+        
+        # ========== LƯU ALL RUNS SUMMARY ==========
+        with open("all_runs.json", "w") as f:
+            json.dump(all_runs, f, indent=2)
+        
+        # ========== TẠO SUMMARY TABLE ==========
+        print("\n" + "="*80)
+        print(f"📊 SUMMARY FOR {instance}")
+        print("="*80)
+        print(f"{'Run':<6} {'Fitness':<12} {'Makespan':<12} {'Feasible':<10} {'Runtime':<10}")
+        print("-"*80)
+        
+        for run_data in all_runs:
+            run_num = run_data.get('run_number', 0)
+            fitness = run_data.get('fitness', float('inf'))
+            makespan = run_data.get('makespan', 0)
+            feasible = 'YES' if run_data.get('feasible', False) else 'NO'
+            runtime = run_data.get('runtime_seconds', 0)
             
-            result = {
-                "instance": instance,
-                "makespan": round(makespan, 4),
-                "drone_violation": round(drone_viol, 4),
-                "waiting_violation": round(waiting_viol, 4),
-                "fitness": round(fitness, 4),
-                "runtime_seconds": round(runtime, 3),
-                "feasible": (drone_viol < 0.01 and waiting_viol < 0.01),
-                "num_vehicles": len(vehicle_details),
-                "vehicles": vehicle_details
-            }
+            marker = '🏆' if run_data == best_run else '  '
+            print(f"{marker} {run_num:<4} {fitness:<12.4f} {makespan:<12.4f} {feasible:<10} {runtime:<10.2f}")
+        
+        print("="*80)
+        
+        # Statistics
+        feasible_runs = [r for r in all_runs if r.get('feasible', False)]
+        if feasible_runs:
+            fitnesses = [r['fitness'] for r in feasible_runs]
+            runtimes = [r['runtime_seconds'] for r in feasible_runs]
             
-            with open("result.json", "w") as f:
-                json.dump(result, f, indent=2)
-            
-            status = '✅' if result['feasible'] else '⚠️'
-            print(f"{status} {instance} | Fitness: {fitness:.4f} | {len(vehicle_details)} vehicles | {runtime:.2f}s")
-            
-        except Exception as e:
-            print(f"❌ {instance}: {e}")
-            with open("result.json", "w") as f:
-                json.dump({"instance": instance, "error": str(e)}, f)
+            print(f"\n📈 STATISTICS ({len(feasible_runs)}/5 feasible runs):")
+            print(f"   Fitness:  Best={min(fitnesses):.4f}  Avg={sum(fitnesses)/len(fitnesses):.4f}  Worst={max(fitnesses):.4f}")
+            print(f"   Runtime:  Best={min(runtimes):.2f}s  Avg={sum(runtimes)/len(runtimes):.2f}s  Worst={max(runtimes):.2f}s")
+        
         EOF
     
-    - name: Upload result
+    - name: Upload results
       uses: actions/upload-artifact@v4
       with:
         name: result-${{ matrix.instance }}
         path: |
           result.json
-          output.txt
+          all_runs.json
+          output_run*.txt
         retention-days: 30
 
   run-medium:
     name: Medium ${{ matrix.instance }}
     needs: compile
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 100
     
     strategy:
       fail-fast: false
@@ -206,125 +281,134 @@ jobs:
       with:
         name: multilevel-executable
     
-    - name: Run instance
+    - name: Run instance 5 times
       run: |
         chmod +x multilevel_tabu
-        START_TIME=$(date +%s.%N)
-        timeout 18m ./multilevel_tabu instances/${{ matrix.instance }}.txt > output.txt 2>&1 || true
-        END_TIME=$(date +%s.%N)
-        RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
-        echo "RUNTIME_SECONDS=$RUNTIME" >> runtime.txt
+        
+        echo "🔄 Running instance ${{ matrix.instance }} for 5 iterations..."
+        
+        for run in {1..5}; do
+          echo ""
+          echo "=========================================="
+          echo "   RUN $run / 5"
+          echo "=========================================="
+          
+          START_TIME=$(date +%s.%N)
+          timeout 18m ./multilevel_tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1 || true
+          END_TIME=$(date +%s.%N)
+          RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
+          echo "$RUNTIME" > runtime_run${run}.txt
+          
+          echo "⏱️  Run $run completed in ${RUNTIME}s"
+        done
+        
+        echo ""
+        echo "✅ All 5 runs completed!"
     
-    - name: Parse comprehensive results
+    - name: Parse and select best result
       run: |
         python3 <<'EOF'
-        import re, json, os
+        import re, json, os, glob
         instance = "${{ matrix.instance }}"
         
-        try:
-            with open("output.txt", "r") as f:
-                content = f.read()
-            
-            runtime = 0.0
-            if os.path.exists("runtime.txt"):
-                with open("runtime.txt", "r") as f:
-                    for line in f:
-                        if "RUNTIME_SECONDS=" in line:
-                            runtime = float(line.split("=")[1].strip())
-            
-            last_route_idx = content.rfind("Route details:")
-            makespan = drone_viol = waiting_viol = fitness = 0.0
-            vehicle_details = []
-            
-            if last_route_idx != -1:
-                solution_section = content[last_route_idx:]
+        def parse_output(output_file, runtime_file):
+            try:
+                with open(output_file, "r") as f:
+                    content = f.read()
                 
-                for line in solution_section.split('\n'):
-                    if "Makespan:" in line:
-                        m = re.search(r'Makespan:\s*([\d.]+)', line)
-                        if m: makespan = float(m.group(1))
-                    if "Drone violation:" in line:
-                        m = re.search(r'Drone violation:\s*([\d.]+)', line)
-                        if m: drone_viol = float(m.group(1))
-                    if "Waiting violation:" in line:
-                        m = re.search(r'Waiting violation:\s*([\d.]+)', line)
-                        if m: waiting_viol = float(m.group(1))
-                    if "Fitness:" in line:
-                        m = re.search(r'Fitness:\s*([\d.]+)', line)
-                        if m: fitness = float(m.group(1))
+                runtime = 0.0
+                if os.path.exists(runtime_file):
+                    with open(runtime_file, "r") as f:
+                        runtime = float(f.read().strip())
                 
-                vehicle_pattern = re.compile(r'Vehicle (\d+):(.+?)(?=Vehicle \d+:|$)', re.DOTALL)
-                for match in vehicle_pattern.finditer(solution_section):
-                    vehicle_id = int(match.group(1))
-                    vehicle_text = match.group(2)
+                last_route_idx = content.rfind("Route details:")
+                makespan = drone_viol = waiting_viol = fitness = 0.0
+                vehicle_details = []
+                
+                if last_route_idx != -1:
+                    solution_section = content[last_route_idx:]
                     
-                    route_match = re.search(r'Route:\s*(.+?)(?=\n|$)', vehicle_text)
-                    if route_match:
-                        route_str = route_match.group(1).strip()
-                        route_nodes = [int(x) for x in route_str.split() if x.isdigit()]
+                    for line in solution_section.split('\n'):
+                        if "Makespan:" in line:
+                            m = re.search(r'Makespan:\s*([\d.]+)', line)
+                            if m: makespan = float(m.group(1))
+                        if "Drone violation:" in line:
+                            m = re.search(r'Drone violation:\s*([\d.]+)', line)
+                            if m: drone_viol = float(m.group(1))
+                        if "Waiting violation:" in line:
+                            m = re.search(r'Waiting violation:\s*([\d.]+)', line)
+                            if m: waiting_viol = float(m.group(1))
+                        if "Fitness:" in line:
+                            m = re.search(r'Fitness:\s*([\d.]+)', line)
+                            if m: fitness = float(m.group(1))
+                    
+                    vehicle_pattern = re.compile(r'Vehicle (\d+):\s*(.+?)(?=Vehicle \d+:|Makespan:|$)', re.DOTALL)
+                    for match in vehicle_pattern.finditer(solution_section):
+                        vehicle_id = int(match.group(1))
+                        vehicle_text = match.group(2)
                         
-                        veh_makespan = veh_drone_viol = veh_waiting_viol = 0.0
-                        for line in vehicle_text.split('\n'):
-                            if "Makespan:" in line:
-                                m = re.search(r'Makespan:\s*([\d.]+)', line)
-                                if m: veh_makespan = float(m.group(1))
-                            if "Drone violation:" in line:
-                                m = re.search(r'Drone violation:\s*([\d.]+)', line)
-                                if m: veh_drone_viol = float(m.group(1))
-                            if "Waiting violation:" in line:
-                                m = re.search(r'Waiting violation:\s*([\d.]+)', line)
-                                if m: veh_waiting_viol = float(m.group(1))
+                        route_nodes = []
+                        for token in vehicle_text.split():
+                            if token.isdigit():
+                                route_nodes.append(int(token))
                         
-                        vehicle_details.append({
-                            "vehicle_id": vehicle_id,
-                            "route": route_nodes,
-                            "route_str": " -> ".join(map(str, route_nodes)),
-                            "makespan": round(veh_makespan, 4),
-                            "drone_violation": round(veh_drone_viol, 4),
-                            "waiting_violation": round(veh_waiting_viol, 4),
-                            "num_customers": len(route_nodes) - 2
-                        })
+                        if len(route_nodes) >= 2:
+                            vehicle_details.append({
+                                "vehicle_id": vehicle_id,
+                                "route": route_nodes,
+                                "route_str": " -> ".join(map(str, route_nodes)),
+                                "num_customers": len(route_nodes) - 2
+                            })
+                
+                if makespan == 0.0 and fitness > 0.0: 
+                    makespan = fitness
+                
+                return {
+                    "instance": instance,
+                    "makespan": round(makespan, 4),
+                    "drone_violation": round(drone_viol, 4),
+                    "waiting_violation": round(waiting_viol, 4),
+                    "fitness": round(fitness, 4),
+                    "runtime_seconds": round(runtime, 3),
+                    "feasible": (drone_viol < 0.01 and waiting_viol < 0.01),
+                    "num_vehicles": len(vehicle_details),
+                    "vehicles": vehicle_details
+                }
+            except Exception as e:
+                return {"error": str(e), "fitness": float('inf')}
+        
+        all_runs = []
+        for run in range(1, 6):
+            result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
+            result["run_number"] = run
+            all_runs.append(result)
             
-            if makespan == 0.0 and fitness > 0.0: makespan = fitness
-            
-            result = {
-                "instance": instance,
-                "makespan": round(makespan, 4),
-                "drone_violation": round(drone_viol, 4),
-                "waiting_violation": round(waiting_viol, 4),
-                "fitness": round(fitness, 4),
-                "runtime_seconds": round(runtime, 3),
-                "feasible": (drone_viol < 0.01 and waiting_viol < 0.01),
-                "num_vehicles": len(vehicle_details),
-                "vehicles": vehicle_details
-            }
-            
-            with open("result.json", "w") as f:
-                json.dump(result, f, indent=2)
-            
-            status = '✅' if result['feasible'] else '⚠️'
-            print(f"{status} {instance} | Fitness: {fitness:.4f}")
-            
-        except Exception as e:
-            print(f"❌ {instance}: {e}")
-            with open("result.json", "w") as f:
-                json.dump({"instance": instance, "error": str(e)}, f)
+            status = '✅' if result.get('feasible', False) else '⚠️'
+            print(f"{status} Run {run}: Fitness={result.get('fitness', float('inf')):.4f}")
+        
+        best_run = min(all_runs, key=lambda x: x.get('fitness', float('inf')))
+        print(f"\n🏆 BEST: Run {best_run['run_number']} - Fitness={best_run['fitness']:.4f}")
+        
+        with open("result.json", "w") as f:
+            json.dump(best_run, f, indent=2)
+        with open("all_runs.json", "w") as f:
+            json.dump(all_runs, f, indent=2)
         EOF
     
-    - name: Upload result
+    - name: Upload results
       uses: actions/upload-artifact@v4
       with:
         name: result-${{ matrix.instance }}
         path: |
           result.json
-          output.txt
+          all_runs.json
         retention-days: 30
 
   run-large:
     name: Large ${{ matrix.instance }}
     needs: compile
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 200
     
     strategy:
       fail-fast: false
@@ -346,118 +430,127 @@ jobs:
       with:
         name: multilevel-executable
     
-    - name: Run instance
+    - name: Run instance 5 times
       run: |
         chmod +x multilevel_tabu
-        START_TIME=$(date +%s.%N)
-        timeout 35m ./multilevel_tabu instances/${{ matrix.instance }}.txt > output.txt 2>&1 || true
-        END_TIME=$(date +%s.%N)
-        RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
-        echo "RUNTIME_SECONDS=$RUNTIME" >> runtime.txt
+        
+        echo "🔄 Running instance ${{ matrix.instance }} for 5 iterations..."
+        
+        for run in {1..5}; do
+          echo ""
+          echo "=========================================="
+          echo "   RUN $run / 5"
+          echo "=========================================="
+          
+          START_TIME=$(date +%s.%N)
+          timeout 35m ./multilevel_tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1 || true
+          END_TIME=$(date +%s.%N)
+          RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
+          echo "$RUNTIME" > runtime_run${run}.txt
+          
+          echo "⏱️  Run $run completed in ${RUNTIME}s"
+        done
+        
+        echo ""
+        echo "✅ All 5 runs completed!"
     
-    - name: Parse comprehensive results
+    - name: Parse and select best result
       run: |
         python3 <<'EOF'
         import re, json, os
         instance = "${{ matrix.instance }}"
         
-        try:
-            with open("output.txt", "r") as f:
-                content = f.read()
-            
-            runtime = 0.0
-            if os.path.exists("runtime.txt"):
-                with open("runtime.txt", "r") as f:
-                    for line in f:
-                        if "RUNTIME_SECONDS=" in line:
-                            runtime = float(line.split("=")[1].strip())
-            
-            last_route_idx = content.rfind("Route details:")
-            makespan = drone_viol = waiting_viol = fitness = 0.0
-            vehicle_details = []
-            
-            if last_route_idx != -1:
-                solution_section = content[last_route_idx:]
+        def parse_output(output_file, runtime_file):
+            try:
+                with open(output_file, "r") as f:
+                    content = f.read()
                 
-                for line in solution_section.split('\n'):
-                    if "Makespan:" in line:
-                        m = re.search(r'Makespan:\s*([\d.]+)', line)
-                        if m: makespan = float(m.group(1))
-                    if "Drone violation:" in line:
-                        m = re.search(r'Drone violation:\s*([\d.]+)', line)
-                        if m: drone_viol = float(m.group(1))
-                    if "Waiting violation:" in line:
-                        m = re.search(r'Waiting violation:\s*([\d.]+)', line)
-                        if m: waiting_viol = float(m.group(1))
-                    if "Fitness:" in line:
-                        m = re.search(r'Fitness:\s*([\d.]+)', line)
-                        if m: fitness = float(m.group(1))
+                runtime = 0.0
+                if os.path.exists(runtime_file):
+                    with open(runtime_file, "r") as f:
+                        runtime = float(f.read().strip())
                 
-                vehicle_pattern = re.compile(r'Vehicle (\d+):(.+?)(?=Vehicle \d+:|$)', re.DOTALL)
-                for match in vehicle_pattern.finditer(solution_section):
-                    vehicle_id = int(match.group(1))
-                    vehicle_text = match.group(2)
+                last_route_idx = content.rfind("Route details:")
+                makespan = drone_viol = waiting_viol = fitness = 0.0
+                vehicle_details = []
+                
+                if last_route_idx != -1:
+                    solution_section = content[last_route_idx:]
                     
-                    route_match = re.search(r'Route:\s*(.+?)(?=\n|$)', vehicle_text)
-                    if route_match:
-                        route_str = route_match.group(1).strip()
-                        route_nodes = [int(x) for x in route_str.split() if x.isdigit()]
+                    for line in solution_section.split('\n'):
+                        if "Makespan:" in line:
+                            m = re.search(r'Makespan:\s*([\d.]+)', line)
+                            if m: makespan = float(m.group(1))
+                        if "Drone violation:" in line:
+                            m = re.search(r'Drone violation:\s*([\d.]+)', line)
+                            if m: drone_viol = float(m.group(1))
+                        if "Waiting violation:" in line:
+                            m = re.search(r'Waiting violation:\s*([\d.]+)', line)
+                            if m: waiting_viol = float(m.group(1))
+                        if "Fitness:" in line:
+                            m = re.search(r'Fitness:\s*([\d.]+)', line)
+                            if m: fitness = float(m.group(1))
+                    
+                    vehicle_pattern = re.compile(r'Vehicle (\d+):\s*(.+?)(?=Vehicle \d+:|Makespan:|$)', re.DOTALL)
+                    for match in vehicle_pattern.finditer(solution_section):
+                        vehicle_id = int(match.group(1))
+                        vehicle_text = match.group(2)
                         
-                        veh_makespan = veh_drone_viol = veh_waiting_viol = 0.0
-                        for line in vehicle_text.split('\n'):
-                            if "Makespan:" in line:
-                                m = re.search(r'Makespan:\s*([\d.]+)', line)
-                                if m: veh_makespan = float(m.group(1))
-                            if "Drone violation:" in line:
-                                m = re.search(r'Drone violation:\s*([\d.]+)', line)
-                                if m: veh_drone_viol = float(m.group(1))
-                            if "Waiting violation:" in line:
-                                m = re.search(r'Waiting violation:\s*([\d.]+)', line)
-                                if m: veh_waiting_viol = float(m.group(1))
+                        route_nodes = []
+                        for token in vehicle_text.split():
+                            if token.isdigit():
+                                route_nodes.append(int(token))
                         
-                        vehicle_details.append({
-                            "vehicle_id": vehicle_id,
-                            "route": route_nodes,
-                            "route_str": " -> ".join(map(str, route_nodes)),
-                            "makespan": round(veh_makespan, 4),
-                            "drone_violation": round(veh_drone_viol, 4),
-                            "waiting_violation": round(veh_waiting_viol, 4),
-                            "num_customers": len(route_nodes) - 2
-                        })
+                        if len(route_nodes) >= 2:
+                            vehicle_details.append({
+                                "vehicle_id": vehicle_id,
+                                "route": route_nodes,
+                                "route_str": " -> ".join(map(str, route_nodes)),
+                                "num_customers": len(route_nodes) - 2
+                            })
+                
+                if makespan == 0.0 and fitness > 0.0: 
+                    makespan = fitness
+                
+                return {
+                    "instance": instance,
+                    "makespan": round(makespan, 4),
+                    "drone_violation": round(drone_viol, 4),
+                    "waiting_violation": round(waiting_viol, 4),
+                    "fitness": round(fitness, 4),
+                    "runtime_seconds": round(runtime, 3),
+                    "feasible": (drone_viol < 0.01 and waiting_viol < 0.01),
+                    "num_vehicles": len(vehicle_details),
+                    "vehicles": vehicle_details
+                }
+            except Exception as e:
+                return {"error": str(e), "fitness": float('inf')}
+        
+        all_runs = []
+        for run in range(1, 6):
+            result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
+            result["run_number"] = run
+            all_runs.append(result)
             
-            if makespan == 0.0 and fitness > 0.0: makespan = fitness
-            
-            result = {
-                "instance": instance,
-                "makespan": round(makespan, 4),
-                "drone_violation": round(drone_viol, 4),
-                "waiting_violation": round(waiting_viol, 4),
-                "fitness": round(fitness, 4),
-                "runtime_seconds": round(runtime, 3),
-                "feasible": (drone_viol < 0.01 and waiting_viol < 0.01),
-                "num_vehicles": len(vehicle_details),
-                "vehicles": vehicle_details
-            }
-            
-            with open("result.json", "w") as f:
-                json.dump(result, f, indent=2)
-            
-            status = '✅' if result['feasible'] else '⚠️'
-            print(f"{status} {instance} | Fitness: {fitness:.4f}")
-            
-        except Exception as e:
-            print(f"❌ {instance}: {e}")
-            with open("result.json", "w") as f:
-                json.dump({"instance": instance, "error": str(e)}, f)
+            status = '✅' if result.get('feasible', False) else '⚠️'
+            print(f"{status} Run {run}: Fitness={result.get('fitness', float('inf')):.4f}")
+        
+        best_run = min(all_runs, key=lambda x: x.get('fitness', float('inf')))
+        print(f"\n🏆 BEST: Run {best_run['run_number']} - Fitness={best_run['fitness']:.4f}")
+        
+        with open("result.json", "w") as f:
+            json.dump(best_run, f, indent=2)
+        with open("all_runs.json", "w") as f:
+            json.dump(all_runs, f, indent=2)
         EOF
     
-    - name: Upload result
+    - name: Upload results
       uses: actions/upload-artifact@v4
       with:
         name: result-${{ matrix.instance }}
         path: |
           result.json
-          output.txt
+          all_runs.json
         retention-days: 30
 
   aggregate:
@@ -478,7 +571,7 @@ jobs:
         import json, glob, csv
         
         results = []
-        for f in sorted(glob.glob("result*.json")):
+        for f in sorted(glob.glob("result.json")):
             try:
                 with open(f) as file:
                     data = json.load(file)
@@ -493,140 +586,52 @@ jobs:
             int(x["instance"].split(".")[2])
         ))
         
-        # ========== MASTER CSV - TẤT CẢ THÔNG TIN TRONG 1 FILE ==========
         with open("MASTER_RESULTS.csv", "w", newline="", encoding="utf-8") as f:
-            # Tìm số xe tối đa để tạo đủ cột
             max_vehicles = max((r.get("num_vehicles", 0) for r in results), default=0)
             
-            # Tạo header columns
             cols = [
-                "Instance",
-                "Instance_Size", 
-                "Num_Vehicles_Available",
-                "Num_Customers",
-                "Final_Fitness",
-                "Final_Makespan", 
-                "Total_Drone_Violation",
-                "Total_Waiting_Violation",
-                "Is_Feasible",
-                "Runtime_Seconds",
-                "Num_Vehicles_Used",
-                "Total_Customers_Served"
+                "Instance", "Instance_Size", "Num_Vehicles_Available", "Num_Customers",
+                "Best_Run_Number", "Final_Fitness", "Final_Makespan", 
+                "Total_Drone_Violation", "Total_Waiting_Violation",
+                "Is_Feasible", "Runtime_Seconds", "Num_Vehicles_Used"
             ]
             
-            # Thêm cột cho từng xe
             for v in range(max_vehicles):
-                cols.extend([
-                    f"V{v}_Route",
-                    f"V{v}_Num_Customers",
-                    f"V{v}_Makespan",
-                    f"V{v}_Drone_Viol",
-                    f"V{v}_Waiting_Viol",
-                    f"V{v}_Is_Feasible"
-                ])
+                cols.extend([f"V{v}_Route", f"V{v}_Num_Customers"])
             
             writer = csv.DictWriter(f, fieldnames=cols)
             writer.writeheader()
             
             for r in results:
-                # Parse instance name (e.g., "10.5.1" -> size=10, vehicles=5, id=1)
                 parts = r["instance"].split(".")
-                size = int(parts[0])
-                num_veh_avail = int(parts[1])
                 
                 row = {
                     "Instance": r["instance"],
-                    "Instance_Size": size,
-                    "Num_Vehicles_Available": num_veh_avail,
-                    "Num_Customers": size,
+                    "Instance_Size": int(parts[0]),
+                    "Num_Vehicles_Available": int(parts[1]),
+                    "Num_Customers": int(parts[0]),
+                    "Best_Run_Number": r.get("run_number", 1),
                     "Final_Fitness": r.get("fitness", 0),
                     "Final_Makespan": r.get("makespan", 0),
                     "Total_Drone_Violation": r.get("drone_violation", 0),
                     "Total_Waiting_Violation": r.get("waiting_violation", 0),
                     "Is_Feasible": "YES" if r.get("feasible", False) else "NO",
                     "Runtime_Seconds": r.get("runtime_seconds", 0),
-                    "Num_Vehicles_Used": r.get("num_vehicles", 0),
-                    "Total_Customers_Served": sum(v.get("num_customers", 0) for v in r.get("vehicles", []))
+                    "Num_Vehicles_Used": r.get("num_vehicles", 0)
                 }
                 
-                # Điền thông tin từng xe
                 for v_idx, vehicle in enumerate(r.get("vehicles", [])):
                     if v_idx < max_vehicles:
-                        v_feasible = (vehicle.get("drone_violation", 0) < 0.01 and 
-                                     vehicle.get("waiting_violation", 0) < 0.01)
-                        
                         row[f"V{v_idx}_Route"] = vehicle.get("route_str", "")
                         row[f"V{v_idx}_Num_Customers"] = vehicle.get("num_customers", 0)
-                        row[f"V{v_idx}_Makespan"] = vehicle.get("makespan", 0)
-                        row[f"V{v_idx}_Drone_Viol"] = vehicle.get("drone_violation", 0)
-                        row[f"V{v_idx}_Waiting_Viol"] = vehicle.get("waiting_violation", 0)
-                        row[f"V{v_idx}_Is_Feasible"] = "YES" if v_feasible else "NO"
                 
-                # Điền các cột trống cho xe không dùng
                 for v_idx in range(r.get("num_vehicles", 0), max_vehicles):
                     row[f"V{v_idx}_Route"] = ""
                     row[f"V{v_idx}_Num_Customers"] = 0
-                    row[f"V{v_idx}_Makespan"] = 0
-                    row[f"V{v_idx}_Drone_Viol"] = 0
-                    row[f"V{v_idx}_Waiting_Viol"] = 0
-                    row[f"V{v_idx}_Is_Feasible"] = ""
                 
                 writer.writerow(row)
         
-        # ========== IN RA THỐNG KÊ ==========
-        print("\n" + "="*120)
-        print("📊 COMPREHENSIVE EXPERIMENT RESULTS - MASTER CSV GENERATED")
-        print("="*120)
-        
-        total = len(results)
-        feasible = [r for r in results if r.get("feasible", False)]
-        
-        print(f"\n🎯 OVERALL: {len(feasible)}/{total} feasible ({len(feasible)/total*100:.1f}%)")
-        
-        for size in ["10", "20", "50", "100"]:
-            size_results = [r for r in results if r["instance"].startswith(size + ".")]
-            if size_results:
-                size_feasible = [r for r in size_results if r.get("feasible", False)]
-                print(f"\n📦 {size} customers: {len(size_feasible)}/{len(size_results)} feasible")
-                
-                if size_feasible:
-                    fits = [r["fitness"] for r in size_feasible]
-                    makes = [r["makespan"] for r in size_feasible]
-                    times = [r["runtime_seconds"] for r in size_feasible]
-                    vehs = [r["num_vehicles"] for r in size_feasible]
-                    
-                    print(f"   Fitness:  Best={min(fits):.4f}  Avg={sum(fits)/len(fits):.4f}  Worst={max(fits):.4f}")
-                    print(f"   Makespan: Best={min(makes):.4f}  Avg={sum(makes)/len(makes):.4f}  Worst={max(makes):.4f}")
-                    print(f"   Vehicles: Min={min(vehs)}  Avg={sum(vehs)/len(vehs):.1f}  Max={max(vehs)}")
-                    print(f"   Runtime:  Best={min(times):.2f}s  Avg={sum(times)/len(times):.2f}s  Max={max(times):.2f}s")
-        
-        if feasible:
-            print(f"\n{'='*120}")
-            print("🏆 BEST RESULTS ACROSS ALL INSTANCES:")
-            print(f"{'='*120}")
-            
-            best_fitness = min(r["fitness"] for r in feasible)
-            best_makespan = min(r["makespan"] for r in feasible)
-            min_vehicles = min(r["num_vehicles"] for r in feasible)
-            fastest = min(r["runtime_seconds"] for r in feasible)
-            
-            best_fit_inst = next(r for r in feasible if r["fitness"] == best_fitness)
-            best_make_inst = next(r for r in feasible if r["makespan"] == best_makespan)
-            min_veh_inst = next(r for r in feasible if r["num_vehicles"] == min_vehicles)
-            fastest_inst = next(r for r in feasible if r["runtime_seconds"] == fastest)
-            
-            print(f"   Best Fitness:      {best_fitness:.4f}  (Instance: {best_fit_inst['instance']})")
-            print(f"   Best Makespan:     {best_makespan:.4f}  (Instance: {best_make_inst['instance']})")
-            print(f"   Fewest Vehicles:   {min_vehicles}  (Instance: {min_veh_inst['instance']})")
-            print(f"   Fastest Runtime:   {fastest:.2f}s  (Instance: {fastest_inst['instance']})")
-        
-        print(f"\n{'='*120}")
-        print(f"✅ MASTER CSV CREATED: MASTER_RESULTS.csv")
-        print(f"   Total Instances: {len(results)}")
-        print(f"   Total Columns: {len(cols)}")
-        print(f"   Max Vehicles per Instance: {max_vehicles}")
-        print(f"   File contains: Instance info + Overall metrics + Per-vehicle details")
-        print("="*120 + "\n")
+        print("✅ MASTER CSV CREATED with best results from 5 runs per instance")
         EOF
     
     - name: Upload master CSV
