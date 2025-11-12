@@ -1469,6 +1469,11 @@ void create_coarse_distance_matrix(LevelInfo& next_level, const LevelInfo& curre
         }
     }
 
+    /*cout << "\n=== REVERSE MAPPING (Original → Current Level) ===" << endl;
+    for (const auto& pair : original_to_current_node) {
+        cout << "Original " << pair.first << " → Current level node " << pair.second << endl;
+    }*/
+
     for (int i = 0; i < n; i++){
         for (int j = 0; j < n; j++){
             if (i == j){
@@ -1479,6 +1484,14 @@ void create_coarse_distance_matrix(LevelInfo& next_level, const LevelInfo& curre
 
             vector<int> next_group_i = next_level.node_mapping[next_level.nodes[i].id];
             vector<int> next_group_j = next_level.node_mapping[next_level.nodes[j].id];
+
+            /*cout << "\nCalculating distance [" << next_level.nodes[i].id << "][" << next_level.nodes[j].id << "]" << endl;
+            cout << "  Next group i: [";
+            for (int x : next_group_i) cout << x << " ";
+            cout << "]" << endl;
+            cout << "  Next group j: [";
+            for (int x : next_group_j) cout << x << " ";
+            cout << "]" << endl;*/
 
             vector<int> current_group_i, current_group_j;
             
@@ -1502,7 +1515,13 @@ void create_coarse_distance_matrix(LevelInfo& next_level, const LevelInfo& curre
                 }
             }
 
-            // ✅ SINGLE TO SINGLE - KHÔNG ĐỔI
+            /*cout << "  Current level group i: [";
+            for (int x : current_group_i) cout << x << " ";
+            cout << "]" << endl;
+            cout << "  Current level group j: [";
+            for (int x : current_group_j) cout << x << " ";
+            cout << "]" << endl;*/
+
             if (current_group_i.size() == 1 && current_group_j.size() == 1){
                 int curr_i = current_group_i[0];
                 int curr_j = current_group_j[0];
@@ -1513,95 +1532,63 @@ void create_coarse_distance_matrix(LevelInfo& next_level, const LevelInfo& curre
                 if (idx_i != -1 && idx_j != -1){
                     next_distances[i][j] = curr_distances[idx_i][idx_j];
                     next_original_distances[i][j] = curr_original_distances[idx_i][idx_j];
+                    
+                    //cout << "  → Single to single: distance=" << next_distances[i][j] << endl;
                 }
-            } 
-            else {
-                auto calculate_distance = [&](const vector<int>& group_i, const vector<int>& group_j) -> pair<double, double> {
-                    double total_dist = 0.0;
-                    double total_orig = 0.0;
-                    
-                    // Khoảng cách trong group i
-                    for (size_t k = 0; k < group_i.size() - 1; k++) {
-                        int from = group_i[k];
-                        int to = group_i[k + 1];
-                        int idx_from = find_node_index_fast(from);
-                        int idx_to = find_node_index_fast(to);
+            } else {
+                int exit_current_i = current_group_i.back();
+                int idx_exit_i = find_node_index_fast(exit_current_i);
+                
+                int entry_current_j = current_group_j.front();
+                int idx_entry_j = find_node_index_fast(entry_current_j);
 
-                        if (idx_from != -1 && idx_to != -1) {
-                            total_dist += curr_distances[idx_from][idx_to];
-                        }
-                    }
-                    
-                    // Khoảng cách giữa 2 groups
-                    int exit_i = group_i.back();
-                    int entry_j = group_j.front();
-                    int idx_exit = find_node_index_fast(exit_i);
-                    int idx_entry = find_node_index_fast(entry_j);
-                    
-                    if (idx_exit != -1 && idx_entry != -1) {
-                        total_dist += curr_distances[idx_exit][idx_entry];
-                        total_orig = curr_original_distances[idx_exit][idx_entry];
-                    }
-                    
-                    // Khoảng cách trong group j
-                    for (size_t k = 0; k < group_j.size() - 1; k++) {
-                        int from = group_j[k];
-                        int to = group_j[k + 1];
-                        int idx_from = find_node_index_fast(from);
-                        int idx_to = find_node_index_fast(to);
-
-                        if (idx_from != -1 && idx_to != -1) {
-                            total_dist += curr_distances[idx_from][idx_to];
-                        }
-                    }
-                    
-                    return {total_dist, total_orig};
-                };
+                double total_distance = 0.0;
                 
-                vector<pair<double, double>> candidates; // {distance, original_distance}
-                
-                // 1. Chiều thuận cả 2: i → j
-                candidates.push_back(calculate_distance(current_group_i, current_group_j));
-                
-                // 2. Đảo i: reverse(i) → j
                 if (current_group_i.size() > 1) {
-                    vector<int> reversed_i = current_group_i;
-                    reverse(reversed_i.begin(), reversed_i.end());
-                    candidates.push_back(calculate_distance(reversed_i, current_group_j));
-                }
-                
-                // 3. Đảo j: i → reverse(j)
-                if (current_group_j.size() > 1) {
-                    vector<int> reversed_j = current_group_j;
-                    reverse(reversed_j.begin(), reversed_j.end());
-                    candidates.push_back(calculate_distance(current_group_i, reversed_j));
-                }
-                
-                // 4. Đảo cả 2: reverse(i) → reverse(j)
-                if (current_group_i.size() > 1 && current_group_j.size() > 1) {
-                    vector<int> reversed_i = current_group_i;
-                    vector<int> reversed_j = current_group_j;
-                    reverse(reversed_i.begin(), reversed_i.end());
-                    reverse(reversed_j.begin(), reversed_j.end());
-                    candidates.push_back(calculate_distance(reversed_i, reversed_j));
-                }
-                
-                // ✅ CHỌN ORIENTATION TỐT NHẤT (KHOẢNG CÁCH NHỎ NHẤT)
-                double best_dist = DBL_MAX;
-                double best_orig = 0.0;
-                
-                for (const auto& candidate : candidates) {
-                    if (candidate.first < best_dist) {
-                        best_dist = candidate.first;
-                        best_orig = candidate.second;
+                    //cout << "  → Group i has " << current_group_i.size() << " nodes in current level" << endl;
+                    for (size_t k = 0; k < current_group_i.size() - 1; k++) {
+                        int from = current_group_i[k];
+                        int to = current_group_i[k + 1];
+                        int idx_from = find_node_index_fast(from);
+                        int idx_to = find_node_index_fast(to);
+
+                        if (idx_from != -1 && idx_to != -1) {
+                            double d = curr_distances[idx_from][idx_to];
+                            total_distance += d;
+                            //cout << "    " << from << " → " << to << ": " << d << endl;
+                        }
                     }
                 }
-                
-                next_distances[i][j] = best_dist;
-                next_original_distances[i][j] = best_orig;
-                
-                /*cout << "  [" << i << "][" << j << "] tried " << candidates.size() 
-                     << " orientations → best: " << best_dist << endl;*/
+
+                if (idx_exit_i != -1 && idx_entry_j != -1) {
+                    double d = curr_distances[idx_exit_i][idx_entry_j];
+                    total_distance += d;
+                    //cout << "  → Between groups: " << exit_current_i << " → " << entry_current_j << ": " << d << endl;
+                }
+
+                if (current_group_j.size() > 1) {
+                    //cout << "  → Group j has " << current_group_j.size() << " nodes in current level" << endl;
+                    for (size_t k = 0; k < current_group_j.size() - 1; k++) {
+                        int from = current_group_j[k];
+                        int to = current_group_j[k + 1];
+                        int idx_from = find_node_index_fast(from);
+                        int idx_to = find_node_index_fast(to);
+
+                        if (idx_from != -1 && idx_to != -1) {
+                            double d = curr_distances[idx_from][idx_to];
+                            total_distance += d;
+                            //cout << "    " << from << " → " << to << ": " << d << endl;
+                        }
+                    }
+                }
+
+                next_distances[i][j] = total_distance;
+                //cout << "  → Total distance: " << total_distance << endl;
+
+                if (idx_exit_i != -1 && idx_entry_j != -1){
+                    next_original_distances[i][j] = curr_original_distances[idx_exit_i][idx_entry_j];
+                    //cout << "  → Original distance: " << next_original_distances[i][j] << endl;
+                }
             }
         }
     }
@@ -1720,12 +1707,10 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
         int group_idx_a = -1, group_idx_b = -1;
         
         for (size_t g = 0; g < merged_groups.size(); g++) {
-            if (find(merged_groups[g].begin(), merged_groups[g].end(), node_a) 
-                != merged_groups[g].end()) {
+            if (find(merged_groups[g].begin(), merged_groups[g].end(), node_a) != merged_groups[g].end()) {
                 group_idx_a = g;
             }
-            if (find(merged_groups[g].begin(), merged_groups[g].end(), node_b) 
-                != merged_groups[g].end()) {
+            if (find(merged_groups[g].begin(), merged_groups[g].end(), node_b) != merged_groups[g].end()) {
                 group_idx_b = g;
             }
         }
@@ -1735,36 +1720,56 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
             merged_groups.push_back({node_a, node_b});
             merged_nodes.insert(node_a);
             merged_nodes.insert(node_b);
-            cout << "Edge " << (i+1) << ": (" << node_a << " → " << node_b 
-                 << ") freq=" << frequency << " → NEW GROUP" << endl;
+            cout << "Edge " << (i+1) << ": (" << node_a << " → " << node_b << ") freq=" << frequency << " → NEW GROUP" << endl;
         }
         // Case 2: node_a đã có group, node_b chưa -> Thêm node_b vào group của node_a
         else if (group_idx_a != -1 && group_idx_b == -1) {
-            merged_groups[group_idx_a].push_back(node_b);
+            // Kiểm tra node a ở đầu hay cuối group
+            if (merged_groups[group_idx_a].back() == node_a){
+                merged_groups[group_idx_a].push_back(node_b);
+            } else if (merged_groups[group_idx_a].front() == node_a){
+                merged_groups[group_idx_a].insert(merged_groups[group_idx_a].begin(), node_b);
+            } else {
+                // Không nên xảy ra
+                cout << "⚠️  Warning: node " << node_a << " not at group ends!" << endl;
+                continue;
+            }
             merged_nodes.insert(node_b);
             cout << "Edge " << (i+1) << ": (" << node_a << " → " << node_b 
                  << ") freq=" << frequency << " → ADD TO GROUP " << group_idx_a << endl;
         }
         // Case 3: node_b đã có group, node_a chưa -> Thêm node_a vào group của node_b
         else if (group_idx_a == -1 && group_idx_b != -1) {
-            merged_groups[group_idx_b].push_back(node_a);
+            if (merged_groups[group_idx_b].front() == node_b){
+                merged_groups[group_idx_b].insert(merged_groups[group_idx_b].begin(), node_a);
+            } else if (merged_groups[group_idx_b].back() == node_b){
+                merged_groups[group_idx_b].push_back(node_a);
+            } else {
+                // Không nên xảy ra
+                cout << "⚠️  Warning: node " << node_b << " not at group ends!" << endl;
+                continue;
+            }
             merged_nodes.insert(node_a);
             cout << "Edge " << (i+1) << ": (" << node_a << " → " << node_b 
                  << ") freq=" << frequency << " → ADD TO GROUP " << group_idx_b << endl;
         }
         // Case 4: Cả 2 đã có group khác nhau → Merge 2 groups
         else if (group_idx_a != group_idx_b) {
-            // Merge group_b vào group_a
-            for (int node : merged_groups[group_idx_b]) {
-                if (find(merged_groups[group_idx_a].begin(), 
-                        merged_groups[group_idx_a].end(), node) 
-                    == merged_groups[group_idx_a].end()) {
-                    merged_groups[group_idx_a].push_back(node);
-                }
+            // Chỉ nối nếu node_a ở cuối group_a VÀ node_b ở đầu group_b
+            if (merged_groups[group_idx_a].back() == node_a && 
+                merged_groups[group_idx_b].front() == node_b) {
+                // Nối group_b vào cuối group_a
+                merged_groups[group_idx_a].insert(
+                    merged_groups[group_idx_a].end(),
+                    merged_groups[group_idx_b].begin(),
+                    merged_groups[group_idx_b].end()
+                );
+                merged_groups.erase(merged_groups.begin() + group_idx_b);
+                cout << "Edge " << (i+1) << ": (" << node_a << " → " << node_b 
+                     << ") freq=" << frequency << " → CONNECT GROUPS" << endl;
+            } else {
+                cout << "  ⚠️  Cannot connect - nodes not at boundaries" << endl;
             }
-            merged_groups.erase(merged_groups.begin() + group_idx_b);
-            cout << "Edge " << (i+1) << ": (" << node_a << " → " << node_b 
-                 << ") freq=" << frequency << " → MERGE GROUPS" << endl;
         }
     }
     
@@ -1773,7 +1778,7 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
         cout << "Group " << (i+1) << ": [";
         for (size_t j = 0; j < merged_groups[i].size(); j++) {
             cout << merged_groups[i][j];
-            if (j < merged_groups[i].size() - 1) cout << ", ";
+            if (j < merged_groups[i].size() - 1) cout << " -> ";
         }
         cout << "]" << endl;
     }
@@ -2224,7 +2229,7 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\100.10.1.txt"; 
+        dataset_path = "D:\\New folder\\instances\\10.10.1.txt"; 
     }
     read_dataset(dataset_path);
     printf("MAX_ITER: %d\n", MAX_ITER);
