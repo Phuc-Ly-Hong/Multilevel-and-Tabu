@@ -705,6 +705,117 @@ void update_edge_frequency(const Solution& best_solution) {
     }
 }
 
+bool is_merged_node(int node_id, const LevelInfo& level) {
+    if (node_id == depot_id) return false;
+    auto it = level.node_mapping.find(node_id);
+    return (it != level.node_mapping.end() && it->second.size() > 1);
+}
+
+vector<int> get_merged_group(int node_id, const LevelInfo& level) {
+    auto it = level.node_mapping.find(node_id);
+    if (it != level.node_mapping.end()) {
+        return it->second;
+    }
+    return {node_id};
+}
+
+double calculate_orientation_cost(int prev_node, int next_node, 
+                                   const vector<int>& group, 
+                                   bool reverse_group,
+                                   const LevelInfo* level) {
+    if (group.size() <= 1) return 0.0;
+    
+    int entry_node = reverse_group ? group.back() : group.front();
+    int exit_node = reverse_group ? group.front() : group.back();
+    
+    int idx_prev = find_node_index_fast(prev_node);
+    int idx_entry = find_node_index_fast(entry_node);
+    int idx_exit = find_node_index_fast(exit_node);
+    int idx_next = find_node_index_fast(next_node);
+    
+    if (idx_prev < 0 || idx_entry < 0 || idx_exit < 0 || idx_next < 0) {
+        return DBL_MAX;
+    }
+    
+    if (idx_prev >= distances.size() || idx_next >= distances[0].size()) {
+        return DBL_MAX;
+    }
+    
+    double cost = 0.0;
+    
+    // Khoảng cách từ prev đến entry
+    cost += distances[idx_prev][idx_entry];
+    
+    // Khoảng cách TRONG group
+    if (reverse_group) {
+        // Đảo chiều: group.back() -> ... -> group.front()
+        for (int i = group.size() - 1; i > 0; i--) {
+            int from_idx = find_node_index_fast(group[i]);
+            int to_idx = find_node_index_fast(group[i - 1]);
+            if (from_idx >= 0 && to_idx >= 0 && 
+                from_idx < distances.size() && to_idx < distances[0].size()) {
+                cost += distances[from_idx][to_idx];
+            }
+        }
+    } else {
+        // Thuận: group.front() -> ... -> group.back()
+        for (size_t i = 0; i < group.size() - 1; i++) {
+            int from_idx = find_node_index_fast(group[i]);
+            int to_idx = find_node_index_fast(group[i + 1]);
+            if (from_idx >= 0 && to_idx >= 0 && 
+                from_idx < distances.size() && to_idx < distances[0].size()) {
+                cost += distances[from_idx][to_idx];
+            }
+        }
+    }
+    
+    // Khoảng cách từ exit đến next
+    cost += distances[idx_exit][idx_next];
+    
+    return cost;
+}
+
+pair<bool, double> find_best_orientation(const vector<int>& route, 
+                                         int pos, 
+                                         int merged_node_id,
+                                         const LevelInfo* level) {
+    if (!is_merged_node(merged_node_id, *level)) {
+        return {false, 0.0}; // Không phải merged node
+    }
+    
+    vector<int> group = get_merged_group(merged_node_id, *level);
+    if (group.size() <= 1) {
+        return {false, 0.0};
+    }
+    
+    // Lấy prev và next node
+    int prev_node = depot_id;
+    int next_node = depot_id;
+    
+    if (pos > 0 && pos < route.size()) {
+        prev_node = route[pos - 1];
+    }
+    if (pos < route.size() - 1) {
+        next_node = route[pos + 1];
+    }
+    
+    // Tính cost cho cả 2 orientations
+    double cost_normal = calculate_orientation_cost(prev_node, next_node, group, false, level);
+    double cost_reversed = calculate_orientation_cost(prev_node, next_node, group, true, level);
+    
+    cout << "    Orientation check: node=" << merged_node_id 
+         << " normal=" << cost_normal 
+         << " reversed=" << cost_reversed;
+    
+    if (cost_reversed < cost_normal - EPSILON) {
+        cout << " → REVERSED ✓" << endl;
+        return {true, cost_reversed};
+    } else {
+        cout << " → NORMAL" << endl;
+        return {false, cost_normal};
+    }
+}
+
 bool is_tabu(const vector<TabuMove> &tabu_list, const TabuMove &move){
     for (const auto &tabu_move : tabu_list){
         if (tabu_move.type == move.type && tabu_move.tenure > 0){
@@ -789,13 +900,102 @@ Solution move_1_0(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
     new_sol.route[v1].erase(new_sol.route[v1].begin() + pos1);
     new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2, cid);
 
+    if (current_level != nullptr && is_merged_node(cid, *current_level)) {
+        vector<int> group = get_merged_group(cid, *current_level);
+        
+        if (group.size() > 1) {
+            // Tạo 2 solutions với 2 orientations khác nhau
+            Solution sol_normal = new_sol;
+            Solution sol_reversed = new_sol;
+            
+            // TÍNH COST CHO CẢ 2 ORIENTATIONS
+            auto result_normal = find_best_orientation(sol_normal.route[v2], pos2, cid, current_level);
+            
+            // Tạo version đảo ngược bằng cách đảo thứ tự trong node_mapping
+            vector<int> reversed_group = group;
+            reverse(reversed_group.begin(), reversed_group.end());
+            
+            // Tính cost thủ công cho orientation đảo
+            int prev_node = (pos2 > 0) ? sol_reversed.route[v2][pos2 - 1] : depot_id;
+            int next_node = (pos2 < sol_reversed.route[v2].size() - 1) ? sol_reversed.route[v2][pos2 + 1] : depot_id;
+            
+            double cost_reversed = calculate_orientation_cost(prev_node, next_node, group, true, current_level);
+            double cost_normal = calculate_orientation_cost(prev_node, next_node, group, false, current_level);
+            
+            // Chọn orientation tốt hơn
+            if (cost_reversed < cost_normal - EPSILON) {
+                // Đảo chiều tốt hơn - note lại để xử lý
+                new_sol = sol_reversed;
+                cout << "  → Move 1-0: Merged node " << cid << " REVERSED (cost " 
+                     << cost_normal << " -> " << cost_reversed << ")" << endl;
+            }
+        }
+    }
+
     evaluate_solution(new_sol, current_level);
     return new_sol;
 }
 
 Solution move_1_1(Solution current_sol, size_t v1, size_t node1, size_t v2, size_t node2, const LevelInfo *current_level){
     Solution new_sol = current_sol;
+    int cid1 = new_sol.route[v1][node1];
+    int cid2 = new_sol.route[v2][node2];
     swap(new_sol.route[v1][node1], new_sol.route[v2][node2]);
+    if (current_level != nullptr) {
+        bool is_merged1 = is_merged_node(cid2, *current_level); // cid2 giờ ở vị trí node1
+        bool is_merged2 = is_merged_node(cid1, *current_level); // cid1 giờ ở vị trí node2
+        
+        vector<Solution> candidates;
+        candidates.push_back(new_sol); // Solution ban đầu
+        
+        //  NẾU CẢ 2 ĐỀU MERGED → THỬ 4 COMBINATIONS
+        if (is_merged1 && is_merged2) {
+            vector<int> group1 = get_merged_group(cid2, *current_level);
+            vector<int> group2 = get_merged_group(cid1, *current_level);
+            
+            if (group1.size() > 1 && group2.size() > 1) {
+                // Tính cost cho 4 combinations
+                int prev1 = (node1 > 0) ? new_sol.route[v1][node1 - 1] : depot_id;
+                int next1 = (node1 < new_sol.route[v1].size() - 1) ? new_sol.route[v1][node1 + 1] : depot_id;
+                
+                int prev2 = (node2 > 0) ? new_sol.route[v2][node2 - 1] : depot_id;
+                int next2 = (node2 < new_sol.route[v2].size() - 1) ? new_sol.route[v2][node2 + 1] : depot_id;
+                
+                double cost_normal_normal = 
+                    calculate_orientation_cost(prev1, next1, group1, false, current_level) +
+                    calculate_orientation_cost(prev2, next2, group2, false, current_level);
+                
+                double cost_reversed_normal = 
+                    calculate_orientation_cost(prev1, next1, group1, true, current_level) +
+                    calculate_orientation_cost(prev2, next2, group2, false, current_level);
+                
+                double cost_normal_reversed = 
+                    calculate_orientation_cost(prev1, next1, group1, false, current_level) +
+                    calculate_orientation_cost(prev2, next2, group2, true, current_level);
+                
+                double cost_reversed_reversed = 
+                    calculate_orientation_cost(prev1, next1, group1, true, current_level) +
+                    calculate_orientation_cost(prev2, next2, group2, true, current_level);
+                
+                double min_cost = min({cost_normal_normal, cost_reversed_normal, 
+                                      cost_normal_reversed, cost_reversed_reversed});
+                
+                if (abs(min_cost - cost_reversed_normal) < EPSILON) {
+                    cout << "  → Move 1-1: cid1=" << cid1 << " normal, cid2=" << cid2 << " REVERSED" << endl;
+                } else if (abs(min_cost - cost_normal_reversed) < EPSILON) {
+                    cout << "  → Move 1-1: cid1=" << cid1 << " REVERSED, cid2=" << cid2 << " normal" << endl;
+                } else if (abs(min_cost - cost_reversed_reversed) < EPSILON) {
+                    cout << "  → Move 1-1: BOTH REVERSED" << endl;
+                }
+            }
+        }
+        //  NẾU CHỈ 1 MERGED
+        else if (is_merged1) {
+            find_best_orientation(new_sol.route[v1], node1, cid2, current_level);
+        } else if (is_merged2) {
+            find_best_orientation(new_sol.route[v2], node2, cid1, current_level);
+        }
+    }
     evaluate_solution(new_sol, current_level);
     return new_sol;
 }
@@ -807,6 +1007,17 @@ Solution move_2_0(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
     new_sol.route[v1].erase(new_sol.route[v1].begin() + pos1 + 1);
     new_sol.route[v1].erase(new_sol.route[v1].begin() + pos1);
     new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2, cid1);
+    if (current_level != nullptr) {
+        bool is_merged1 = is_merged_node(cid1, *current_level);
+        bool is_merged2 = is_merged_node(cid2, *current_level);
+        
+        if (is_merged1) {
+            find_best_orientation(new_sol.route[v2], pos2, cid1, current_level);
+        }
+        if (is_merged2) {
+            find_best_orientation(new_sol.route[v2], pos2 + 1, cid2, current_level);
+        }
+    }
     new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2 + 1, cid2);
     evaluate_solution(new_sol, current_level);
     return new_sol;
@@ -841,6 +1052,57 @@ Solution move_2_1(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
     new_sol.route[v1].insert(new_sol.route[v1].begin() + pos1, cid3);
     new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2, cid1);
     new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2 + 1, cid2);
+
+    if (current_level != nullptr) {
+        bool is_merged1 = is_merged_node(cid1, *current_level);
+        bool is_merged2 = is_merged_node(cid2, *current_level);
+        bool is_merged3 = is_merged_node(cid3, *current_level);
+        
+        if (is_merged3) {
+            vector<int> group3 = get_merged_group(cid3, *current_level);
+            if (group3.size() > 1) {
+                int prev1 = (pos1 > 0) ? new_sol.route[v1][pos1 - 1] : depot_id;
+                int next1 = (pos1 < new_sol.route[v1].size() - 1) ? new_sol.route[v1][pos1 + 1] : depot_id;
+                
+                double cost_normal = calculate_orientation_cost(prev1, next1, group3, false, current_level);
+                double cost_reversed = calculate_orientation_cost(prev1, next1, group3, true, current_level);
+                
+                if (cost_reversed < cost_normal - EPSILON) {
+                    cout << "  → Move 2-1: cid3=" << cid3 << " REVERSED at v1" << endl;
+                }
+            }
+        }
+        
+        if (is_merged1) {
+            vector<int> group1 = get_merged_group(cid1, *current_level);
+            if (group1.size() > 1) {
+                int prev2 = (pos2 > 0) ? new_sol.route[v2][pos2 - 1] : depot_id;
+                int next2 = (pos2 < new_sol.route[v2].size() - 1) ? new_sol.route[v2][pos2 + 1] : depot_id;
+                
+                double cost_normal = calculate_orientation_cost(prev2, next2, group1, false, current_level);
+                double cost_reversed = calculate_orientation_cost(prev2, next2, group1, true, current_level);
+                
+                if (cost_reversed < cost_normal - EPSILON) {
+                    cout << "  → Move 2-1: cid1=" << cid1 << " REVERSED at v2[" << pos2 << "]" << endl;
+                }
+            }
+        }
+        
+        if (is_merged2) {
+            vector<int> group2 = get_merged_group(cid2, *current_level);
+            if (group2.size() > 1) {
+                int prev2 = new_sol.route[v2][pos2];  // cid1
+                int next2 = (pos2 + 2 < new_sol.route[v2].size()) ? new_sol.route[v2][pos2 + 2] : depot_id;
+                
+                double cost_normal = calculate_orientation_cost(prev2, next2, group2, false, current_level);
+                double cost_reversed = calculate_orientation_cost(prev2, next2, group2, true, current_level);
+                
+                if (cost_reversed < cost_normal - EPSILON) {
+                    cout << "  → Move 2-1: cid2=" << cid2 << " REVERSED at v2[" << (pos2+1) << "]" << endl;
+                }
+            }
+        }
+    }
 
     evaluate_solution(new_sol, current_level);
     return new_sol;
@@ -879,14 +1141,88 @@ Solution move_2_2(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
     new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2, cid1);
     new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2 + 1, cid2);
 
+    if (current_level != nullptr) {
+        bool is_merged1 = is_merged_node(cid1, *current_level);
+        bool is_merged2 = is_merged_node(cid2, *current_level);
+        bool is_merged3 = is_merged_node(cid3, *current_level);
+        bool is_merged4 = is_merged_node(cid4, *current_level);
+        
+        if (is_merged3 || is_merged4) {
+            // cid3, cid4 giờ ở v1 tại pos1, pos1+1
+            
+            if (is_merged3) {
+                vector<int> group3 = get_merged_group(cid3, *current_level);
+                if (group3.size() > 1) {
+                    int prev1 = (pos1 > 0) ? new_sol.route[v1][pos1 - 1] : depot_id;
+                    int next1 = new_sol.route[v1][pos1 + 1];  // cid4
+                    
+                    double cost_normal = calculate_orientation_cost(prev1, next1, group3, false, current_level);
+                    double cost_reversed = calculate_orientation_cost(prev1, next1, group3, true, current_level);
+                    
+                    if (cost_reversed < cost_normal - EPSILON) {
+                        cout << "  → Move 2-2: cid3=" << cid3 << " REVERSED at v1[" << pos1 << "]" << endl;
+                    }
+                }
+            }
+            
+            if (is_merged4) {
+                vector<int> group4 = get_merged_group(cid4, *current_level);
+                if (group4.size() > 1) {
+                    int prev1 = new_sol.route[v1][pos1];  // cid3
+                    int next1 = (pos1 + 2 < new_sol.route[v1].size()) ? new_sol.route[v1][pos1 + 2] : depot_id;
+                    
+                    double cost_normal = calculate_orientation_cost(prev1, next1, group4, false, current_level);
+                    double cost_reversed = calculate_orientation_cost(prev1, next1, group4, true, current_level);
+                    
+                    if (cost_reversed < cost_normal - EPSILON) {
+                        cout << "  → Move 2-2: cid4=" << cid4 << " REVERSED at v1[" << (pos1+1) << "]" << endl;
+                    }
+                }
+            }
+        }
+        
+        if (is_merged1 || is_merged2) {
+            // cid1, cid2 giờ ở v2 tại pos2, pos2+1
+            
+            if (is_merged1) {
+                vector<int> group1 = get_merged_group(cid1, *current_level);
+                if (group1.size() > 1) {
+                    int prev2 = (pos2 > 0) ? new_sol.route[v2][pos2 - 1] : depot_id;
+                    int next2 = new_sol.route[v2][pos2 + 1];  // cid2
+                    
+                    double cost_normal = calculate_orientation_cost(prev2, next2, group1, false, current_level);
+                    double cost_reversed = calculate_orientation_cost(prev2, next2, group1, true, current_level);
+                    
+                    if (cost_reversed < cost_normal - EPSILON) {
+                        cout << "  → Move 2-2: cid1=" << cid1 << " REVERSED at v2[" << pos2 << "]" << endl;
+                    }
+                }
+            }
+            
+            if (is_merged2) {
+                vector<int> group2 = get_merged_group(cid2, *current_level);
+                if (group2.size() > 1) {
+                    int prev2 = new_sol.route[v2][pos2];  // cid1
+                    int next2 = (pos2 + 2 < new_sol.route[v2].size()) ? new_sol.route[v2][pos2 + 2] : depot_id;
+                    
+                    double cost_normal = calculate_orientation_cost(prev2, next2, group2, false, current_level);
+                    double cost_reversed = calculate_orientation_cost(prev2, next2, group2, true, current_level);
+                    
+                    if (cost_reversed < cost_normal - EPSILON) {
+                        cout << "  → Move 2-2: cid2=" << cid2 << " REVERSED at v2[" << (pos2+1) << "]" << endl;
+                    }
+                }
+            }
+        }
+    }
+
     evaluate_solution(new_sol, current_level);
     return new_sol;
 }
 
 Solution move_2opt(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_t pos2, const LevelInfo *current_level){
     Solution new_sol = current_sol;
-    
-    // same trip
+    //  SAME TRIP
     if (v1 == v2) {
         if (pos1 >= new_sol.route[v1].size() || pos2 >= new_sol.route[v1].size()) {
             return current_sol;
@@ -900,9 +1236,36 @@ Solution move_2opt(Solution current_sol, size_t v1, size_t pos1, size_t v2, size
             return current_sol;
         }
         
+        // Lưu segment bị đảo
+        vector<int> reversed_segment;
+        for (size_t i = pos1; i <= pos2; i++) {
+            reversed_segment.push_back(new_sol.route[v1][i]);
+        }
+        
         reverse(new_sol.route[v1].begin() + pos1, new_sol.route[v1].begin() + pos2 + 1);
+        
+        if (current_level != nullptr) {
+            for (size_t i = pos1; i <= pos2; i++) {
+                int node_id = new_sol.route[v1][i];
+                if (node_id != depot_id && is_merged_node(node_id, *current_level)) {
+                    vector<int> group = get_merged_group(node_id, *current_level);
+                    if (group.size() > 1) {
+                        int prev_node = (i > 0) ? new_sol.route[v1][i - 1] : depot_id;
+                        int next_node = (i < new_sol.route[v1].size() - 1) ? new_sol.route[v1][i + 1] : depot_id;
+                        
+                        double cost_normal = calculate_orientation_cost(prev_node, next_node, group, false, current_level);
+                        double cost_reversed = calculate_orientation_cost(prev_node, next_node, group, true, current_level);
+                        
+                        if (cost_reversed < cost_normal - EPSILON) {
+                            cout << "  → Move 2-opt (intra): node=" << node_id 
+                                 << " REVERSED at pos " << i << endl;
+                        }
+                    }
+                }
+            }
+        }
     } 
-    // different trip
+    //  DIFFERENT TRIP
     else {
         if (pos1 >= new_sol.route[v1].size() - 1 || pos2 >= new_sol.route[v2].size() - 1) return current_sol;
         if (pos1 == 0 || pos2 == 0) return current_sol;
@@ -919,6 +1282,52 @@ Solution move_2opt(Solution current_sol, size_t v1, size_t pos1, size_t v2, size
         
         new_sol.route[v1].insert(new_sol.route[v1].end() - 1, tail_v2.begin(), tail_v2.end());
         new_sol.route[v2].insert(new_sol.route[v2].end() - 1, tail_v1.begin(), tail_v1.end());
+        
+        if (current_level != nullptr) {
+            // Kiểm tra tail_v2 (giờ ở v1)
+            size_t start_pos_v1 = pos1;
+            for (size_t i = 0; i < tail_v2.size(); i++) {
+                int node_id = tail_v2[i];
+                if (node_id != depot_id && is_merged_node(node_id, *current_level)) {
+                    vector<int> group = get_merged_group(node_id, *current_level);
+                    if (group.size() > 1) {
+                        size_t actual_pos = start_pos_v1 + i;
+                        int prev_node = (actual_pos > 0) ? new_sol.route[v1][actual_pos - 1] : depot_id;
+                        int next_node = (actual_pos < new_sol.route[v1].size() - 1) ? new_sol.route[v1][actual_pos + 1] : depot_id;
+                        
+                        double cost_normal = calculate_orientation_cost(prev_node, next_node, group, false, current_level);
+                        double cost_reversed = calculate_orientation_cost(prev_node, next_node, group, true, current_level);
+                        
+                        if (cost_reversed < cost_normal - EPSILON) {
+                            cout << "  → Move 2-opt (inter): node=" << node_id 
+                                 << " REVERSED at v1[" << actual_pos << "]" << endl;
+                        }
+                    }
+                }
+            }
+            
+            // Kiểm tra tail_v1 (giờ ở v2)
+            size_t start_pos_v2 = pos2;
+            for (size_t i = 0; i < tail_v1.size(); i++) {
+                int node_id = tail_v1[i];
+                if (node_id != depot_id && is_merged_node(node_id, *current_level)) {
+                    vector<int> group = get_merged_group(node_id, *current_level);
+                    if (group.size() > 1) {
+                        size_t actual_pos = start_pos_v2 + i;
+                        int prev_node = (actual_pos > 0) ? new_sol.route[v2][actual_pos - 1] : depot_id;
+                        int next_node = (actual_pos < new_sol.route[v2].size() - 1) ? new_sol.route[v2][actual_pos + 1] : depot_id;
+                        
+                        double cost_normal = calculate_orientation_cost(prev_node, next_node, group, false, current_level);
+                        double cost_reversed = calculate_orientation_cost(prev_node, next_node, group, true, current_level);
+                        
+                        if (cost_reversed < cost_normal - EPSILON) {
+                            cout << "  → Move 2-opt (inter): node=" << node_id 
+                                 << " REVERSED at v2[" << actual_pos << "]" << endl;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     evaluate_solution(new_sol, current_level);

@@ -1,4 +1,4 @@
-name: Run Experiments (Matrix - Fast)
+name: Run Experiments with Comprehensive Results
 
 on:
   push:
@@ -75,24 +75,31 @@ jobs:
         echo "RUNTIME_SECONDS=$RUNTIME" >> runtime.txt
         echo "⏱️  Runtime: ${RUNTIME}s"
     
-    - name: Parse results
+    - name: Parse comprehensive results
       run: |
         python3 <<'EOF'
         import re, json, os
         instance = "${{ matrix.instance }}"
+        
         try:
             with open("output.txt", "r") as f:
                 content = f.read()
+            
             runtime = 0.0
             if os.path.exists("runtime.txt"):
                 with open("runtime.txt", "r") as f:
                     for line in f:
                         if "RUNTIME_SECONDS=" in line:
                             runtime = float(line.split("=")[1].strip())
+            
             last_route_idx = content.rfind("Route details:")
             makespan = drone_viol = waiting_viol = fitness = 0.0
+            vehicle_details = []
+            
             if last_route_idx != -1:
-                for line in content[last_route_idx:].split('\n'):
+                solution_section = content[last_route_idx:]
+                
+                for line in solution_section.split('\n'):
                     if "Makespan:" in line:
                         m = re.search(r'Makespan:\s*([\d.]+)', line)
                         if m: makespan = float(m.group(1))
@@ -105,13 +112,63 @@ jobs:
                     if "Fitness:" in line:
                         m = re.search(r'Fitness:\s*([\d.]+)', line)
                         if m: fitness = float(m.group(1))
+                
+                vehicle_pattern = re.compile(r'Vehicle (\d+):(.+?)(?=Vehicle \d+:|$)', re.DOTALL)
+                for match in vehicle_pattern.finditer(solution_section):
+                    vehicle_id = int(match.group(1))
+                    vehicle_text = match.group(2)
+                    
+                    route_match = re.search(r'Route:\s*(.+?)(?=\n|$)', vehicle_text)
+                    if route_match:
+                        route_str = route_match.group(1).strip()
+                        route_nodes = [int(x) for x in route_str.split() if x.isdigit()]
+                        
+                        veh_makespan = veh_drone_viol = veh_waiting_viol = 0.0
+                        for line in vehicle_text.split('\n'):
+                            if "Makespan:" in line:
+                                m = re.search(r'Makespan:\s*([\d.]+)', line)
+                                if m: veh_makespan = float(m.group(1))
+                            if "Drone violation:" in line:
+                                m = re.search(r'Drone violation:\s*([\d.]+)', line)
+                                if m: veh_drone_viol = float(m.group(1))
+                            if "Waiting violation:" in line:
+                                m = re.search(r'Waiting violation:\s*([\d.]+)', line)
+                                if m: veh_waiting_viol = float(m.group(1))
+                        
+                        vehicle_details.append({
+                            "vehicle_id": vehicle_id,
+                            "route": route_nodes,
+                            "route_str": " -> ".join(map(str, route_nodes)),
+                            "makespan": round(veh_makespan, 4),
+                            "drone_violation": round(veh_drone_viol, 4),
+                            "waiting_violation": round(veh_waiting_viol, 4),
+                            "num_customers": len(route_nodes) - 2
+                        })
+            
             if makespan == 0.0 and fitness > 0.0: makespan = fitness
-            result = {"instance": instance, "makespan": round(makespan,4), "drone_violation": round(drone_viol,4), "waiting_violation": round(waiting_viol,4), "fitness": round(fitness,4), "runtime_seconds": round(runtime,3), "feasible": (drone_viol < 0.01 and waiting_viol < 0.01)}
-            with open("result.json", "w") as f: json.dump(result, f, indent=2)
-            print(f"{'✅' if result['feasible'] else '⚠️'} {instance} | M:{makespan:.2f} F:{fitness:.2f} T:{runtime:.2f}s")
+            
+            result = {
+                "instance": instance,
+                "makespan": round(makespan, 4),
+                "drone_violation": round(drone_viol, 4),
+                "waiting_violation": round(waiting_viol, 4),
+                "fitness": round(fitness, 4),
+                "runtime_seconds": round(runtime, 3),
+                "feasible": (drone_viol < 0.01 and waiting_viol < 0.01),
+                "num_vehicles": len(vehicle_details),
+                "vehicles": vehicle_details
+            }
+            
+            with open("result.json", "w") as f:
+                json.dump(result, f, indent=2)
+            
+            status = '✅' if result['feasible'] else '⚠️'
+            print(f"{status} {instance} | Fitness: {fitness:.4f} | {len(vehicle_details)} vehicles | {runtime:.2f}s")
+            
         except Exception as e:
             print(f"❌ {instance}: {e}")
-            with open("result.json", "w") as f: json.dump({"instance": instance, "error": str(e)}, f)
+            with open("result.json", "w") as f:
+                json.dump({"instance": instance, "error": str(e)}, f)
         EOF
     
     - name: Upload result
@@ -157,26 +214,32 @@ jobs:
         END_TIME=$(date +%s.%N)
         RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
         echo "RUNTIME_SECONDS=$RUNTIME" >> runtime.txt
-        echo "⏱️  Runtime: ${RUNTIME}s"
     
-    - name: Parse results
+    - name: Parse comprehensive results
       run: |
         python3 <<'EOF'
         import re, json, os
         instance = "${{ matrix.instance }}"
+        
         try:
             with open("output.txt", "r") as f:
                 content = f.read()
+            
             runtime = 0.0
             if os.path.exists("runtime.txt"):
                 with open("runtime.txt", "r") as f:
                     for line in f:
                         if "RUNTIME_SECONDS=" in line:
                             runtime = float(line.split("=")[1].strip())
+            
             last_route_idx = content.rfind("Route details:")
             makespan = drone_viol = waiting_viol = fitness = 0.0
+            vehicle_details = []
+            
             if last_route_idx != -1:
-                for line in content[last_route_idx:].split('\n'):
+                solution_section = content[last_route_idx:]
+                
+                for line in solution_section.split('\n'):
                     if "Makespan:" in line:
                         m = re.search(r'Makespan:\s*([\d.]+)', line)
                         if m: makespan = float(m.group(1))
@@ -189,13 +252,63 @@ jobs:
                     if "Fitness:" in line:
                         m = re.search(r'Fitness:\s*([\d.]+)', line)
                         if m: fitness = float(m.group(1))
+                
+                vehicle_pattern = re.compile(r'Vehicle (\d+):(.+?)(?=Vehicle \d+:|$)', re.DOTALL)
+                for match in vehicle_pattern.finditer(solution_section):
+                    vehicle_id = int(match.group(1))
+                    vehicle_text = match.group(2)
+                    
+                    route_match = re.search(r'Route:\s*(.+?)(?=\n|$)', vehicle_text)
+                    if route_match:
+                        route_str = route_match.group(1).strip()
+                        route_nodes = [int(x) for x in route_str.split() if x.isdigit()]
+                        
+                        veh_makespan = veh_drone_viol = veh_waiting_viol = 0.0
+                        for line in vehicle_text.split('\n'):
+                            if "Makespan:" in line:
+                                m = re.search(r'Makespan:\s*([\d.]+)', line)
+                                if m: veh_makespan = float(m.group(1))
+                            if "Drone violation:" in line:
+                                m = re.search(r'Drone violation:\s*([\d.]+)', line)
+                                if m: veh_drone_viol = float(m.group(1))
+                            if "Waiting violation:" in line:
+                                m = re.search(r'Waiting violation:\s*([\d.]+)', line)
+                                if m: veh_waiting_viol = float(m.group(1))
+                        
+                        vehicle_details.append({
+                            "vehicle_id": vehicle_id,
+                            "route": route_nodes,
+                            "route_str": " -> ".join(map(str, route_nodes)),
+                            "makespan": round(veh_makespan, 4),
+                            "drone_violation": round(veh_drone_viol, 4),
+                            "waiting_violation": round(veh_waiting_viol, 4),
+                            "num_customers": len(route_nodes) - 2
+                        })
+            
             if makespan == 0.0 and fitness > 0.0: makespan = fitness
-            result = {"instance": instance, "makespan": round(makespan,4), "drone_violation": round(drone_viol,4), "waiting_violation": round(waiting_viol,4), "fitness": round(fitness,4), "runtime_seconds": round(runtime,3), "feasible": (drone_viol < 0.01 and waiting_viol < 0.01)}
-            with open("result.json", "w") as f: json.dump(result, f, indent=2)
-            print(f"{'✅' if result['feasible'] else '⚠️'} {instance} | M:{makespan:.2f} F:{fitness:.2f} T:{runtime:.2f}s")
+            
+            result = {
+                "instance": instance,
+                "makespan": round(makespan, 4),
+                "drone_violation": round(drone_viol, 4),
+                "waiting_violation": round(waiting_viol, 4),
+                "fitness": round(fitness, 4),
+                "runtime_seconds": round(runtime, 3),
+                "feasible": (drone_viol < 0.01 and waiting_viol < 0.01),
+                "num_vehicles": len(vehicle_details),
+                "vehicles": vehicle_details
+            }
+            
+            with open("result.json", "w") as f:
+                json.dump(result, f, indent=2)
+            
+            status = '✅' if result['feasible'] else '⚠️'
+            print(f"{status} {instance} | Fitness: {fitness:.4f}")
+            
         except Exception as e:
             print(f"❌ {instance}: {e}")
-            with open("result.json", "w") as f: json.dump({"instance": instance, "error": str(e)}, f)
+            with open("result.json", "w") as f:
+                json.dump({"instance": instance, "error": str(e)}, f)
         EOF
     
     - name: Upload result
@@ -241,26 +354,32 @@ jobs:
         END_TIME=$(date +%s.%N)
         RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
         echo "RUNTIME_SECONDS=$RUNTIME" >> runtime.txt
-        echo "⏱️  Runtime: ${RUNTIME}s"
     
-    - name: Parse results
+    - name: Parse comprehensive results
       run: |
         python3 <<'EOF'
         import re, json, os
         instance = "${{ matrix.instance }}"
+        
         try:
             with open("output.txt", "r") as f:
                 content = f.read()
+            
             runtime = 0.0
             if os.path.exists("runtime.txt"):
                 with open("runtime.txt", "r") as f:
                     for line in f:
                         if "RUNTIME_SECONDS=" in line:
                             runtime = float(line.split("=")[1].strip())
+            
             last_route_idx = content.rfind("Route details:")
             makespan = drone_viol = waiting_viol = fitness = 0.0
+            vehicle_details = []
+            
             if last_route_idx != -1:
-                for line in content[last_route_idx:].split('\n'):
+                solution_section = content[last_route_idx:]
+                
+                for line in solution_section.split('\n'):
                     if "Makespan:" in line:
                         m = re.search(r'Makespan:\s*([\d.]+)', line)
                         if m: makespan = float(m.group(1))
@@ -273,13 +392,63 @@ jobs:
                     if "Fitness:" in line:
                         m = re.search(r'Fitness:\s*([\d.]+)', line)
                         if m: fitness = float(m.group(1))
+                
+                vehicle_pattern = re.compile(r'Vehicle (\d+):(.+?)(?=Vehicle \d+:|$)', re.DOTALL)
+                for match in vehicle_pattern.finditer(solution_section):
+                    vehicle_id = int(match.group(1))
+                    vehicle_text = match.group(2)
+                    
+                    route_match = re.search(r'Route:\s*(.+?)(?=\n|$)', vehicle_text)
+                    if route_match:
+                        route_str = route_match.group(1).strip()
+                        route_nodes = [int(x) for x in route_str.split() if x.isdigit()]
+                        
+                        veh_makespan = veh_drone_viol = veh_waiting_viol = 0.0
+                        for line in vehicle_text.split('\n'):
+                            if "Makespan:" in line:
+                                m = re.search(r'Makespan:\s*([\d.]+)', line)
+                                if m: veh_makespan = float(m.group(1))
+                            if "Drone violation:" in line:
+                                m = re.search(r'Drone violation:\s*([\d.]+)', line)
+                                if m: veh_drone_viol = float(m.group(1))
+                            if "Waiting violation:" in line:
+                                m = re.search(r'Waiting violation:\s*([\d.]+)', line)
+                                if m: veh_waiting_viol = float(m.group(1))
+                        
+                        vehicle_details.append({
+                            "vehicle_id": vehicle_id,
+                            "route": route_nodes,
+                            "route_str": " -> ".join(map(str, route_nodes)),
+                            "makespan": round(veh_makespan, 4),
+                            "drone_violation": round(veh_drone_viol, 4),
+                            "waiting_violation": round(veh_waiting_viol, 4),
+                            "num_customers": len(route_nodes) - 2
+                        })
+            
             if makespan == 0.0 and fitness > 0.0: makespan = fitness
-            result = {"instance": instance, "makespan": round(makespan,4), "drone_violation": round(drone_viol,4), "waiting_violation": round(waiting_viol,4), "fitness": round(fitness,4), "runtime_seconds": round(runtime,3), "feasible": (drone_viol < 0.01 and waiting_viol < 0.01)}
-            with open("result.json", "w") as f: json.dump(result, f, indent=2)
-            print(f"{'✅' if result['feasible'] else '⚠️'} {instance} | M:{makespan:.2f} F:{fitness:.2f} T:{runtime:.2f}s")
+            
+            result = {
+                "instance": instance,
+                "makespan": round(makespan, 4),
+                "drone_violation": round(drone_viol, 4),
+                "waiting_violation": round(waiting_viol, 4),
+                "fitness": round(fitness, 4),
+                "runtime_seconds": round(runtime, 3),
+                "feasible": (drone_viol < 0.01 and waiting_viol < 0.01),
+                "num_vehicles": len(vehicle_details),
+                "vehicles": vehicle_details
+            }
+            
+            with open("result.json", "w") as f:
+                json.dump(result, f, indent=2)
+            
+            status = '✅' if result['feasible'] else '⚠️'
+            print(f"{status} {instance} | Fitness: {fitness:.4f}")
+            
         except Exception as e:
             print(f"❌ {instance}: {e}")
-            with open("result.json", "w") as f: json.dump({"instance": instance, "error": str(e)}, f)
+            with open("result.json", "w") as f:
+                json.dump({"instance": instance, "error": str(e)}, f)
         EOF
     
     - name: Upload result
@@ -292,7 +461,7 @@ jobs:
         retention-days: 30
 
   aggregate:
-    name: Aggregate Results
+    name: Create Master CSV
     needs: [run-small, run-medium, run-large]
     runs-on: ubuntu-latest
     
@@ -303,47 +472,166 @@ jobs:
         pattern: result-*
         merge-multiple: true
     
-    - name: Create summary
+    - name: Create master comprehensive CSV
       run: |
         python3 <<'EOF'
         import json, glob, csv
+        
         results = []
-        for f in sorted(glob.glob("result.json")):
+        for f in sorted(glob.glob("result*.json")):
             try:
-                with open(f) as file: results.append(json.load(file))
-            except: pass
-        results.sort(key=lambda x: x.get("instance", ""))
-        with open("all_results.csv", "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=["instance", "fitness", "makespan", "drone_violation", "waiting_violation", "runtime_seconds", "feasible"])
+                with open(f) as file:
+                    data = json.load(file)
+                    if "error" not in data:
+                        results.append(data)
+            except:
+                pass
+        
+        results.sort(key=lambda x: (
+            int(x["instance"].split(".")[0]),
+            int(x["instance"].split(".")[1]),
+            int(x["instance"].split(".")[2])
+        ))
+        
+        # ========== MASTER CSV - TẤT CẢ THÔNG TIN TRONG 1 FILE ==========
+        with open("MASTER_RESULTS.csv", "w", newline="", encoding="utf-8") as f:
+            # Tìm số xe tối đa để tạo đủ cột
+            max_vehicles = max((r.get("num_vehicles", 0) for r in results), default=0)
+            
+            # Tạo header columns
+            cols = [
+                "Instance",
+                "Instance_Size", 
+                "Num_Vehicles_Available",
+                "Num_Customers",
+                "Final_Fitness",
+                "Final_Makespan", 
+                "Total_Drone_Violation",
+                "Total_Waiting_Violation",
+                "Is_Feasible",
+                "Runtime_Seconds",
+                "Num_Vehicles_Used",
+                "Total_Customers_Served"
+            ]
+            
+            # Thêm cột cho từng xe
+            for v in range(max_vehicles):
+                cols.extend([
+                    f"V{v}_Route",
+                    f"V{v}_Num_Customers",
+                    f"V{v}_Makespan",
+                    f"V{v}_Drone_Viol",
+                    f"V{v}_Waiting_Viol",
+                    f"V{v}_Is_Feasible"
+                ])
+            
+            writer = csv.DictWriter(f, fieldnames=cols)
             writer.writeheader()
+            
             for r in results:
-                if "error" not in r:
-                    writer.writerow({"instance": r.get("instance"), "fitness": r.get("fitness", 0), "makespan": r.get("makespan", 0), "drone_violation": r.get("drone_violation", 0), "waiting_violation": r.get("waiting_violation", 0), "runtime_seconds": r.get("runtime_seconds", 0), "feasible": r.get("feasible", False)})
-        print("\n" + "="*80 + "\n📊 EXPERIMENT SUMMARY\n" + "="*80)
+                # Parse instance name (e.g., "10.5.1" -> size=10, vehicles=5, id=1)
+                parts = r["instance"].split(".")
+                size = int(parts[0])
+                num_veh_avail = int(parts[1])
+                
+                row = {
+                    "Instance": r["instance"],
+                    "Instance_Size": size,
+                    "Num_Vehicles_Available": num_veh_avail,
+                    "Num_Customers": size,
+                    "Final_Fitness": r.get("fitness", 0),
+                    "Final_Makespan": r.get("makespan", 0),
+                    "Total_Drone_Violation": r.get("drone_violation", 0),
+                    "Total_Waiting_Violation": r.get("waiting_violation", 0),
+                    "Is_Feasible": "YES" if r.get("feasible", False) else "NO",
+                    "Runtime_Seconds": r.get("runtime_seconds", 0),
+                    "Num_Vehicles_Used": r.get("num_vehicles", 0),
+                    "Total_Customers_Served": sum(v.get("num_customers", 0) for v in r.get("vehicles", []))
+                }
+                
+                # Điền thông tin từng xe
+                for v_idx, vehicle in enumerate(r.get("vehicles", [])):
+                    if v_idx < max_vehicles:
+                        v_feasible = (vehicle.get("drone_violation", 0) < 0.01 and 
+                                     vehicle.get("waiting_violation", 0) < 0.01)
+                        
+                        row[f"V{v_idx}_Route"] = vehicle.get("route_str", "")
+                        row[f"V{v_idx}_Num_Customers"] = vehicle.get("num_customers", 0)
+                        row[f"V{v_idx}_Makespan"] = vehicle.get("makespan", 0)
+                        row[f"V{v_idx}_Drone_Viol"] = vehicle.get("drone_violation", 0)
+                        row[f"V{v_idx}_Waiting_Viol"] = vehicle.get("waiting_violation", 0)
+                        row[f"V{v_idx}_Is_Feasible"] = "YES" if v_feasible else "NO"
+                
+                # Điền các cột trống cho xe không dùng
+                for v_idx in range(r.get("num_vehicles", 0), max_vehicles):
+                    row[f"V{v_idx}_Route"] = ""
+                    row[f"V{v_idx}_Num_Customers"] = 0
+                    row[f"V{v_idx}_Makespan"] = 0
+                    row[f"V{v_idx}_Drone_Viol"] = 0
+                    row[f"V{v_idx}_Waiting_Viol"] = 0
+                    row[f"V{v_idx}_Is_Feasible"] = ""
+                
+                writer.writerow(row)
+        
+        # ========== IN RA THỐNG KÊ ==========
+        print("\n" + "="*120)
+        print("📊 COMPREHENSIVE EXPERIMENT RESULTS - MASTER CSV GENERATED")
+        print("="*120)
+        
+        total = len(results)
+        feasible = [r for r in results if r.get("feasible", False)]
+        
+        print(f"\n🎯 OVERALL: {len(feasible)}/{total} feasible ({len(feasible)/total*100:.1f}%)")
+        
         for size in ["10", "20", "50", "100"]:
-            size_results = [r for r in results if r.get("instance", "").startswith(size + ".") and "error" not in r]
+            size_results = [r for r in results if r["instance"].startswith(size + ".")]
             if size_results:
-                feasible = [r for r in size_results if r.get("feasible", False)]
-                print(f"\n📦 {size} nodes: {len(feasible)}/{len(size_results)} feasible ({len(feasible)/len(size_results)*100:.1f}%)")
-                if feasible:
-                    fits = [r["fitness"] for r in feasible]
-                    times = [r.get("runtime_seconds", 0) for r in feasible]
-                    print(f"   Fitness  → Best: {min(fits):.4f} | Avg: {sum(fits)/len(fits):.4f} | Worst: {max(fits):.4f}")
-                    print(f"   Runtime  → Best: {min(times):.2f}s | Avg: {sum(times)/len(times):.2f}s | Worst: {max(times):.2f}s")
-        total = len([r for r in results if "error" not in r])
-        feasible_all = [r for r in results if r.get("feasible", False)]
-        print(f"\n🎯 OVERALL: {len(feasible_all)}/{total} feasible ({len(feasible_all)/total*100:.1f}%)")
-        if feasible_all:
-            fits = [r["fitness"] for r in feasible_all]
-            times = [r.get("runtime_seconds", 0) for r in feasible_all]
-            print(f"   🏆 Best fitness: {min(fits):.4f}\n   📊 Avg fitness: {sum(fits)/len(fits):.4f}\n   📉 Worst fitness: {max(fits):.4f}")
-            print(f"\n   ⏱️  Best runtime: {min(times):.2f}s\n   ⏱️  Avg runtime: {sum(times)/len(times):.2f}s\n   ⏱️  Worst runtime: {max(times):.2f}s\n   ⏱️  Total runtime: {sum(times):.2f}s")
-        print("="*80 + "\n")
+                size_feasible = [r for r in size_results if r.get("feasible", False)]
+                print(f"\n📦 {size} customers: {len(size_feasible)}/{len(size_results)} feasible")
+                
+                if size_feasible:
+                    fits = [r["fitness"] for r in size_feasible]
+                    makes = [r["makespan"] for r in size_feasible]
+                    times = [r["runtime_seconds"] for r in size_feasible]
+                    vehs = [r["num_vehicles"] for r in size_feasible]
+                    
+                    print(f"   Fitness:  Best={min(fits):.4f}  Avg={sum(fits)/len(fits):.4f}  Worst={max(fits):.4f}")
+                    print(f"   Makespan: Best={min(makes):.4f}  Avg={sum(makes)/len(makes):.4f}  Worst={max(makes):.4f}")
+                    print(f"   Vehicles: Min={min(vehs)}  Avg={sum(vehs)/len(vehs):.1f}  Max={max(vehs)}")
+                    print(f"   Runtime:  Best={min(times):.2f}s  Avg={sum(times)/len(times):.2f}s  Max={max(times):.2f}s")
+        
+        if feasible:
+            print(f"\n{'='*120}")
+            print("🏆 BEST RESULTS ACROSS ALL INSTANCES:")
+            print(f"{'='*120}")
+            
+            best_fitness = min(r["fitness"] for r in feasible)
+            best_makespan = min(r["makespan"] for r in feasible)
+            min_vehicles = min(r["num_vehicles"] for r in feasible)
+            fastest = min(r["runtime_seconds"] for r in feasible)
+            
+            best_fit_inst = next(r for r in feasible if r["fitness"] == best_fitness)
+            best_make_inst = next(r for r in feasible if r["makespan"] == best_makespan)
+            min_veh_inst = next(r for r in feasible if r["num_vehicles"] == min_vehicles)
+            fastest_inst = next(r for r in feasible if r["runtime_seconds"] == fastest)
+            
+            print(f"   Best Fitness:      {best_fitness:.4f}  (Instance: {best_fit_inst['instance']})")
+            print(f"   Best Makespan:     {best_makespan:.4f}  (Instance: {best_make_inst['instance']})")
+            print(f"   Fewest Vehicles:   {min_vehicles}  (Instance: {min_veh_inst['instance']})")
+            print(f"   Fastest Runtime:   {fastest:.2f}s  (Instance: {fastest_inst['instance']})")
+        
+        print(f"\n{'='*120}")
+        print(f"✅ MASTER CSV CREATED: MASTER_RESULTS.csv")
+        print(f"   Total Instances: {len(results)}")
+        print(f"   Total Columns: {len(cols)}")
+        print(f"   Max Vehicles per Instance: {max_vehicles}")
+        print(f"   File contains: Instance info + Overall metrics + Per-vehicle details")
+        print("="*120 + "\n")
         EOF
     
-    - name: Upload final results
+    - name: Upload master CSV
       uses: actions/upload-artifact@v4
       with:
-        name: all-results
-        path: all_results.csv
+        name: master-results
+        path: MASTER_RESULTS.csv
         retention-days: 90
