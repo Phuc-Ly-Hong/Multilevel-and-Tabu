@@ -136,14 +136,14 @@ void read_dataset(const string &filename){
 
     cout << "Read " << nodes.size() << " nodes (including depot)." << endl;
     if (nodes.size() >= 100) {
-        MAX_ITER = 300 * nodes.size() / 2;
-        SEGMENT_LENGTH = 750;
+        MAX_ITER = 38 * nodes.size() / 2;
+        SEGMENT_LENGTH = 94;
     } else if (nodes.size() >= 50){
-        MAX_ITER = 4000;
-        SEGMENT_LENGTH = 250;
+        MAX_ITER = 1500;
+        SEGMENT_LENGTH = 83;
     } else {
-        MAX_ITER = 2000;
-        SEGMENT_LENGTH = 80;
+        MAX_ITER = 1250;
+        SEGMENT_LENGTH = 72;
     }
     for (const auto& node : nodes) {
         if (node.id == depot_id) {
@@ -306,21 +306,16 @@ void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) 
                     int prev_idx = find_node_index_fast(prev);
                     int cid_idx = find_node_index_fast(cid);
 
-                    if (prev_idx >= 0 && cid_idx >= 0 && 
-                        prev_idx < current_level->nodes.size() && 
-                        cid_idx < current_level->nodes.size()) {
+                    if (prev_idx >= 0 && cid_idx >= 0 && prev_idx < current_level->nodes.size() && cid_idx < current_level->nodes.size()) {
                         
                         auto it_prev = current_level->node_mapping.find(prev);
                         auto it_cid = current_level->node_mapping.find(cid);
                         
-                        bool prev_is_merged = (it_prev != current_level->node_mapping.end() && 
-                                              it_prev->second.size() > 1);
-                        bool cid_is_merged = (it_cid != current_level->node_mapping.end() && 
-                                             it_cid->second.size() > 1);
-                        
+                        bool prev_is_merged = (it_prev != current_level->node_mapping.end() && it_prev->second.size() > 1);
+                        bool cid_is_merged = (it_cid != current_level->node_mapping.end() && it_cid->second.size() > 1);
+
                         if (prev_is_merged || cid_is_merged) {
-                            if (prev_idx < original_distances.size() && 
-                                cid_idx < original_distances[0].size()) {
+                            if (prev_idx < original_distances.size() && cid_idx < original_distances[0].size()) {
                                 travel_distance = original_distances[prev_idx][cid_idx];
                             } else {
                                 cerr << "ERROR: original_distances bounds - prev=" << prev 
@@ -330,8 +325,7 @@ void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) 
                                      << (original_distances.empty() ? 0 : original_distances[0].size()) << endl;
                             }
                         } else {
-                            if (prev_idx < distances.size() && 
-                                cid_idx < distances[0].size()) {
+                            if (prev_idx < distances.size() && cid_idx < distances[0].size()) {
                                 travel_distance = distances[prev_idx][cid_idx];
                             } else {
                                 cerr << "ERROR: distances bounds - prev=" << prev 
@@ -574,8 +568,7 @@ int find_best_depot_insertion(const vector<int> &route, int vehicle_idx, const L
     if (!vehicles[vehicle_idx].is_drone || route.size() <= 3) {
         return -1;
     }
-    
-    // ✅ THÊM: Pass current_level xuống analyze_drone_route
+
     RouteAnalysis original = analyze_drone_route(route, vehicle_idx, current_level);
     
     double original_violation = 0.0;
@@ -599,7 +592,6 @@ int find_best_depot_insertion(const vector<int> &route, int vehicle_idx, const L
         vector<int> test_route = route;
         test_route.insert(test_route.begin() + pos, depot_id);
         
-        // ✅ THÊM: Pass current_level
         RouteAnalysis test_analysis = analyze_drone_route(test_route, vehicle_idx, current_level);
         
         double test_violation = 0.0;
@@ -618,14 +610,10 @@ int find_best_depot_insertion(const vector<int> &route, int vehicle_idx, const L
             int idx_curr = find_node_index_fast(route[pos]);
 
             if (idx_prev != -1 && idx_curr != -1) {
-                detour_distance = distances[idx_prev][idx_depot] + 
-                                 distances[idx_depot][idx_curr] - 
-                                 distances[idx_prev][idx_curr];
+                detour_distance = distances[idx_prev][idx_depot] + distances[idx_depot][idx_curr] - distances[idx_prev][idx_curr];
             }
         } else {
-            detour_distance = distances[route[pos - 1]][depot_id] + 
-                             distances[depot_id][route[pos]] - 
-                             distances[route[pos - 1]][route[pos]];
+            detour_distance = distances[route[pos - 1]][depot_id] + distances[depot_id][route[pos]] - distances[route[pos - 1]][route[pos]];
         }
         
         double detour_penalty = 0.05 * detour_distance;
@@ -652,7 +640,6 @@ void optimize_all_drone_routes(Solution &sol, const LevelInfo *current_level = n
         for (size_t v = 0; v < vehicles.size(); v++) {
             if (!vehicles[v].is_drone) continue;
             
-            // ✅ THÊM: Pass current_level
             int insert_pos = find_best_depot_insertion(sol.route[v], v, current_level);
             
             if (insert_pos != -1) {
@@ -991,6 +978,10 @@ Solution tabu_search(Solution initial_sol, const LevelInfo &current_level, bool 
                     best_sol = current_sol;
                     no_improve_count = 0;
                     cout << "  ✅ NEW BEST: " << best_sol.fitness << endl;
+
+                    if (track_edge) {
+                        update_edge_frequency(best_sol);
+                    }
                 }
             }
         }
@@ -1462,11 +1453,8 @@ Solution tabu_search(Solution initial_sol, const LevelInfo &current_level, bool 
     return best_sol;
 }
 
-void create_coarse_distance_matrix(LevelInfo& next_level, const LevelInfo& current_level,
-                                   const vector<vector<double>>& curr_distances,
-                                   const vector<vector<double>>& curr_original_distances,
-                                   vector<vector<double>>& next_distances,
-                                   vector<vector<double>>& next_original_distances){
+void create_coarse_distance_matrix(LevelInfo& next_level, const LevelInfo& current_level,const vector<vector<double>>& curr_distances,const vector<vector<double>>& curr_original_distances,
+                                   vector<vector<double>>& next_distances,vector<vector<double>>& next_original_distances){
     int n = next_level.nodes.size();
     next_distances.resize(n, vector<double>(n, 0.0));
     next_original_distances.resize(n, vector<double>(n, 0.0));
@@ -1687,7 +1675,7 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
     
     vector<tuple<int,int,int>> candidates = collect_merge_candidates(current_level, best_solution);
     
-    // ✅ Tính 20% số CẠNH, không phải nodes
+    // Tính 20% số CẠNH, không phải nodes
     int num_to_merge = max(1, (int)(candidates.size() * 0.2));
     
     cout << "\n=== MERGING " << num_to_merge << " / " << candidates.size() 
@@ -1782,6 +1770,7 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
         return current_level;
     }
     
+    // Đặt tên mới cho node
     int next_node_id = (next_level.level_id) * 1000;
     
     next_level.nodes.push_back({depot_id, 0.0, 0.0, -1.0, DBL_MAX});
@@ -1824,6 +1813,7 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
         }
     }
     
+    // thêm những node không bị merge vào next level
     for (const auto& node : current_level.nodes) {
         if (node.id == depot_id) continue;
         if (merged_nodes.find(node.id) == merged_nodes.end()) {
