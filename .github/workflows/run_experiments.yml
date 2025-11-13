@@ -1,4 +1,4 @@
-name: Run Experiments with Comprehensive Results
+name: Run Experiments with Detailed Results
 
 on:
   push:
@@ -89,10 +89,10 @@ jobs:
         echo ""
         echo "✅ All 5 runs completed!"
     
-    - name: Parse and aggregate ALL 5 runs
+    - name: Parse and create detailed CSV
       run: |
         python3 <<'EOF'
-        import re, json, os, statistics
+        import re, json, os
         instance = "${{ matrix.instance }}"
         
         def parse_output(output_file, runtime_file):
@@ -107,7 +107,7 @@ jobs:
                 
                 last_route_idx = content.rfind("Route details:")
                 makespan = drone_viol = waiting_viol = fitness = 0.0
-                vehicle_details = []
+                vehicle_routes = []
                 
                 if last_route_idx != -1:
                     solution_section = content[last_route_idx:]
@@ -125,108 +125,47 @@ jobs:
                         if "Fitness:" in line:
                             m = re.search(r'Fitness:\s*([\d.]+)', line)
                             if m: fitness = float(m.group(1))
-                    
-                    vehicle_pattern = re.compile(r'Vehicle (\d+):\s*(.+?)(?=Vehicle \d+:|Makespan:|$)', re.DOTALL)
-                    for match in vehicle_pattern.finditer(solution_section):
-                        vehicle_id = int(match.group(1))
-                        vehicle_text = match.group(2)
                         
-                        route_nodes = []
-                        for token in vehicle_text.split():
-                            if token.isdigit():
-                                route_nodes.append(int(token))
-                        
-                        if len(route_nodes) >= 2:
-                            vehicle_details.append({
-                                "vehicle_id": vehicle_id,
-                                "route": route_nodes,
-                                "route_str": " -> ".join(map(str, route_nodes)),
-                                "num_customers": len(route_nodes) - 2
-                            })
-                
-                if makespan == 0.0 and fitness > 0.0: 
-                    makespan = fitness
+                        # Parse routes
+                        if line.startswith("Vehicle "):
+                            match = re.match(r'Vehicle (\d+):\s*(.+)', line)
+                            if match:
+                                vehicle_id = int(match.group(1))
+                                route_str = match.group(2).strip()
+                                vehicle_routes.append(f"V{vehicle_id}:{route_str}")
                 
                 return {
-                    "instance": instance,
+                    "runtime": round(runtime, 3),
                     "makespan": round(makespan, 4),
                     "drone_violation": round(drone_viol, 4),
                     "waiting_violation": round(waiting_viol, 4),
                     "fitness": round(fitness, 4),
-                    "runtime_seconds": round(runtime, 3),
-                    "feasible": (drone_viol < 0.01 and waiting_viol < 0.01),
-                    "num_vehicles": len(vehicle_details),
-                    "vehicles": vehicle_details
+                    "feasible": "YES" if (drone_viol < 0.01 and waiting_viol < 0.01) else "NO",
+                    "routes": " | ".join(vehicle_routes)
                 }
             except Exception as e:
-                return {"error": str(e), "fitness": float('inf'), "feasible": False}
+                return {
+                    "runtime": 0, "makespan": 0, "drone_violation": 0,
+                    "waiting_violation": 0, "fitness": float('inf'),
+                    "feasible": "ERROR", "routes": f"Error: {e}"
+                }
         
-        # ✅ LẤY TẤT CẢ 5 RUNS
+        # Parse all 5 runs
         all_runs = []
         for run in range(1, 6):
-            output_file = f"output_run{run}.txt"
-            runtime_file = f"runtime_run{run}.txt"
-            
-            if os.path.exists(output_file):
-                result = parse_output(output_file, runtime_file)
-                result["run_number"] = run
-                all_runs.append(result)
-                
-                status = '✅' if result.get('feasible', False) else '⚠️'
-                fitness = result.get('fitness', float('inf'))
-                runtime = result.get('runtime_seconds', 0)
-                print(f"{status} Run {run}: Fitness={fitness:.4f}, Runtime={runtime:.2f}s, Feasible={result.get('feasible')}")
+            result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
+            result["run"] = run
+            all_runs.append(result)
+            print(f"Run {run}: Fitness={result['fitness']}, Feasible={result['feasible']}")
         
-        # Phân loại
-        feasible_runs = [r for r in all_runs if r.get('feasible', False)]
-        infeasible_runs = [r for r in all_runs if not r.get('feasible', False)]
+        # Save to JSON
+        with open("detailed_results.json", "w") as f:
+            json.dump({
+                "instance": instance,
+                "runs": all_runs
+            }, f, indent=2)
         
-        print(f"\n📊 Total: {len(all_runs)}, Feasible: {len(feasible_runs)}, Infeasible: {len(infeasible_runs)}")
-        
-        # Tính toán cho TẤT CẢ runs
-        all_fitnesses = [r['fitness'] for r in all_runs if r['fitness'] != float('inf')]
-        all_makespans = [r['makespan'] for r in all_runs if r.get('makespan', 0) > 0]
-        all_runtimes = [r['runtime_seconds'] for r in all_runs]
-        
-        # Best overall
-        best_run_overall = min(all_runs, key=lambda x: x.get('fitness', float('inf'))) if all_runs else None
-        worst_run_overall = max(all_runs, key=lambda x: x.get('fitness', 0)) if all_runs else None
-        best_feasible_run = min(feasible_runs, key=lambda x: x.get('fitness', float('inf'))) if feasible_runs else None
-        
-        # Summary
-        summary = {
-            "instance": instance,
-            "total_runs": len(all_runs),
-            "feasible_runs": len(feasible_runs),
-            "infeasible_runs": len(infeasible_runs),
-            "has_feasible": len(feasible_runs) > 0,
-            
-            "all_runs_stats": {
-                "avg_fitness": round(statistics.mean(all_fitnesses), 4) if all_fitnesses else None,
-                "std_fitness": round(statistics.stdev(all_fitnesses), 4) if len(all_fitnesses) > 1 else 0.0,
-                "min_fitness": round(min(all_fitnesses), 4) if all_fitnesses else None,
-                "max_fitness": round(max(all_fitnesses), 4) if all_fitnesses else None,
-                "avg_makespan": round(statistics.mean(all_makespans), 4) if all_makespans else None,
-                "avg_runtime": round(statistics.mean(all_runtimes), 3) if all_runtimes else None,
-            },
-            
-            "best_run_overall": best_run_overall,
-            "worst_run_overall": worst_run_overall,
-            "best_feasible_run": best_feasible_run,
-            "all_runs_details": all_runs
-        }
-        
-        if best_run_overall:
-            print(f"\n🏆 BEST OVERALL: Run {best_run_overall['run_number']} - Fitness={best_run_overall['fitness']:.4f}")
-        if best_feasible_run:
-            print(f"✅ BEST FEASIBLE: Run {best_feasible_run['run_number']} - Fitness={best_feasible_run['fitness']:.4f}")
-        
-        with open("summary.json", "w") as f:
-            json.dump(summary, f, indent=2)
-        
-        with open("all_runs.json", "w") as f:
-            json.dump(all_runs, f, indent=2)
-        
+        print(f"✅ Detailed results saved for {instance}")
         EOF
     
     - name: Upload results
@@ -234,8 +173,7 @@ jobs:
       with:
         name: result-${{ matrix.instance }}
         path: |
-          summary.json
-          all_runs.json
+          detailed_results.json
           output_run*.txt
         retention-days: 30
 
@@ -269,30 +207,18 @@ jobs:
       run: |
         chmod +x multilevel_tabu
         
-        echo "🔄 Running instance ${{ matrix.instance }} for 5 iterations..."
-        
         for run in {1..5}; do
-          echo ""
-          echo "=========================================="
-          echo "   RUN $run / 5"
-          echo "=========================================="
-          
           START_TIME=$(date +%s.%N)
           timeout 18m ./multilevel_tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1 || true
           END_TIME=$(date +%s.%N)
           RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
           echo "$RUNTIME" > runtime_run${run}.txt
-          
-          echo "⏱️  Run $run completed in ${RUNTIME}s"
         done
-        
-        echo ""
-        echo "✅ All 5 runs completed!"
     
-    - name: Parse and aggregate ALL 5 runs
+    - name: Parse and create detailed CSV
       run: |
         python3 <<'EOF'
-        import re, json, os, statistics
+        import re, json, os
         instance = "${{ matrix.instance }}"
         
         def parse_output(output_file, runtime_file):
@@ -307,7 +233,7 @@ jobs:
                 
                 last_route_idx = content.rfind("Route details:")
                 makespan = drone_viol = waiting_viol = fitness = 0.0
-                vehicle_details = []
+                vehicle_routes = []
                 
                 if last_route_idx != -1:
                     solution_section = content[last_route_idx:]
@@ -325,93 +251,39 @@ jobs:
                         if "Fitness:" in line:
                             m = re.search(r'Fitness:\s*([\d.]+)', line)
                             if m: fitness = float(m.group(1))
-                    
-                    vehicle_pattern = re.compile(r'Vehicle (\d+):\s*(.+?)(?=Vehicle \d+:|Makespan:|$)', re.DOTALL)
-                    for match in vehicle_pattern.finditer(solution_section):
-                        vehicle_id = int(match.group(1))
-                        vehicle_text = match.group(2)
                         
-                        route_nodes = []
-                        for token in vehicle_text.split():
-                            if token.isdigit():
-                                route_nodes.append(int(token))
-                        
-                        if len(route_nodes) >= 2:
-                            vehicle_details.append({
-                                "vehicle_id": vehicle_id,
-                                "route": route_nodes,
-                                "route_str": " -> ".join(map(str, route_nodes)),
-                                "num_customers": len(route_nodes) - 2
-                            })
-                
-                if makespan == 0.0 and fitness > 0.0: 
-                    makespan = fitness
+                        if line.startswith("Vehicle "):
+                            match = re.match(r'Vehicle (\d+):\s*(.+)', line)
+                            if match:
+                                vehicle_routes.append(f"V{match.group(1)}:{match.group(2).strip()}")
                 
                 return {
-                    "instance": instance,
+                    "runtime": round(runtime, 3),
                     "makespan": round(makespan, 4),
                     "drone_violation": round(drone_viol, 4),
                     "waiting_violation": round(waiting_viol, 4),
                     "fitness": round(fitness, 4),
-                    "runtime_seconds": round(runtime, 3),
-                    "feasible": (drone_viol < 0.01 and waiting_viol < 0.01),
-                    "num_vehicles": len(vehicle_details),
-                    "vehicles": vehicle_details
+                    "feasible": "YES" if (drone_viol < 0.01 and waiting_viol < 0.01) else "NO",
+                    "routes": " | ".join(vehicle_routes)
                 }
-            except Exception as e:
-                return {"error": str(e), "fitness": float('inf'), "feasible": False}
+            except:
+                return {"runtime": 0, "makespan": 0, "drone_violation": 0, "waiting_violation": 0, "fitness": float('inf'), "feasible": "ERROR", "routes": ""}
         
         all_runs = []
         for run in range(1, 6):
             result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
-            result["run_number"] = run
+            result["run"] = run
             all_runs.append(result)
-            
-            status = '✅' if result.get('feasible', False) else '⚠️'
-            print(f"{status} Run {run}: Fitness={result.get('fitness', float('inf')):.4f}")
         
-        feasible_runs = [r for r in all_runs if r.get('feasible', False)]
-        all_fitnesses = [r['fitness'] for r in all_runs if r['fitness'] != float('inf')]
-        all_makespans = [r['makespan'] for r in all_runs if r.get('makespan', 0) > 0]
-        all_runtimes = [r['runtime_seconds'] for r in all_runs]
-        
-        best_run_overall = min(all_runs, key=lambda x: x.get('fitness', float('inf'))) if all_runs else None
-        best_feasible = min(feasible_runs, key=lambda x: x.get('fitness', float('inf'))) if feasible_runs else None
-        
-        summary = {
-            "instance": instance,
-            "total_runs": len(all_runs),
-            "feasible_runs": len(feasible_runs),
-            "infeasible_runs": len(all_runs) - len(feasible_runs),
-            "has_feasible": len(feasible_runs) > 0,
-            "all_runs_stats": {
-                "avg_fitness": round(statistics.mean(all_fitnesses), 4) if all_fitnesses else None,
-                "std_fitness": round(statistics.stdev(all_fitnesses), 4) if len(all_fitnesses) > 1 else 0.0,
-                "min_fitness": round(min(all_fitnesses), 4) if all_fitnesses else None,
-                "max_fitness": round(max(all_fitnesses), 4) if all_fitnesses else None,
-                "avg_makespan": round(statistics.mean(all_makespans), 4) if all_makespans else None,
-                "avg_runtime": round(statistics.mean(all_runtimes), 3) if all_runtimes else None,
-            },
-            "best_run_overall": best_run_overall,
-            "best_feasible_run": best_feasible,
-            "all_runs_details": all_runs
-        }
-        
-        print(f"\n🏆 BEST: Run {best_run_overall['run_number'] if best_run_overall else 'N/A'}")
-        
-        with open("summary.json", "w") as f:
-            json.dump(summary, f, indent=2)
-        with open("all_runs.json", "w") as f:
-            json.dump(all_runs, f, indent=2)
+        with open("detailed_results.json", "w") as f:
+            json.dump({"instance": instance, "runs": all_runs}, f, indent=2)
         EOF
     
     - name: Upload results
       uses: actions/upload-artifact@v4
       with:
         name: result-${{ matrix.instance }}
-        path: |
-          summary.json
-          all_runs.json
+        path: detailed_results.json
         retention-days: 30
 
   run-large:
@@ -444,30 +316,18 @@ jobs:
       run: |
         chmod +x multilevel_tabu
         
-        echo "🔄 Running instance ${{ matrix.instance }} for 5 iterations..."
-        
         for run in {1..5}; do
-          echo ""
-          echo "=========================================="
-          echo "   RUN $run / 5"
-          echo "=========================================="
-          
           START_TIME=$(date +%s.%N)
           timeout 35m ./multilevel_tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1 || true
           END_TIME=$(date +%s.%N)
           RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
           echo "$RUNTIME" > runtime_run${run}.txt
-          
-          echo "⏱️  Run $run completed in ${RUNTIME}s"
         done
-        
-        echo ""
-        echo "✅ All 5 runs completed!"
     
-    - name: Parse and aggregate ALL 5 runs
+    - name: Parse and create detailed CSV
       run: |
         python3 <<'EOF'
-        import re, json, os, statistics
+        import re, json, os
         instance = "${{ matrix.instance }}"
         
         def parse_output(output_file, runtime_file):
@@ -482,7 +342,7 @@ jobs:
                 
                 last_route_idx = content.rfind("Route details:")
                 makespan = drone_viol = waiting_viol = fitness = 0.0
-                vehicle_details = []
+                vehicle_routes = []
                 
                 if last_route_idx != -1:
                     solution_section = content[last_route_idx:]
@@ -500,97 +360,43 @@ jobs:
                         if "Fitness:" in line:
                             m = re.search(r'Fitness:\s*([\d.]+)', line)
                             if m: fitness = float(m.group(1))
-                    
-                    vehicle_pattern = re.compile(r'Vehicle (\d+):\s*(.+?)(?=Vehicle \d+:|Makespan:|$)', re.DOTALL)
-                    for match in vehicle_pattern.finditer(solution_section):
-                        vehicle_id = int(match.group(1))
-                        vehicle_text = match.group(2)
                         
-                        route_nodes = []
-                        for token in vehicle_text.split():
-                            if token.isdigit():
-                                route_nodes.append(int(token))
-                        
-                        if len(route_nodes) >= 2:
-                            vehicle_details.append({
-                                "vehicle_id": vehicle_id,
-                                "route": route_nodes,
-                                "route_str": " -> ".join(map(str, route_nodes)),
-                                "num_customers": len(route_nodes) - 2
-                            })
-                
-                if makespan == 0.0 and fitness > 0.0: 
-                    makespan = fitness
+                        if line.startswith("Vehicle "):
+                            match = re.match(r'Vehicle (\d+):\s*(.+)', line)
+                            if match:
+                                vehicle_routes.append(f"V{match.group(1)}:{match.group(2).strip()}")
                 
                 return {
-                    "instance": instance,
+                    "runtime": round(runtime, 3),
                     "makespan": round(makespan, 4),
                     "drone_violation": round(drone_viol, 4),
                     "waiting_violation": round(waiting_viol, 4),
                     "fitness": round(fitness, 4),
-                    "runtime_seconds": round(runtime, 3),
-                    "feasible": (drone_viol < 0.01 and waiting_viol < 0.01),
-                    "num_vehicles": len(vehicle_details),
-                    "vehicles": vehicle_details
+                    "feasible": "YES" if (drone_viol < 0.01 and waiting_viol < 0.01) else "NO",
+                    "routes": " | ".join(vehicle_routes)
                 }
-            except Exception as e:
-                return {"error": str(e), "fitness": float('inf'), "feasible": False}
+            except:
+                return {"runtime": 0, "makespan": 0, "drone_violation": 0, "waiting_violation": 0, "fitness": float('inf'), "feasible": "ERROR", "routes": ""}
         
         all_runs = []
         for run in range(1, 6):
             result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
-            result["run_number"] = run
+            result["run"] = run
             all_runs.append(result)
-            
-            status = '✅' if result.get('feasible', False) else '⚠️'
-            print(f"{status} Run {run}: Fitness={result.get('fitness', float('inf')):.4f}")
         
-        feasible_runs = [r for r in all_runs if r.get('feasible', False)]
-        all_fitnesses = [r['fitness'] for r in all_runs if r['fitness'] != float('inf')]
-        all_makespans = [r['makespan'] for r in all_runs if r.get('makespan', 0) > 0]
-        all_runtimes = [r['runtime_seconds'] for r in all_runs]
-        
-        best_run_overall = min(all_runs, key=lambda x: x.get('fitness', float('inf'))) if all_runs else None
-        best_feasible = min(feasible_runs, key=lambda x: x.get('fitness', float('inf'))) if feasible_runs else None
-        
-        summary = {
-            "instance": instance,
-            "total_runs": len(all_runs),
-            "feasible_runs": len(feasible_runs),
-            "infeasible_runs": len(all_runs) - len(feasible_runs),
-            "has_feasible": len(feasible_runs) > 0,
-            "all_runs_stats": {
-                "avg_fitness": round(statistics.mean(all_fitnesses), 4) if all_fitnesses else None,
-                "std_fitness": round(statistics.stdev(all_fitnesses), 4) if len(all_fitnesses) > 1 else 0.0,
-                "min_fitness": round(min(all_fitnesses), 4) if all_fitnesses else None,
-                "max_fitness": round(max(all_fitnesses), 4) if all_fitnesses else None,
-                "avg_makespan": round(statistics.mean(all_makespans), 4) if all_makespans else None,
-                "avg_runtime": round(statistics.mean(all_runtimes), 3) if all_runtimes else None,
-            },
-            "best_run_overall": best_run_overall,
-            "best_feasible_run": best_feasible,
-            "all_runs_details": all_runs
-        }
-        
-        print(f"\n🏆 BEST: Run {best_run_overall['run_number'] if best_run_overall else 'N/A'}")
-        
-        with open("summary.json", "w") as f:
-            json.dump(summary, f, indent=2)
-        with open("all_runs.json", "w") as f:
-            json.dump(all_runs, f, indent=2)
+        with open("detailed_results.json", "w") as f:
+            json.dump({"instance": instance, "runs": all_runs}, f, indent=2)
         EOF
     
     - name: Upload results
       uses: actions/upload-artifact@v4
       with:
         name: result-${{ matrix.instance }}
-        path: |
-          summary.json
-          all_runs.json
+        path: detailed_results.json
         retention-days: 30
 
   aggregate:
-    name: Create Master CSV (ALL Instances)
+    name: Create Detailed Master CSV
     needs: [run-small, run-medium, run-large]
     runs-on: ubuntu-latest
     
@@ -601,145 +407,115 @@ jobs:
         pattern: result-*
         merge-multiple: false
     
-    - name: Create CSV with ALL instances
+    - name: Create detailed CSV with routes
       run: |
         python3 <<'EOF'
         import json, glob, csv, os
         
-        summaries = []
-        
-        print("🔍 Searching for summary.json files...")
+        all_data = []
         
         for result_dir in glob.glob("result-*"):
-            summary_file = os.path.join(result_dir, "summary.json")
+            json_file = os.path.join(result_dir, "detailed_results.json")
             
-            if os.path.exists(summary_file):
+            if os.path.exists(json_file):
                 try:
-                    with open(summary_file) as f:
+                    with open(json_file) as f:
                         data = json.load(f)
-                        summaries.append(data)
-                        instance = data.get('instance', 'unknown')
-                        feas = data.get('feasible_runs', 0)
-                        infeas = data.get('infeasible_runs', 0)
-                        print(f"  ✅ {instance}: {feas} feasible, {infeas} infeasible")
+                        all_data.append(data)
                 except Exception as e:
-                    print(f"  ❌ Failed: {summary_file} - {e}")
+                    print(f"❌ Failed: {json_file} - {e}")
         
-        print(f"\n📊 Total instances: {len(summaries)}")
+        print(f"📊 Total instances: {len(all_data)}")
         
-        if not summaries:
-            print("❌ No summaries found!")
-            with open("MASTER_RESULTS.csv", "w") as f:
-                f.write("Instance,Error\n")
-                f.write("NO_RESULTS,No summary files found\n")
-            exit(0)
+        # Sort
+        all_data.sort(key=lambda x: tuple(int(p) for p in x["instance"].split(".")))
         
-        # Sắp xếp
-        summaries.sort(key=lambda x: tuple(int(p) for p in x["instance"].split(".")))
+        # ✅ HÀM TÍNH SỐ TECHNICIAN VÀ DRONE THEO LOGIC TRONG MAIN()
+        def calculate_vehicle_distribution(num_customers):
+            """
+            Logic từ main() của Multilevel_Tabu.cpp:
+            int customers = num_nodes-1;
+            int pairs = 0;
+            if (customers >= 6 && customers <= 12) pairs = 1;
+            else if (customers <= 20) pairs = 2;
+            else if (customers <= 50) pairs = 3;
+            else if (customers <= 100) pairs = 4;
+            
+            for (int i = 0; i < pairs; ++i) {
+                vehicles.push_back({ i+1, 0.58f, false, 0.0 }); // technician
+            }
+            for (int i = 0; i < pairs; ++i) {
+                vehicles.push_back({ pairs + i + 1, 0.83f, true, 120.0 }); // drone
+            }
+            """
+            customers = num_customers
+            
+            if 6 <= customers <= 12:
+                pairs = 1
+            elif customers <= 20:
+                pairs = 2
+            elif customers <= 50:
+                pairs = 3
+            elif customers <= 100:
+                pairs = 4
+            else:
+                pairs = 0
+            
+            num_technician = pairs
+            num_drone = pairs
+            
+            return num_technician, num_drone
         
-        # ✅ GHI TẤT CẢ INSTANCES (kể cả không có feasible)
-        print(f"\n✅ Processing ALL {len(summaries)} instances (including infeasible)")
-        
-        # Tạo CSV
-        with open("MASTER_RESULTS.csv", "w", newline="", encoding="utf-8") as f:
+        # Create CSV
+        with open("DETAILED_RESULTS.csv", "w", newline="", encoding="utf-8") as f:
             cols = [
-                "Instance", "Size", "Vehicles", "Replica",
-                "Total_Runs", "Feasible_Runs", "Infeasible_Runs", "Feasible_Ratio",
-                
-                # Best overall
-                "Best_Overall_Run", "Best_Overall_Fitness", "Best_Overall_Feasible",
-                
-                # Best feasible (nếu có)
-                "Best_Feasible_Run", "Best_Feasible_Fitness", "Best_Feasible_Makespan",
-                
-                # Stats ALL runs
-                "All_Runs_Avg_Fitness", "All_Runs_Std_Fitness",
-                "All_Runs_Min_Fitness", "All_Runs_Max_Fitness",
-                "All_Runs_Avg_Makespan", "All_Runs_Avg_Runtime",
-                
-                # 5 runs details
-                "Run1_Fitness", "Run1_Feasible",
-                "Run2_Fitness", "Run2_Feasible",
-                "Run3_Fitness", "Run3_Feasible",
-                "Run4_Fitness", "Run4_Feasible",
-                "Run5_Fitness", "Run5_Feasible",
+                "Instance", "Size", "Num_Technician", "Num_Drone", "Replica", "Run",
+                "Runtime_s", "Makespan", "Drone_Violation", "Waiting_Violation",
+                "Fitness", "Feasible", "Routes"
             ]
             
             writer = csv.DictWriter(f, fieldnames=cols)
             writer.writeheader()
             
-            for s in summaries:
-                parts = s["instance"].split(".")
+            for data in all_data:
+                parts = data["instance"].split(".")
+                instance = data["instance"]
+                size = int(parts[0])  # Số lượng customers
+                replica = int(parts[2])
                 
-                best_overall = s.get("best_run_overall")
-                best_feasible = s.get("best_feasible_run")
-                all_stats = s.get("all_runs_stats", {})
-                all_runs_details = s.get("all_runs_details", [])
+                # ✅ TÍNH SỐ TECHNICIAN VÀ DRONE THEO LOGIC C++
+                num_technician, num_drone = calculate_vehicle_distribution(size)
                 
-                row = {
-                    "Instance": s["instance"],
-                    "Size": int(parts[0]),
-                    "Vehicles": int(parts[1]),
-                    "Replica": int(parts[2]),
-                    
-                    "Total_Runs": s["total_runs"],
-                    "Feasible_Runs": s["feasible_runs"],
-                    "Infeasible_Runs": s["infeasible_runs"],
-                    "Feasible_Ratio": round(s["feasible_runs"] / s["total_runs"], 4) if s["total_runs"] > 0 else 0,
-                    
-                    # Best overall
-                    "Best_Overall_Run": best_overall["run_number"] if best_overall else None,
-                    "Best_Overall_Fitness": best_overall["fitness"] if best_overall else None,
-                    "Best_Overall_Feasible": "YES" if best_overall and best_overall.get("feasible") else "NO",
-                    
-                    # Best feasible
-                    "Best_Feasible_Run": best_feasible["run_number"] if best_feasible else None,
-                    "Best_Feasible_Fitness": best_feasible["fitness"] if best_feasible else None,
-                    "Best_Feasible_Makespan": best_feasible["makespan"] if best_feasible else None,
-                    
-                    # All runs stats
-                    "All_Runs_Avg_Fitness": all_stats.get("avg_fitness"),
-                    "All_Runs_Std_Fitness": all_stats.get("std_fitness"),
-                    "All_Runs_Min_Fitness": all_stats.get("min_fitness"),
-                    "All_Runs_Max_Fitness": all_stats.get("max_fitness"),
-                    "All_Runs_Avg_Makespan": all_stats.get("avg_makespan"),
-                    "All_Runs_Avg_Runtime": all_stats.get("avg_runtime"),
-                }
-                
-                # Chi tiết 5 runs
-                for run_idx in range(1, 6):
-                    run_data = next((r for r in all_runs_details if r.get("run_number") == run_idx), None)
-                    if run_data:
-                        row[f"Run{run_idx}_Fitness"] = run_data.get("fitness")
-                        row[f"Run{run_idx}_Feasible"] = "YES" if run_data.get("feasible") else "NO"
-                    else:
-                        row[f"Run{run_idx}_Fitness"] = None
-                        row[f"Run{run_idx}_Feasible"] = "N/A"
-                
-                writer.writerow(row)
+                for run_data in data.get("runs", []):
+                    row = {
+                        "Instance": instance,
+                        "Size": size,
+                        "Num_Technician": num_technician,
+                        "Num_Drone": num_drone,
+                        "Replica": replica,
+                        "Run": run_data["run"],
+                        "Runtime_s": run_data["runtime"],
+                        "Makespan": run_data["makespan"],
+                        "Drone_Violation": run_data["drone_violation"],
+                        "Waiting_Violation": run_data["waiting_violation"],
+                        "Fitness": run_data["fitness"],
+                        "Feasible": run_data["feasible"],
+                        "Routes": run_data["routes"]
+                    }
+                    writer.writerow(row)
         
-        print(f"\n✅ MASTER CSV CREATED: {len(summaries)} instances")
+        print(f"✅ DETAILED CSV created with {len(all_data) * 5} rows")
         
-        # Statistics
-        total_feasible = sum(s["feasible_runs"] for s in summaries)
-        total_runs = sum(s["total_runs"] for s in summaries)
-        has_at_least_1 = sum(1 for s in summaries if s["feasible_runs"] > 0)
-        all_feasible = sum(1 for s in summaries if s["feasible_runs"] == 5)
-        no_feasible = sum(1 for s in summaries if s["feasible_runs"] == 0)
-        
-        print(f"\n📈 OVERALL STATISTICS:")
-        print(f"   Total instances: {len(summaries)}")
-        print(f"   Total runs: {total_runs}")
-        print(f"   Total feasible runs: {total_feasible}/{total_runs} ({total_feasible/total_runs*100:.1f}%)")
-        print(f"   Instances with ≥1 feasible: {has_at_least_1} ({has_at_least_1/len(summaries)*100:.1f}%)")
-        print(f"   Instances with ALL feasible: {all_feasible} ({all_feasible/len(summaries)*100:.1f}%)")
-        print(f"   Instances with NO feasible: {no_feasible} ({no_feasible/len(summaries)*100:.1f}%)")
-        
+        # ✅ IN RA VÍ DỤ ĐỂ KIỂM TRA
+        print("\n📋 Sample vehicle distribution:")
+        for size in [10, 20, 50, 100]:
+            tech, drone = calculate_vehicle_distribution(size)
+            print(f"  {size} customers → {tech} technician + {drone} drone = {tech + drone} total")
         EOF
     
-    - name: Upload master CSV
+    - name: Upload detailed CSV
       uses: actions/upload-artifact@v4
       with:
-        name: master-results-all
-        path: MASTER_RESULTS.csv
+        name: detailed-master-results
+        path: DETAILED_RESULTS.csv
         retention-days: 90
