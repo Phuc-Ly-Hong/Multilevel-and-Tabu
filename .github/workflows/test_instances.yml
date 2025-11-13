@@ -1,0 +1,278 @@
+name: Test Single Instance (50.40.1)
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    name: Compile C++
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y g++ bc
+    
+    - name: Compile executable
+      run: |
+        g++ -O2 -std=c++17 -o multilevel_tabu src/Multilevel_Tabu.cpp
+        chmod +x multilevel_tabu
+        ls -lh multilevel_tabu
+    
+    - name: Upload executable
+      uses: actions/upload-artifact@v4
+      with:
+        name: multilevel-executable
+        path: multilevel_tabu
+        retention-days: 1
+
+  run-test:
+    name: Run 50.40.1 (3 times)
+    needs: compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Download executable
+      uses: actions/download-artifact@v4
+      with:
+        name: multilevel-executable
+    
+    - name: Run instance 3 times
+      run: |
+        chmod +x multilevel_tabu
+        
+        INSTANCE="50.40.1"
+        echo "🔄 Running instance ${INSTANCE} for 3 iterations..."
+        
+        for run in {1..3}; do
+          echo ""
+          echo "=========================================="
+          echo "   RUN $run / 3"
+          echo "=========================================="
+          
+          START_TIME=$(date +%s.%N)
+          timeout 18m ./multilevel_tabu instances/${INSTANCE}.txt > output_run${run}.txt 2>&1 || true
+          END_TIME=$(date +%s.%N)
+          RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
+          echo "$RUNTIME" > runtime_run${run}.txt
+          
+          echo "⏱️  Run $run completed in ${RUNTIME}s"
+          
+          # Show last 20 lines of output
+          echo ""
+          echo "📋 Last 20 lines of output:"
+          tail -n 20 output_run${run}.txt
+        done
+        
+        echo ""
+        echo "✅ All 3 runs completed!"
+    
+    - name: Parse results
+      run: |
+        python3 <<'EOF'
+        import re, json, os
+        
+        instance = "50.40.1"
+        
+        def parse_output(output_file, runtime_file):
+            try:
+                with open(output_file, "r") as f:
+                    content = f.read()
+                
+                runtime = 0.0
+                if os.path.exists(runtime_file):
+                    with open(runtime_file, "r") as f:
+                        runtime = float(f.read().strip())
+                
+                last_route_idx = content.rfind("Route details:")
+                makespan = drone_viol = waiting_viol = fitness = 0.0
+                vehicle_routes = []
+                
+                if last_route_idx != -1:
+                    solution_section = content[last_route_idx:]
+                    
+                    for line in solution_section.split('\n'):
+                        if "Makespan:" in line:
+                            m = re.search(r'Makespan:\s*([\d.]+)', line)
+                            if m: makespan = float(m.group(1))
+                        if "Drone violation:" in line:
+                            m = re.search(r'Drone violation:\s*([\d.]+)', line)
+                            if m: drone_viol = float(m.group(1))
+                        if "Waiting violation:" in line:
+                            m = re.search(r'Waiting violation:\s*([\d.]+)', line)
+                            if m: waiting_viol = float(m.group(1))
+                        if "Fitness:" in line:
+                            m = re.search(r'Fitness:\s*([\d.]+)', line)
+                            if m: fitness = float(m.group(1))
+                        
+                        if line.startswith("Vehicle "):
+                            match = re.match(r'Vehicle (\d+):\s*(.+)', line)
+                            if match:
+                                vehicle_routes.append(f"V{match.group(1)}:{match.group(2).strip()}")
+                
+                return {
+                    "runtime": round(runtime, 3),
+                    "makespan": round(makespan, 4),
+                    "drone_violation": round(drone_viol, 4),
+                    "waiting_violation": round(waiting_viol, 4),
+                    "fitness": round(fitness, 4),
+                    "feasible": "YES" if (drone_viol < 0.01 and waiting_viol < 0.01) else "NO",
+                    "routes": vehicle_routes
+                }
+            except Exception as e:
+                return {
+                    "runtime": 0, "makespan": 0, "drone_violation": 0,
+                    "waiting_violation": 0, "fitness": float('inf'),
+                    "feasible": "ERROR", "routes": [], "error": str(e)
+                }
+        
+        # Parse all 3 runs
+        print(f"\n{'='*60}")
+        print(f"📊 RESULTS FOR {instance}")
+        print(f"{'='*60}\n")
+        
+        all_runs = []
+        for run in range(1, 4):
+            result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
+            result["run"] = run
+            all_runs.append(result)
+            
+            print(f"Run {run}:")
+            print(f"  Runtime: {result['runtime']}s")
+            print(f"  Fitness: {result['fitness']}")
+            print(f"  Makespan: {result['makespan']}")
+            print(f"  Drone Violation: {result['drone_violation']}")
+            print(f"  Waiting Violation: {result['waiting_violation']}")
+            print(f"  Feasible: {result['feasible']}")
+            print(f"  Routes: {len(result['routes'])} vehicles")
+            
+            if result['routes']:
+                print(f"  First 3 routes:")
+                for route in result['routes'][:3]:
+                    print(f"    {route}")
+            
+            print()
+        
+        # Save to JSON
+        with open("test_results.json", "w") as f:
+            json.dump({
+                "instance": instance,
+                "runs": all_runs
+            }, f, indent=2)
+        
+        # Summary
+        print(f"\n{'='*60}")
+        print("📈 SUMMARY")
+        print(f"{'='*60}")
+        
+        feasible_runs = [r for r in all_runs if r['feasible'] == 'YES']
+        
+        print(f"Total runs: 3")
+        print(f"Feasible runs: {len(feasible_runs)}")
+        print(f"Infeasible runs: {3 - len(feasible_runs)}")
+        
+        if feasible_runs:
+            best = min(feasible_runs, key=lambda x: x['fitness'])
+            print(f"\n🏆 Best feasible run:")
+            print(f"  Run: {best['run']}")
+            print(f"  Fitness: {best['fitness']}")
+            print(f"  Runtime: {best['runtime']}s")
+        
+        avg_runtime = sum(r['runtime'] for r in all_runs) / len(all_runs)
+        avg_fitness = sum(r['fitness'] for r in all_runs if r['fitness'] != float('inf')) / max(1, len([r for r in all_runs if r['fitness'] != float('inf')]))
+        
+        print(f"\n📊 Averages:")
+        print(f"  Avg Runtime: {avg_runtime:.3f}s")
+        print(f"  Avg Fitness: {avg_fitness:.4f}")
+        
+        print(f"\n✅ Results saved to test_results.json")
+        EOF
+    
+    - name: Create simple CSV
+      run: |
+        python3 <<'EOF'
+        import json, csv
+        
+        # Calculate vehicle distribution
+        def calculate_vehicle_distribution(num_customers):
+            if 6 <= num_customers <= 12:
+                pairs = 1
+            elif num_customers <= 20:
+                pairs = 2
+            elif num_customers <= 50:
+                pairs = 3
+            elif num_customers <= 100:
+                pairs = 4
+            else:
+                pairs = 0
+            return pairs, pairs
+        
+        with open("test_results.json") as f:
+            data = json.load(f)
+        
+        instance = data["instance"]
+        parts = instance.split(".")
+        size = int(parts[0])
+        replica = int(parts[2])
+        num_tech, num_drone = calculate_vehicle_distribution(size)
+        
+        with open("test_results.csv", "w", newline="", encoding="utf-8") as f:
+            cols = [
+                "Instance", "Size", "Num_Technician", "Num_Drone", "Replica", "Run",
+                "Runtime_s", "Makespan", "Drone_Violation", "Waiting_Violation",
+                "Fitness", "Feasible"
+            ]
+            
+            writer = csv.DictWriter(f, fieldnames=cols)
+            writer.writeheader()
+            
+            for run_data in data["runs"]:
+                writer.writerow({
+                    "Instance": instance,
+                    "Size": size,
+                    "Num_Technician": num_tech,
+                    "Num_Drone": num_drone,
+                    "Replica": replica,
+                    "Run": run_data["run"],
+                    "Runtime_s": run_data["runtime"],
+                    "Makespan": run_data["makespan"],
+                    "Drone_Violation": run_data["drone_violation"],
+                    "Waiting_Violation": run_data["waiting_violation"],
+                    "Fitness": run_data["fitness"],
+                    "Feasible": run_data["feasible"]
+                })
+        
+        print("✅ CSV created: test_results.csv")
+        EOF
+    
+    - name: Upload results
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-50.40.1
+        path: |
+          test_results.json
+          test_results.csv
+          output_run*.txt
+          runtime_run*.txt
+        retention-days: 30
+    
+    - name: Display CSV content
+      run: |
+        echo ""
+        echo "📄 CSV Content:"
+        cat test_results.csv
