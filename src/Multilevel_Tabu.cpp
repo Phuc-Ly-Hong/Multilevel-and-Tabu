@@ -459,20 +459,16 @@ Solution init_greedy_solution() {
     Solution sol;
     sol.route.resize(vehicles.size());
 
-    // Khởi tạo: mỗi xe bắt đầu từ depot
     for (size_t v = 0; v < vehicles.size(); ++v)
         sol.route[v].push_back(depot_id);
 
-    // ✅ ROUND-ROBIN ASSIGNMENT - ĐẢM BẢO MỖI XE ĐỀU CÓ KHÁCH
     vector<int> unserved_C2;
     for (const auto& n : C2) unserved_C2.push_back(n.id);
 
-    // Sắp xếp theo khoảng cách từ depot (gần nhất trước)
     sort(unserved_C2.begin(), unserved_C2.end(), [](int a, int b) {
         return distances[depot_id][a] < distances[depot_id][b];
     });
 
-    // ✅ PHÂN BỔ ĐỀU CHO TẤT CẢ XE THEO VÒNG TRÒN
     size_t current_vehicle = 0;
     
     while (!unserved_C2.empty()) {
@@ -486,7 +482,6 @@ Solution init_greedy_solution() {
         current_vehicle = (current_vehicle + 1) % vehicles.size();
     }
 
-    // ✅ KIỂM TRA VÀ TÁI PHÂN BỔ NẾU CÓ XE TRỐNG
     cout << "\n=== INITIAL CUSTOMER DISTRIBUTION ===" << endl;
     
     for (size_t v = 0; v < vehicles.size(); v++) {
@@ -496,7 +491,6 @@ Solution init_greedy_solution() {
         cout << endl;
     }
 
-    // ✅ NẾU CÓ XE TRỐNG, LẤY KHÁCH TỪ XE ĐÔNG NHẤT
     bool rebalanced = false;
     for (size_t v = 0; v < vehicles.size(); v++) {
         if (sol.route[v].size() <= 1) { // Chỉ có depot
@@ -533,7 +527,6 @@ Solution init_greedy_solution() {
         }
     }
 
-    // ✅ IN RA PHÂN BỔ CUỐI CÙNG
     if (rebalanced) {
         cout << "\n=== FINAL BALANCED DISTRIBUTION ===" << endl;
         for (size_t v = 0; v < vehicles.size(); v++) {
@@ -542,8 +535,26 @@ Solution init_greedy_solution() {
         }
     }
 
+    cout << "\n=== INITIAL ROUTES (BEFORE EVALUATION) ===" << endl;
+    for (size_t v = 0; v < sol.route.size(); v++) {
+        cout << "Vehicle " << v << " (" 
+             << (vehicles[v].is_drone ? "Drone" : "Technician") 
+             << ", speed=" << vehicles[v].speed << "): ";
+        
+        for (int cid : sol.route[v]) {
+            cout << cid << " ";
+        }
+        cout << endl;
+    }
+
     evaluate_solution(sol);
-    cout << "Initial solution fitness: " << sol.fitness << endl;
+    
+    cout << "\n=== INITIAL SOLUTION METRICS ===" << endl;
+    cout << "Makespan: " << sol.makespan << endl;
+    cout << "Drone violation: " << sol.drone_violation << endl;
+    cout << "Waiting violation: " << sol.waiting_violation << endl;
+    cout << "Fitness: " << sol.fitness << endl;
+    cout << "Is feasible: " << (sol.is_feasible ? "YES" : "NO") << endl;
     
     return sol;
 }
@@ -746,9 +757,18 @@ void optimize_all_drone_routes(Solution &sol, const LevelInfo *current_level = n
             int insert_pos = find_best_depot_insertion(sol.route[v], v, current_level);
             
             if (insert_pos != -1) {
-                sol.route[v].insert(sol.route[v].begin() + insert_pos, depot_id);
-                evaluate_solution(sol, current_level);
-                changed = true;
+                bool has_adjacent_depot = false;
+                if (insert_pos > 0 && sol.route[v][insert_pos - 1]  == depot_id) {
+                    has_adjacent_depot = true;
+                }
+                if (insert_pos < sol.route[v].size() && sol.route[v][insert_pos] == depot_id) {
+                    has_adjacent_depot = true;
+                }
+                if (!has_adjacent_depot) {
+                    sol.route[v].insert(sol.route[v].begin() + insert_pos, depot_id);
+                    evaluate_solution(sol, current_level);
+                    changed = true;
+                }
             }
         }
     }
@@ -757,8 +777,9 @@ void optimize_all_drone_routes(Solution &sol, const LevelInfo *current_level = n
 void remove_redundant_depots(Solution &sol, const LevelInfo *current_level = nullptr) {
     bool changed = true;
     int round = 0;
+    const int MAX_ROUNDS = 5;
     
-    while (changed && round < 5) {
+    while (changed && round < MAX_ROUNDS) {
         changed = false;
         round++;
         
@@ -766,8 +787,24 @@ void remove_redundant_depots(Solution &sol, const LevelInfo *current_level = nul
             if (!vehicles[v].is_drone) continue;
             
             vector<int> &route = sol.route[v];
+            bool found_duplicate = false;
             
-            for (size_t i = 1; i < route.size() - 1; ) {
+            for (size_t i = 1; i < route.size() - 1 && !found_duplicate; ) {
+                if (i + 1 < route.size() && route[i] == depot_id && route[i + 1] == depot_id) {
+                    route.erase(route.begin() + i);
+                    found_duplicate = true;
+                    changed = true;
+                } else {
+                    i++;
+                }
+            }
+            
+            if (found_duplicate) {
+                continue;
+            }
+            
+            bool removed_redundant = false;
+            for (size_t i = 1; i < route.size() - 1 && !removed_redundant; ) {
                 if (route[i] == depot_id) {
                     vector<int> test_route = route;
                     test_route.erase(test_route.begin() + i);
@@ -780,14 +817,19 @@ void remove_redundant_depots(Solution &sol, const LevelInfo *current_level = nul
                         route = test_route;
                         sol = test_sol;
                         changed = true;
+                        removed_redundant = true;
                     } else {
-                        i++; 
+                        i++;
                     }
                 } else {
                     i++;
                 }
             }
         }
+    }
+    
+    if (round >= MAX_ROUNDS) {
+        cout << "⚠️  remove_redundant_depots reached max rounds" << endl;
     }
 }
 
@@ -981,6 +1023,13 @@ pair<bool, double> find_best_orientation(const vector<int>& route, int pos, int 
     return {should_reverse, chosen_cost};
 }
 
+bool contains_depot_in_range(const vector<int>& route, size_t start, size_t end) {
+    for (size_t i = start; i <= end && i < route.size(); i++) {
+        if (route[i] == depot_id) return true;
+    }
+    return false;
+}
+
 bool is_tabu(const vector<TabuMove> &tabu_list, const TabuMove &move){
     for (const auto &tabu_move : tabu_list){
         if (tabu_move.type == move.type && tabu_move.tenure > 0){
@@ -1113,6 +1162,7 @@ Solution move_1_1(Solution current_sol, size_t v1, size_t node1, size_t v2, size
     Solution new_sol = current_sol;
     int cid1 = new_sol.route[v1][node1];
     int cid2 = new_sol.route[v2][node2];
+    if (cid1 == depot_id || cid2 == depot_id) return current_sol; // không di chuyển depot
     swap(new_sol.route[v1][node1], new_sol.route[v2][node2]);
     if (current_level != nullptr) {
         bool is_merged1 = is_merged_node(cid2, *current_level); // cid2 giờ ở vị trí node1
@@ -1440,6 +1490,9 @@ Solution move_2opt(Solution current_sol, size_t v1, size_t pos1, size_t v2, size
     Solution new_sol = current_sol;
     //  SAME TRIP
     if (v1 == v2) {
+        if (contains_depot_in_range(new_sol.route[v1], pos1, pos2)) {
+            return current_sol;
+        }
         if (pos1 >= new_sol.route[v1].size() || pos2 >= new_sol.route[v1].size()) {
             return current_sol;
         }
@@ -1483,6 +1536,13 @@ Solution move_2opt(Solution current_sol, size_t v1, size_t pos1, size_t v2, size
     } 
     //  DIFFERENT TRIP
     else {
+        if (contains_depot_in_range(new_sol.route[v1], pos1, new_sol.route[v1].size() - 2)) {
+            return current_sol;
+        }
+        
+        if (contains_depot_in_range(new_sol.route[v2], pos2, new_sol.route[v2].size() - 2)) {
+            return current_sol;
+        }
         if (pos1 >= new_sol.route[v1].size() - 1 || pos2 >= new_sol.route[v2].size() - 1) return current_sol;
         if (pos1 == 0 || pos2 == 0) return current_sol;
 
@@ -1560,7 +1620,6 @@ bool would_create_empty_vehicle(const Solution& sol, size_t vehicle_idx) {
     return false;
 }
 
-// ✅ HELPER: Đếm số khách hàng của xe (không tính depot)
 int count_customers_in_vehicle(const Solution& sol, size_t vehicle_idx) {
     int count = 0;
     for (int node : sol.route[vehicle_idx]) {
@@ -2278,6 +2337,9 @@ vector<tuple<int, int, int>> collect_merge_candidates(const LevelInfo& current_l
     for (const auto& edge_pair : solution_edges){
         int from_node = edge_pair.first.first;
         int to_node = edge_pair.first.second;
+
+        if (from_node == depot_id || to_node == depot_id) continue;
+
         int count = edge_pair.second; 
         
         int frequency = 0;
@@ -2337,6 +2399,10 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
         int frequency = get<0>(candidates[i]);
         int node_a = get<1>(candidates[i]);
         int node_b = get<2>(candidates[i]);
+
+        if (node_a == depot_id || node_b == depot_id) {
+            continue;
+        }
         
         bool already_merged_together = false;
         for (const auto& group : merged_groups) {
@@ -2901,7 +2967,7 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\100.10.1.txt"; 
+        dataset_path = "D:\\New folder\\instances\\50.40.2.txt"; 
     }
     read_dataset(dataset_path);
     printf("MAX_ITER: %d\n", MAX_ITER);
