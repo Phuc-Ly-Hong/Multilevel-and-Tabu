@@ -69,7 +69,7 @@ jobs:
       run: |
         chmod +x multilevel_tabu
         
-        echo "🔄 Running instance ${{ matrix.instance }} for 5 iterations..."
+        echo "🔄Running instance ${{ matrix.instance }} for 5 iterations..."
         
         for run in {1..5}; do
           echo ""
