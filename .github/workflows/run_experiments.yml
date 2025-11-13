@@ -430,7 +430,7 @@ jobs:
         # Sort
         all_data.sort(key=lambda x: tuple(int(p) for p in x["instance"].split(".")))
         
-        # ✅ HÀM TÍNH SỐ TECHNICIAN VÀ DRONE THEO LOGIC TRONG MAIN()
+        # HÀM TÍNH SỐ TECHNICIAN VÀ DRONE THEO LOGIC TRONG MAIN()
         def calculate_vehicle_distribution(num_customers):
             """
             Logic từ main() của Multilevel_Tabu.cpp:
