@@ -146,14 +146,14 @@ void read_dataset(const string &filename){
 
     cout << "Read " << nodes.size() << " nodes (including depot)." << endl;
     if (nodes.size() >= 100) {
-        MAX_ITER = 38 * nodes.size() / 2;
-        SEGMENT_LENGTH = 94;
+        MAX_ITER = 80 * nodes.size() / 2;
+        SEGMENT_LENGTH = 75;
     } else if (nodes.size() >= 50){
-        MAX_ITER = 1500;
-        SEGMENT_LENGTH = 83;
+        MAX_ITER = 3000;
+        SEGMENT_LENGTH = 60;
     } else {
-        MAX_ITER = 1250;
-        SEGMENT_LENGTH = 72;
+        MAX_ITER = 2000;
+        SEGMENT_LENGTH = 50;
     }
     for (const auto& node : nodes) {
         if (node.id == depot_id) {
@@ -368,19 +368,17 @@ void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) 
     sol.fitness = sol.makespan + alpha1*sol.drone_violation + alpha2*sol.waiting_violation;
 }
 
-/* Solution init_greedy_solution() {
+Solution init_greedy_solution() {
     Solution sol;
     sol.route.resize(vehicles.size());
 
-    // Khởi tạo: mỗi xe bắt đầu từ depot
     for (size_t v = 0; v < vehicles.size(); ++v)
         sol.route[v].push_back(depot_id);
 
-    /// --- Gán C1 cho technician trước ---
+    /// ✅ 1. GÁN C1 CHO TECHNICIAN (GIỮ NGUYÊN)
     vector<int> unserved_C1;
     for (const auto& n : C1) unserved_C1.push_back(n.id);
 
-    // Vị trí hiện tại của từng technician
     vector<int> tech_pos;
     vector<int> tech_indices;
     for (size_t v = 0; v < vehicles.size(); v++) {
@@ -409,22 +407,43 @@ void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) 
         sol.route[vehicle_id].push_back(best_cid);
         tech_pos[best_tech] = best_cid;
         unserved_C1.erase(unserved_C1.begin() + best_idx);
-    } /
+    } 
 
-    // --- Gán C2 cho tất cả xe ---
+    /// ✅ 2. GÁN C2 - BALANCED ALLOCATION
     vector<int> unserved_C2;
     for (const auto& n : C2) unserved_C2.push_back(n.id);
 
-    // Vị trí hiện tại của từng xe
     vector<int> current_pos(vehicles.size(), depot_id);
     for (size_t v = 0; v < vehicles.size(); v++) {
         if (sol.route[v].size() > 1) {
-            current_pos[v] = sol.route[v][sol.route[v].size() - 1];
+            current_pos[v] = sol.route[v].back();
         }
     }
 
+    // ✅ TÍNH CUSTOMERS PER VEHICLE (ĐỀU)
+    int total_vehicles = vehicles.size();
+    int target_per_vehicle = (unserved_C2.size() + total_vehicles - 1) / total_vehicles;
+    
+    cout << "\n📊 TARGET ALLOCATION:" << endl;
+    cout << "  Total C2 customers: " << unserved_C2.size() << endl;
+    cout << "  Total vehicles: " << total_vehicles << endl;
+    cout << "  Target per vehicle: " << target_per_vehicle << endl;
+
+    // ✅ GÁN ĐỀU CHO MỖI XE
     while (!unserved_C2.empty()) {
-        for (size_t v = 0; v < vehicles.size(); v++) {
+        for (size_t v = 0; v < vehicles.size() && !unserved_C2.empty(); v++) {
+            // Đếm customers hiện tại
+            int current_count = 0;
+            for (int node : sol.route[v]) {
+                if (node != depot_id) current_count++;
+            }
+            
+            // ✅ CHỈ GÁN NẾU XE CHƯA ĐỦ TARGET
+            if (current_count >= target_per_vehicle) {
+                continue;
+            }
+            
+            // Tìm nearest customer
             double best_dist = DBL_MAX;
             int best_idx = -1;
             for (size_t i = 0; i < unserved_C2.size(); i++) {
@@ -435,126 +454,68 @@ void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) 
                     best_idx = i;
                 }
             }
+            
             if (best_idx != -1) {
                 int best_cid = unserved_C2[best_idx];
                 sol.route[v].push_back(best_cid);
                 current_pos[v] = best_cid;
                 unserved_C2.erase(unserved_C2.begin() + best_idx);
+                
+                cout << "  Vehicle " << v << " ← customer " << best_cid 
+                     << " (now has " << (current_count + 1) << " customers)" << endl;
             }
         }
     }
 
-    // Kết thúc: đảm bảo mỗi route kết thúc bằng depot
-    for (size_t v = 0; v < vehicles.size(); v++) {
-        if (sol.route[v].empty() || sol.route[v].back() != depot_id) {
-            sol.route[v].push_back(depot_id);
-        }
-    }
-
-    evaluate_solution(sol);
-    return sol;
-} */
-
-Solution init_greedy_solution() {
-    Solution sol;
-    sol.route.resize(vehicles.size());
-
-    for (size_t v = 0; v < vehicles.size(); ++v)
-        sol.route[v].push_back(depot_id);
-
-    vector<int> unserved_C2;
-    for (const auto& n : C2) unserved_C2.push_back(n.id);
-
-    sort(unserved_C2.begin(), unserved_C2.end(), [](int a, int b) {
-        return distances[depot_id][a] < distances[depot_id][b];
-    });
-
-    size_t current_vehicle = 0;
-    
+    // ✅ GÁN CUSTOMERS THỪA (NẾU CÓ)
     while (!unserved_C2.empty()) {
-        int cid = unserved_C2.front();
-        unserved_C2.erase(unserved_C2.begin());
+        double best_dist = DBL_MAX;
+        int best_v = -1, best_idx = -1;
         
-        // Gán cho xe tiếp theo
-        sol.route[current_vehicle].push_back(cid);
-        
-        // Chuyển sang xe tiếp theo (vòng tròn)
-        current_vehicle = (current_vehicle + 1) % vehicles.size();
-    }
-
-    cout << "\n=== INITIAL CUSTOMER DISTRIBUTION ===" << endl;
-    
-    for (size_t v = 0; v < vehicles.size(); v++) {
-        int count = sol.route[v].size() - 1; // Không tính depot đầu
-        cout << "  Vehicle " << v << ": " << count << " customers";
-        if (count == 0) cout << " ⚠️ EMPTY!";
-        cout << endl;
-    }
-
-    bool rebalanced = false;
-    for (size_t v = 0; v < vehicles.size(); v++) {
-        if (sol.route[v].size() <= 1) { // Chỉ có depot
-            // Tìm xe có nhiều khách nhất
-            size_t max_vehicle = 0;
-            int max_customers = 0;
-            
-            for (size_t v2 = 0; v2 < vehicles.size(); v2++) {
-                int count = sol.route[v2].size() - 1;
-                if (count > max_customers) {
-                    max_customers = count;
-                    max_vehicle = v2;
+        for (size_t v = 0; v < vehicles.size(); v++) {
+            for (size_t i = 0; i < unserved_C2.size(); i++) {
+                int cid = unserved_C2[i];
+                double d = distances[current_pos[v]][cid];
+                if (d < best_dist) {
+                    best_dist = d;
+                    best_v = v;
+                    best_idx = i;
                 }
             }
-            
-            // Chuyển 1 khách từ xe đông nhất sang xe trống
-            if (max_customers > 1) {
-                int customer = sol.route[max_vehicle][1]; // Lấy khách đầu tiên (sau depot)
-                sol.route[max_vehicle].erase(sol.route[max_vehicle].begin() + 1);
-                sol.route[v].push_back(customer);
-                
-                cout << "  → Rebalanced: Moved customer " << customer 
-                     << " from Vehicle " << max_vehicle 
-                     << " to Vehicle " << v << endl;
-                rebalanced = true;
-            }
+        }
+        
+        if (best_idx != -1) {
+            int best_cid = unserved_C2[best_idx];
+            sol.route[best_v].push_back(best_cid);
+            current_pos[best_v] = best_cid;
+            unserved_C2.erase(unserved_C2.begin() + best_idx);
         }
     }
 
-    // Kết thúc: đảm bảo mỗi route kết thúc bằng depot
+    // Kết thúc routes
     for (size_t v = 0; v < vehicles.size(); v++) {
         if (sol.route[v].empty() || sol.route[v].back() != depot_id) {
             sol.route[v].push_back(depot_id);
         }
     }
 
-    if (rebalanced) {
-        cout << "\n=== FINAL BALANCED DISTRIBUTION ===" << endl;
-        for (size_t v = 0; v < vehicles.size(); v++) {
-            int count = sol.route[v].size() - 2; // Không tính 2 depots
-            cout << "  Vehicle " << v << ": " << count << " customers" << endl;
+    evaluate_solution(sol);
+    
+    // ✅ HIỂN THỊ WORKLOAD
+    cout << "\n📊 INITIAL WORKLOAD:" << endl;
+    for (size_t v = 0; v < vehicles.size(); v++) {
+        int count = 0;
+        for (int node : sol.route[v]) {
+            if (node != depot_id) count++;
         }
-    }
-
-    cout << "\n=== INITIAL ROUTES (BEFORE EVALUATION) ===" << endl;
-    for (size_t v = 0; v < sol.route.size(); v++) {
-        cout << "Vehicle " << v << " (" 
-             << (vehicles[v].is_drone ? "Drone" : "Technician") 
-             << ", speed=" << vehicles[v].speed << "): ";
-        
-        for (int cid : sol.route[v]) {
-            cout << cid << " ";
+        cout << "  Vehicle " << v << ": " << count << " customers";
+        if (abs(count - target_per_vehicle) > 2) {
+            cout << " ⚠️  IMBALANCED";
+        } else {
+            cout << " ✅";
         }
         cout << endl;
     }
-
-    evaluate_solution(sol);
-    
-    cout << "\n=== INITIAL SOLUTION METRICS ===" << endl;
-    cout << "Makespan: " << sol.makespan << endl;
-    cout << "Drone violation: " << sol.drone_violation << endl;
-    cout << "Waiting violation: " << sol.waiting_violation << endl;
-    cout << "Fitness: " << sol.fitness << endl;
-    cout << "Is feasible: " << (sol.is_feasible ? "YES" : "NO") << endl;
     
     return sol;
 }
@@ -690,12 +651,8 @@ int find_best_depot_insertion(const vector<int> &route, int vehicle_idx, const L
         original_violation += alpha1 * (original.total_flight_time - vehicles[vehicle_idx].limit_drone);
     }
     original_violation += alpha2 * original.total_waiting;
-    
-    if (original_violation < EPSILON) {
-        return -1;
-    }
-    
-    double best_improvement = 0.0;
+
+    double best_improvement = -DBL_MAX;  // ✅ CHO PHÉP ÂM
     int best_pos = -1;
     
     for (size_t pos = 2; pos < route.size() - 1; pos++) {
@@ -716,7 +673,7 @@ int find_best_depot_insertion(const vector<int> &route, int vehicle_idx, const L
         
         double improvement = original_violation - test_violation;
         
-        // Tính detour distance với index
+        // Tính detour penalty NHỎ HƠN
         double detour_distance = 0.0;
         if (current_level != nullptr) {
             int idx_prev = find_node_index_fast(route[pos - 1]);
@@ -730,7 +687,7 @@ int find_best_depot_insertion(const vector<int> &route, int vehicle_idx, const L
             detour_distance = distances[route[pos - 1]][depot_id] + distances[depot_id][route[pos]] - distances[route[pos - 1]][route[pos]];
         }
         
-        double detour_penalty = 0.05 * detour_distance;
+        double detour_penalty = 0.01 * detour_distance;  // ✅ GIẢM TỪ 0.05 → 0.01
         improvement -= detour_penalty;
         
         if (improvement > best_improvement) {
@@ -739,7 +696,8 @@ int find_best_depot_insertion(const vector<int> &route, int vehicle_idx, const L
         }
     }
     
-    return (best_improvement > 0.5) ? best_pos : -1;
+    // ✅ CHẤP NHẬN NẾU CẢI THIỆN > 0.01 (thay vì 0.5)
+    return (best_improvement > 0.01) ? best_pos : -1;
 }
 
 void optimize_all_drone_routes(Solution &sol, const LevelInfo *current_level = nullptr) {
@@ -867,7 +825,7 @@ vector<int> get_merged_group(int node_id, const LevelInfo& level) {
 double calculate_orientation_cost(int prev_node, int next_node, const vector<int>& group, bool reverse_group, const LevelInfo* level) {
     if (group.size() <= 1) return 0.0;
     
-    // ✅ KIỂM TRA LEVEL
+    // KIỂM TRA LEVEL
     if (level == nullptr) {
         cerr << "ERROR: level is null in calculate_orientation_cost" << endl;
         return DBL_MAX;
@@ -877,13 +835,13 @@ double calculate_orientation_cost(int prev_node, int next_node, const vector<int
     int entry_node = reverse_group ? group.back() : group.front();
     int exit_node = reverse_group ? group.front() : group.back();
     
-    // ✅ TÌM INDEX CHO TẤT CẢ NODES - BỎ QUA NẾU KHÔNG TÌM THẤY
+    // TÌM INDEX CHO TẤT CẢ NODES - BỎ QUA NẾU KHÔNG TÌM THẤY
     int idx_prev = find_node_index_fast(prev_node);
     int idx_entry = find_node_index_fast(entry_node);
     int idx_exit = find_node_index_fast(exit_node);
     int idx_next = find_node_index_fast(next_node);
     
-    // ✅ KIỂM TRA CÁC TRƯỜNG HỢP LỖI
+    // KIỂM TRA CÁC TRƯỜNG HỢP LỖI
     if (idx_prev < 0 || idx_entry < 0 || idx_exit < 0 || idx_next < 0) {
         // Không tìm thấy node trong level hiện tại - SKIP
         return DBL_MAX;
@@ -905,14 +863,14 @@ double calculate_orientation_cost(int prev_node, int next_node, const vector<int
     
     double cost = 0.0;
     
-    // ✅ KHOẢNG CÁCH TỪ PREV ĐẾN ENTRY
+    // KHOẢNG CÁCH TỪ PREV ĐẾN ENTRY
     if (idx_prev < distances.size() && idx_entry < distances[0].size()) {
         cost += distances[idx_prev][idx_entry];
     } else {
         return DBL_MAX;
     }
     
-    // ✅ KHOẢNG CÁCH TRONG GROUP
+    // KHOẢNG CÁCH TRONG GROUP
     if (reverse_group) {
         // Đảo chiều: group.back() -> ... -> group.front()
         for (int i = group.size() - 1; i > 0; i--) {
@@ -950,7 +908,7 @@ double calculate_orientation_cost(int prev_node, int next_node, const vector<int
         }
     }
     
-    // ✅ KHOẢNG CÁCH TỪ EXIT ĐẾN NEXT
+    // KHOẢNG CÁCH TỪ EXIT ĐẾN NEXT
     if (idx_exit < distances.size() && idx_next < distances[0].size()) {
         cost += distances[idx_exit][idx_next];
     } else {
@@ -1639,48 +1597,55 @@ Solution tabu_search(Solution initial_sol, const LevelInfo &current_level, bool 
     vector<TabuMove> tabu_list; // danh sách các move bị tabu
     int no_improve_count = 0;
     int last_depot_opt_iter = 0;
-
     int no_improve_segment_length = 0;
     const int max_no_improve_segment = 8;
+    const int PHASE_1_END = MAX_ITER * 0.7;
 
     vector<string> move_types = {"1-0", "1-1", "2-0", "2-1", "2-2", "2-opt"};
     
     for (int iter = 0; iter < MAX_ITER && no_improve_count < MAX_NO_IMPROVE; iter++){
+        bool in_phase_1 = (iter < PHASE_1_END);
         bool should_depot_opt = false;
-        if (iter > 0 && iter % 100 == 0) {
-            should_depot_opt = true;
-        }
-        if (no_improve_count >= 50 && (iter - last_depot_opt_iter) >=25) {
-            should_depot_opt = true;
-        }
-        if (current_sol.drone_violation > 10.0 || current_sol.waiting_violation > 100.0) {
-            if (iter - last_depot_opt_iter >= 20) {
+        if (in_phase_1) {
+            if (iter == 10 || iter == 30 || iter == 60) {
+                should_depot_opt = true;
+            } else if (current_sol.drone_violation > 10.0 || current_sol.waiting_violation > 20.0) {
+                if (iter - last_depot_opt_iter >= 200) {
+                    should_depot_opt = true;
+                }
+            } else if (no_improve_count >= 100 && (iter - last_depot_opt_iter) >= 50) {
                 should_depot_opt = true;
             }
+        } else {
+            if (iter % 50 == 0) {
+                if (current_sol.drone_violation > 0.5 || current_sol.waiting_violation > 0.5) {
+                    should_depot_opt = true;
+                }
+            } 
+            else if (no_improve_count >= 30 && (iter - last_depot_opt_iter) >= 30) {
+                should_depot_opt = true;
+            } 
+            else if (iter > MAX_ITER - 100 && (iter - last_depot_opt_iter) >= 30) {
+                if (current_sol.drone_violation > EPSILON || current_sol.waiting_violation > EPSILON) {
+                    should_depot_opt = true;
+                }
+            } 
         }
-        
+
         if (should_depot_opt) {
-            /*cout << "\n=== DEPOT OPTIMIZATION at iter " << iter 
-                 << " (reason: " << (iter % 100 == 0 ? "periodic" : 
-                                   no_improve_count >= 50 ? "stuck" : "high_violation") 
-                 << ") ===" << endl;*/
-                 
             Solution temp_sol = current_sol;
             double old_fitness = temp_sol.fitness;
             
             optimize_all_drone_routes(temp_sol, &current_level);
             remove_redundant_depots(temp_sol, &current_level);
-
+            
             if (temp_sol.fitness < current_sol.fitness - EPSILON) {
                 current_sol = temp_sol;
                 last_depot_opt_iter = iter;
-                
-                cout << "  Depot opt success: " << old_fitness << " -> " << current_sol.fitness << endl;
-                
+                                
                 if (current_sol.fitness < best_sol.fitness - EPSILON) {
                     best_sol = current_sol;
                     no_improve_count = 0;
-                    cout << "  ✅ NEW BEST: " << best_sol.fitness << endl;
 
                     if (track_edge) {
                         update_edge_frequency(best_sol);
@@ -2701,7 +2666,7 @@ Solution unmerge_solution_to_previous_level(const Solution& coarse_sol, const Le
             }
         }
         
-        // ✅ KIỂM TRA VÀ ÁP DỤNG ORIENTATION
+        // KIỂM TRA VÀ ÁP DỤNG ORIENTATION
         auto orient_it = merged_node_orientations.find(coarse_node.id);
         if (orient_it != merged_node_orientations.end() && orient_it->second.is_reversed) {
             reverse(corresponding_fine_nodes.begin(), corresponding_fine_nodes.end());
@@ -2721,7 +2686,7 @@ Solution unmerge_solution_to_previous_level(const Solution& coarse_sol, const Le
         coarse_to_fine_mapping[coarse_node.id] = corresponding_fine_nodes;
     }
     
-    // ✅ Unmerge routes (giữ nguyên phần này)
+    // Unmerge routes (giữ nguyên phần này)
     for (size_t v = 0; v < coarse_sol.route.size(); v++) {
         cout << "\nVehicle " << v << " coarse route: ";
         for (int id : coarse_sol.route[v]) cout << id << " ";
@@ -2942,6 +2907,8 @@ Solution multilevel_tabu_search() {
         edge_frequency.clear();
         s = tabu_search(s, all_levels[prev_level_id], false);
         update_node_index_cache(all_levels[prev_level_id]);
+        optimize_all_drone_routes(s, &all_levels[prev_level_id]);
+        remove_redundant_depots(s);
         evaluate_solution(s, &all_levels[prev_level_id]);
         
         MAX_ITER = original_max_iter;
@@ -2959,6 +2926,64 @@ Solution multilevel_tabu_search() {
     return best_overall;
 }
 
+Solution create_test_solution_from_routes(const vector<vector<int>>& test_routes) {
+    Solution test_sol;
+    test_sol.route = test_routes;
+    
+    cout << "\n" << string(70, '=') << endl;
+    cout << "🧪 TESTING WITH PREDEFINED ROUTES" << endl;
+    cout << string(70, '=') << "\n" << endl;
+    
+    // ✅ HIỂN THỊ ROUTES
+    for (size_t v = 0; v < test_routes.size(); v++) {
+        cout << "Vehicle " << v << " (" 
+             << (vehicles[v].is_drone ? "🚁 Drone" : "🚚 Technician") 
+             << ", speed=" << vehicles[v].speed << " m/min";
+        if (vehicles[v].is_drone) {
+            cout << ", limit=" << vehicles[v].limit_drone << " min";
+        }
+        cout << "): ";
+        
+        for (int cid : test_routes[v]) {
+            cout << cid << " ";
+        }
+        cout << endl;
+    }
+    
+    // ✅ GỌI HÀM EVALUATE - NÓ ĐÃ TÍNH TẤT CẢ
+    evaluate_solution(test_sol, nullptr);
+    
+    // ✅ HIỂN THỊ KẾT QUẢ
+    cout << "\n" << string(70, '=') << endl;
+    cout << "📋 TEST RESULTS" << endl;
+    cout << string(70, '=') << "\n" << endl;
+    
+    cout << "Makespan: " << test_sol.makespan << " min" << endl;
+    cout << "Drone violation: " << test_sol.drone_violation << " min" << endl;
+    cout << "Waiting violation: " << test_sol.waiting_violation << " min" << endl;
+    cout << "Fitness: " << test_sol.fitness << endl;
+    cout << "Is feasible: " << (test_sol.is_feasible ? "YES ✅" : "NO ❌") << endl;
+    
+    // ✅ CHI TIẾT VI PHẠM (NẾU CÓ)
+    if (!test_sol.is_feasible) {
+        cout << "\n⚠️  VIOLATIONS DETECTED:" << endl;
+        
+        if (test_sol.drone_violation > 0) {
+            cout << "  🚁 Drone flight time exceeded by " << test_sol.drone_violation << " min" << endl;
+            cout << "     → Some drones flew > " << vehicles[3].limit_drone << " min without returning to depot" << endl;
+        }
+        
+        if (test_sol.waiting_violation > 0) {
+            cout << "  ⏳ Customer waiting time exceeded by " << test_sol.waiting_violation << " min" << endl;
+            cout << "     → Some customers waited > 60 min for drone to return" << endl;
+        }
+    } else {
+        cout << "\n ALL CONSTRAINTS SATISFIED!" << endl;
+    }
+    
+    return test_sol;
+}
+
 
 int main(int argc, char* argv[]) {
     srand(time(nullptr));
@@ -2967,7 +2992,7 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\50.40.2.txt"; 
+        dataset_path = "D:\\New folder\\instances\\50.40.1.txt"; 
     }
     read_dataset(dataset_path);
     printf("MAX_ITER: %d\n", MAX_ITER);
@@ -2982,11 +3007,26 @@ int main(int argc, char* argv[]) {
     else if (customers <= 50) pairs = 3;
     else if (customers <= 100) pairs = 4;
     for (int i = 0; i < pairs; ++i) {
-        vehicles.push_back({ i+1, 0.58f, false, 0.0 }); // technician
+        vehicles.push_back({ i+1, 0.58f, false, 0.0f }); // technician
     }
     for (int i = 0; i < pairs; ++i) {
-        vehicles.push_back({ pairs + i + 1, 0.83f, true, 120.0 }); // drone
+        vehicles.push_back({ pairs + i + 1, 0.83f, true, 120.0f }); // drone
     }
+
+    vector<vector<int>> test_routes = {
+        // 3 Technicians
+        {0, 38, 4, 8, 26, 1, 11, 30, 9, 12, 0},
+        {0, 14, 31, 47, 13, 32, 24, 46, 0},
+        {0, 29, 22, 7, 5, 0},
+        
+        // 3 Drones
+        {0, 16, 2, 6, 28, 35, 20, 27, 39, 36, 50, 23, 0, 17, 0},
+        {0, 45, 18, 3, 19, 48, 15, 44, 34, 33, 10, 0},
+        {0, 21, 25, 40, 42, 41, 37, 43, 49, 0}
+    };
+
+    //Solution test_solution = create_test_solution_from_routes(test_routes);
+
     Solution best_solution = multilevel_tabu_search();
     print_solution(best_solution);
 
