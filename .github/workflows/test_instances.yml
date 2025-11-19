@@ -65,7 +65,7 @@ jobs:
         echo "🔄 Running instance ${INSTANCE} with SEGMENT=${SEGMENT}..."
 
         START_TIME=$(date +%s.%N)
-        timeout 18m ./multilevel_tabu instances/${INSTANCE}.txt --segment $SEGMENT > output_seg${SEGMENT}.txt 2>&1 || true
+        timeout 30m ./multilevel_tabu instances/${INSTANCE}.txt --segment $SEGMENT > output_seg${SEGMENT}.txt 2>&1 || true
         END_TIME=$(date +%s.%N)
         RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
         echo "$RUNTIME" > runtime_seg${SEGMENT}.txt

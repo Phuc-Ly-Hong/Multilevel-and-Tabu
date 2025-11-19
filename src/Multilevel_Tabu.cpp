@@ -2773,6 +2773,7 @@ Solution multilevel_tabu_search() {
         
         // Project solution
         s = project_solution_to_next_level(s, all_levels[L], next_level);
+        update_node_index_cache(next_level);
         for (size_t v = 0; v < s.route.size(); v++) {
             cout << "Vehicle " << v << ": ";
             for (int cid : s.route[v]) {
@@ -2792,8 +2793,6 @@ Solution multilevel_tabu_search() {
         C2 = next_level.C2_level;
         num_nodes = next_level.nodes.size();
         
-        update_node_index_cache(next_level);
-        // Evaluate projected solution
         evaluate_solution(s, &next_level);
         cout << "Projected solution fitness: " << s.fitness << endl;
         
@@ -2956,7 +2955,7 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\20.10.1.txt"; 
+        dataset_path = "D:\\New folder\\instances\\50.40.1.txt"; 
     }
     read_dataset(dataset_path);
     printf("MAX_ITER: %d\n", MAX_ITER);
@@ -2996,6 +2995,3 @@ int main(int argc, char* argv[]) {
 
     return 0;
 }
-
-
-
