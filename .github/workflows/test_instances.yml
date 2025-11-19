@@ -38,49 +38,54 @@ jobs:
         retention-days: 1
 
   run-test:
-    name: Run 50.40.1 (3 times)
+    name: Run 50.40.1 (segments=${{ matrix.segment }})
     needs: compile
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    
+
+    strategy:
+      matrix:
+        segment: [150, 200, 250]
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
+
     - name: Download executable
       uses: actions/download-artifact@v4
       with:
         name: multilevel-executable
-    
+
     - name: Run instance 3 times
       run: |
         chmod +x multilevel_tabu
-        
+
         INSTANCE="50.40.1"
-        echo "🔄 Running instance ${INSTANCE} for 3 iterations..."
-        
+        SEGMENT="${{ matrix.segment }}"
+        echo "🔄 Running instance ${INSTANCE} for 3 iterations with SEGMENT=${SEGMENT}..."
+
         for run in {1..3}; do
           echo ""
           echo "=========================================="
-          echo "   RUN $run / 3"
+          echo "   RUN $run / 3 (SEGMENT=${SEGMENT})"
           echo "=========================================="
-          
+
           START_TIME=$(date +%s.%N)
-          timeout 18m ./multilevel_tabu instances/${INSTANCE}.txt > output_run${run}.txt 2>&1 || true
+          timeout 18m ./multilevel_tabu instances/${INSTANCE}.txt --segment $SEGMENT > output_run${run}_seg${SEGMENT}.txt 2>&1 || true
           END_TIME=$(date +%s.%N)
           RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
-          echo "$RUNTIME" > runtime_run${run}.txt
-          
+          echo "$RUNTIME" > runtime_run${run}_seg${SEGMENT}.txt
+
           echo "⏱️  Run $run completed in ${RUNTIME}s"
-          
+
           # Show last 20 lines of output
           echo ""
           echo "📋 Last 20 lines of output:"
-          tail -n 20 output_run${run}.txt
+          tail -n 20 output_run${run}_seg${SEGMENT}.txt
         done
-        
+
         echo ""
-        echo "✅ All 3 runs completed!"
+        echo "✅ All 3 runs completed for SEGMENT=${SEGMENT}!"
     
     - name: Parse results
       run: |
