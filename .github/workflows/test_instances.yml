@@ -200,11 +200,40 @@ jobs:
         print(f"\n✅ Results saved to test_results_all.json")
         EOF
 
-    - name: Upload summary
+    - name: Export summary to CSV
+      run: |
+        python3 <<'EOF'
+        import json
+        import csv
+
+        with open("test_results_all.json", "r") as f:
+            data = json.load(f)
+
+        with open("test_results_summary.csv", "w", newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow([
+                "exe", "instance", "run_id", "runtime", "makespan",
+                "drone_violation", "waiting_violation", "fitness", "feasible", "routes"
+            ])
+            for run in data["runs"]:
+                writer.writerow([
+                    run.get("exe", ""),
+                    run.get("instance", ""),
+                    run.get("run_id", ""),
+                    run.get("runtime", ""),
+                    run.get("makespan", ""),
+                    run.get("drone_violation", ""),
+                    run.get("waiting_violation", ""),
+                    run.get("fitness", ""),
+                    run.get("feasible", ""),
+                    len(run.get("routes", []))
+                ])
+        print("✅ Exported test_results_summary.csv")
+        EOF
+
+    - name: Upload CSV summary
       uses: actions/upload-artifact@v4
       with:
-        name: test-results-summary
-        path: |
-          test_results_all.json
-          results/**
+        name: test-results-csv
+        path: test_results_summary.csv
         retention-days: 30
