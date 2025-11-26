@@ -41,21 +41,11 @@ struct TabuMove {
     int tenure; // số vòng lặp còn lại move này bị tabu
 };
 
-struct RouteAnalysis {
-    vector<double> cumulative_flight_time;  // thời gian bay tích lũy từ depot gần nhất
-    vector<double> arrival_time;            // thời gian đến từng điểm
-    vector<double> waiting_times;           // thời gian chờ tại mỗi khách hàng
-    double total_flight_time;               // tổng thời gian bay từ depot cuối
-    double total_waiting;                   // tổng vi phạm waiting
-    double max_waiting;                     // vi phạm waiting lớn nhất
-    
-    RouteAnalysis() : total_flight_time(0), total_waiting(0), max_waiting(0) {}
-};
-
 struct LevelInfo {
     vector<Node> nodes;
     vector<Node> C1_level, C2_level; // customers ở level này
     map<int, vector<int>> node_mapping; // ánh xạ từ node level này về node gốc
+    vector<vector<double>> distance_matrix; // ma trận khoảng cách ở level này
     int level_id;
     int num_customers;
 
@@ -84,7 +74,6 @@ struct MergedNodeOrientation {
 };
 
 vector<vector<double>> distances;
-vector<vector<double>> original_distances; // dùng khi merge các khách hàng cho level
 vector<Node> C1; // customers served only by technicians
 vector<Node> C2; // customers served by drones or technicians
 vector<VehicleFamily> vehicles;
@@ -163,7 +152,7 @@ void read_dataset(const string &filename){
         SEGMENT_LENGTH = 75;
     } else if (nodes.size() >= 50){
         MAX_ITER = 3000;
-        SEGMENT_LENGTH = 150;
+        SEGMENT_LENGTH = 300;
     } else {
         MAX_ITER = 2000;
         SEGMENT_LENGTH = 100;
@@ -232,7 +221,25 @@ int find_node_index_fast(int node_id) {
     return -1;
 }
 
+void normalize_route(vector<int> &route) {
+    if (route.empty()) { route.push_back(depot_id); return; }
+    vector<int> tmp;
+    tmp.reserve(route.size());
+    // đảm bảo bắt đầu bằng depot
+    if (route.front() != depot_id) tmp.push_back(depot_id);
+    for (int x : route) {
+        // bỏ depot liên tiếp
+        if (!tmp.empty() && tmp.back() == depot_id && x == depot_id) continue;
+        tmp.push_back(x);
+    }
+    // đảm bảo chỉ một depot ở cuối
+    if (tmp.empty() || tmp.back() != depot_id) tmp.push_back(depot_id);
+    route.swap(tmp);
+}
+
 void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) {
+    for (auto &route : sol.route) normalize_route(route);
+
     sol.makespan = 0;
     sol.drone_violation = 0;
     sol.waiting_violation = 0;
@@ -272,10 +279,60 @@ void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) 
                 }
                 
                 for (auto &p : served_in_trip){
-                    double time_served = p.second;
-                    double wait_time = arrival_depot - time_served;
-                    if (!C2.empty() && wait_time > C2[0].limit_wait) {
-                        sol.waiting_violation += (wait_time - C2[0].limit_wait);
+                    int served_node_id = p.first;
+                    double time_arrived_at_node = p.second;
+                    
+                    if (current_level != nullptr) {
+                        auto it = current_level->node_mapping.find(served_node_id);
+                        bool is_merged = (it != current_level->node_mapping.end() && it->second.size() > 1);
+                        
+                        if (is_merged) {
+                            auto info_it = merged_nodes_info.find(served_node_id);
+                            if (info_it != merged_nodes_info.end()) {
+                                const MergedNodeInfo& info = info_it->second;
+                                
+                                double time_in_merged = time_arrived_at_node;  
+                                
+                                for (size_t k = 0; k < info.current_sequence.size(); k++) {
+                                    int node_in_group = info.current_sequence[k];
+                                    
+                                    double dist_to_this_node = 0.0;
+                                    for (size_t m = 0; m < k; m++) {
+                                        int from = info.current_sequence[m];
+                                        int to = info.current_sequence[m + 1];
+                                        int idx_from = find_node_index_fast(from);
+                                        int idx_to = find_node_index_fast(to);
+                                        if (idx_from != -1 && idx_to != -1) {
+                                            dist_to_this_node += distances[idx_from][idx_to];
+                                        }
+                                        
+                                        auto it_from_merge = merged_nodes_info.find(from);
+                                        if (it_from_merge != merged_nodes_info.end()) {
+                                            dist_to_this_node += it_from_merge->second.internal_distance;
+                                        }
+                                    }
+                                    
+                                    double time_served_this_node = time_in_merged + (dist_to_this_node / vehicles[i].speed);
+                                    
+                                    double wait_time = arrival_depot - time_served_this_node;
+                                    
+                                    if (!C2.empty() && wait_time > C2[0].limit_wait) {
+                                        double violation = wait_time - C2[0].limit_wait;
+                                        sol.waiting_violation += violation;
+                                    }
+                                }
+                            }
+                        } else {
+                            double wait_time = arrival_depot - time_arrived_at_node;
+                            if (!C2.empty() && wait_time > C2[0].limit_wait) {
+                                sol.waiting_violation += (wait_time - C2[0].limit_wait);
+                            }
+                        }
+                    } else {
+                        double wait_time = arrival_depot - time_arrived_at_node;
+                        if (!C2.empty() && wait_time > C2[0].limit_wait) {
+                            sol.waiting_violation += (wait_time - C2[0].limit_wait);
+                        }
                     }
                 }
                 
@@ -286,15 +343,14 @@ void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) 
                 depart_time = current_time;
                 served_in_trip.clear();
                 prev = depot_id;
-            }
-            else {
+            } else {
                 double travel_distance = 0.0;
                 
                 if (current_level != nullptr) {
                     int prev_idx = find_node_index_fast(prev);
                     int cid_idx = find_node_index_fast(cid);
 
-                    if (prev_idx >= 0 && cid_idx >= 0) {
+                    if (prev_idx != -1 && cid_idx != -1) {
                         travel_distance = distances[prev_idx][cid_idx];
                         auto it_cid = current_level->node_mapping.find(cid);
                         bool cid_is_merged = (it_cid != current_level->node_mapping.end() && it_cid->second.size() > 1);
@@ -310,8 +366,31 @@ void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) 
                     travel_distance = distances[prev][cid];
                 }
                 
+                if (current_level != nullptr) {
+                    auto it_cid = current_level->node_mapping.find(cid);
+                    bool cid_is_merged = (it_cid != current_level->node_mapping.end() 
+                                          && it_cid->second.size() > 1);
+                    
+                    if (cid_is_merged) {
+                        auto info_it = merged_nodes_info.find(cid);
+                        if (info_it != merged_nodes_info.end()) {
+                            double internal = info_it->second.internal_distance;
+                            double time_enter = current_time + ((travel_distance - internal) / vehicles[i].speed);
+                            served_in_trip.push_back({cid, time_enter});
+                        } else {
+                            double entry_time = current_time + (travel_distance / vehicles[i].speed);
+                            served_in_trip.push_back({cid, entry_time});
+                        }
+                    } else {
+                        double entry_time = current_time + (travel_distance / vehicles[i].speed);
+                        served_in_trip.push_back({cid, entry_time});
+                    }
+                } else {
+                    double entry_time = current_time + (travel_distance / vehicles[i].speed);
+                    served_in_trip.push_back({cid, entry_time});
+                }
+                
                 current_time += travel_distance / vehicles[i].speed;
-                served_in_trip.push_back({cid, current_time});
                 prev = cid;
             }
         }
@@ -475,253 +554,6 @@ int get_type(int nid, const LevelInfo *current_level = nullptr) {
     return -1;
 }
 
-RouteAnalysis analyze_drone_route(const vector<int> &route, int vehicle_idx, const LevelInfo *current_level = nullptr) {
-    RouteAnalysis analysis;
-    
-    if (route.size() <= 2) {
-        return analysis;
-    }
-    
-    analysis.cumulative_flight_time.resize(route.size(), 0.0);
-    analysis.arrival_time.resize(route.size(), 0.0);
-    analysis.waiting_times.resize(route.size(), 0.0);
-    
-    double current_time = 0.0;
-    double flight_time_since_last_depot = 0.0;
-    double max_flight_segment = 0.0;
-    int last_node = depot_id;
-    
-    vector<pair<int, double>> current_trip_customers;
-    double trip_start_time = 0.0;
-    
-    for (size_t i = 0; i < route.size(); i++) {
-        int current_node = route[i];
-        
-        if (i > 0) {
-            double travel_distance = 0.0;
-            
-            if (current_level != nullptr) {
-                int last_idx = find_node_index_fast(last_node);
-                int curr_idx = find_node_index_fast(current_node);
-                
-                if (last_idx == -1 || curr_idx == -1) {
-                    travel_distance = distances[last_idx][curr_idx];
-                }
-                
-                // Kiểm tra merged nodes
-                auto it_last = current_level->node_mapping.find(last_node);
-                auto it_curr = current_level->node_mapping.find(current_node);
-                
-                bool last_is_merged = (it_last != current_level->node_mapping.end() && 
-                                      it_last->second.size() > 1);
-                bool curr_is_merged = (it_curr != current_level->node_mapping.end() && 
-                                      it_curr->second.size() > 1);
-                
-                if (last_is_merged || curr_is_merged) {
-                    travel_distance = original_distances[last_idx][curr_idx];
-                } else {
-                    travel_distance = distances[last_idx][curr_idx];
-                }
-            } else {
-                // Level 0 - dùng node ID trực tiếp
-                if (last_node < distances.size() && current_node < distances[0].size()) {
-                    travel_distance = distances[last_node][current_node];
-                }
-            }
-            
-            double travel_time = travel_distance / vehicles[vehicle_idx].speed;
-            current_time += travel_time;
-            
-            if (current_node == depot_id) {
-                double trip_end_time = current_time;
-                
-                for (auto &p : current_trip_customers) {
-                    int idx = p.first;
-                    double service_time = p.second;
-                    double wait_time = trip_end_time - service_time;
-                    
-                    analysis.waiting_times[idx] = wait_time;
-                    
-                    if (wait_time > 60.0) {
-                        double violation = wait_time - 60.0;
-                        analysis.total_waiting += violation;
-                        analysis.max_waiting = max(analysis.max_waiting, wait_time);
-                    }
-                }
-                
-                max_flight_segment = max(max_flight_segment, flight_time_since_last_depot);
-                flight_time_since_last_depot = 0.0;
-                current_trip_customers.clear();
-                trip_start_time = current_time;
-            } else {
-                flight_time_since_last_depot += travel_time;
-                current_trip_customers.push_back({i, current_time});
-            }
-        }
-        
-        analysis.cumulative_flight_time[i] = flight_time_since_last_depot;
-        analysis.arrival_time[i] = current_time;
-        last_node = current_node;
-    }
-    
-    analysis.total_flight_time = max_flight_segment;
-    
-    return analysis;
-}
-
-// Tìm vị trí tốt nhất để chèn depot vào route
-int find_best_depot_insertion(const vector<int> &route, int vehicle_idx, const LevelInfo *current_level = nullptr) {
-    if (!vehicles[vehicle_idx].is_drone || route.size() <= 3) {
-        return -1;
-    }
-
-    RouteAnalysis original = analyze_drone_route(route, vehicle_idx, current_level);
-    
-    double original_violation = 0.0;
-    if (original.total_flight_time > vehicles[vehicle_idx].limit_drone) {
-        original_violation += alpha1 * (original.total_flight_time - vehicles[vehicle_idx].limit_drone);
-    }
-    original_violation += alpha2 * original.total_waiting;
-
-    double best_improvement = -DBL_MAX;  
-    int best_pos = -1;
-    
-    for (size_t pos = 2; pos < route.size() - 1; pos++) {
-        if (route[pos - 1] == depot_id || route[pos] == depot_id) {
-            continue;
-        }
-        
-        vector<int> test_route = route;
-        test_route.insert(test_route.begin() + pos, depot_id);
-        
-        RouteAnalysis test_analysis = analyze_drone_route(test_route, vehicle_idx, current_level);
-        
-        double test_violation = 0.0;
-        if (test_analysis.total_flight_time > vehicles[vehicle_idx].limit_drone) {
-            test_violation += alpha1 * (test_analysis.total_flight_time - vehicles[vehicle_idx].limit_drone);
-        }
-        test_violation += alpha2 * test_analysis.total_waiting;
-        
-        double improvement = original_violation - test_violation;
-        
-        // Tính detour penalty NHỎ HƠN
-        double detour_distance = 0.0;
-        if (current_level != nullptr) {
-            int idx_prev = find_node_index_fast(route[pos - 1]);
-            int idx_depot = 0;
-            int idx_curr = find_node_index_fast(route[pos]);
-
-            if (idx_prev != -1 && idx_curr != -1) {
-                detour_distance = distances[idx_prev][idx_depot] + distances[idx_depot][idx_curr] - distances[idx_prev][idx_curr];
-            }
-        } else {
-            detour_distance = distances[route[pos - 1]][depot_id] + distances[depot_id][route[pos]] - distances[route[pos - 1]][route[pos]];
-        }
-        
-        double detour_penalty = 0.01 * detour_distance;  // ✅ GIẢM TỪ 0.05 → 0.01
-        improvement -= detour_penalty;
-        
-        if (improvement > best_improvement) {
-            best_improvement = improvement;
-            best_pos = pos;
-        }
-    }
-    
-    // ✅ CHẤP NHẬN NẾU CẢI THIỆN > 0.01 (thay vì 0.5)
-    return (best_improvement > 0.01) ? best_pos : -1;
-}
-
-void optimize_all_drone_routes(Solution &sol, const LevelInfo *current_level = nullptr) {
-    bool changed = true;
-    int max_rounds = 3;
-    int round = 0;
-    
-    while (changed && round < max_rounds) {
-        changed = false;
-        round++;
-        
-        for (size_t v = 0; v < vehicles.size(); v++) {
-            if (!vehicles[v].is_drone) continue;
-            
-            int insert_pos = find_best_depot_insertion(sol.route[v], v, current_level);
-            
-            if (insert_pos != -1) {
-                bool has_adjacent_depot = false;
-                if (insert_pos > 0 && sol.route[v][insert_pos - 1]  == depot_id) {
-                    has_adjacent_depot = true;
-                }
-                if (insert_pos < sol.route[v].size() && sol.route[v][insert_pos] == depot_id) {
-                    has_adjacent_depot = true;
-                }
-                if (!has_adjacent_depot) {
-                    sol.route[v].insert(sol.route[v].begin() + insert_pos, depot_id);
-                    evaluate_solution(sol, current_level);
-                    changed = true;
-                }
-            }
-        }
-    }
-}
-
-void remove_redundant_depots(Solution &sol, const LevelInfo *current_level = nullptr) {
-    bool changed = true;
-    int round = 0;
-    const int MAX_ROUNDS = 5;
-    
-    while (changed && round < MAX_ROUNDS) {
-        changed = false;
-        round++;
-        
-        for (size_t v = 0; v < vehicles.size(); v++) {
-            if (!vehicles[v].is_drone) continue;
-            
-            vector<int> &route = sol.route[v];
-            bool found_duplicate = false;
-            
-            for (size_t i = 1; i < route.size() - 1 && !found_duplicate; ) {
-                if (i + 1 < route.size() && route[i] == depot_id && route[i + 1] == depot_id) {
-                    route.erase(route.begin() + i);
-                    found_duplicate = true;
-                    changed = true;
-                } else {
-                    i++;
-                }
-            }
-            
-            if (found_duplicate) {
-                continue;
-            }
-            
-            bool removed_redundant = false;
-            for (size_t i = 1; i < route.size() - 1 && !removed_redundant; ) {
-                if (route[i] == depot_id) {
-                    vector<int> test_route = route;
-                    test_route.erase(test_route.begin() + i);
-                    
-                    Solution test_sol = sol;
-                    test_sol.route[v] = test_route;
-                    evaluate_solution(test_sol, current_level);
-                    
-                    if (test_sol.fitness <= sol.fitness + EPSILON) {
-                        route = test_route;
-                        sol = test_sol;
-                        changed = true;
-                        removed_redundant = true;
-                    } else {
-                        i++;
-                    }
-                } else {
-                    i++;
-                }
-            }
-        }
-    }
-    
-    if (round >= MAX_ROUNDS) {
-        cout << "⚠️  remove_redundant_depots reached max rounds" << endl;
-    }
-}
-
 map<pair<int,int>, int> edge_frequency;
 
 void update_edge_frequency(const Solution& best_solution) {
@@ -745,15 +577,15 @@ bool is_merged_node(int node_id, const LevelInfo& level) {
     return (it != level.node_mapping.end() && it->second.size() > 1);
 }
 
-vector<int> get_merged_group(int node_id, const LevelInfo& level) {
+/*vector<int> get_merged_group(int node_id, const LevelInfo& level) {
     auto it = level.node_mapping.find(node_id);
     if (it != level.node_mapping.end()) {
         return it->second;
     }
     return {node_id};
-}
+}*/
 
-double calculate_orientation_cost(int prev_node, int next_node, const vector<int>& group, bool reverse_group, const LevelInfo* level) {
+/*double calculate_orientation_cost(int prev_node, int next_node, const vector<int>& group, bool reverse_group, const LevelInfo* level) {
     if (group.size() <= 1) return 0.0;
     
     // KIỂM TRA LEVEL
@@ -908,7 +740,7 @@ pair<bool, double> find_best_orientation(const vector<int>& route, int pos, int 
     }
     
     return {should_reverse, chosen_cost};
-}
+}*/
 
 bool contains_depot_in_range(const vector<int>& route, size_t start, size_t end) {
     for (size_t i = start; i <= end && i < route.size(); i++) {
@@ -983,64 +815,37 @@ bool is_tabu(const vector<TabuMove> &tabu_list, const TabuMove &move){
 Solution move_1_0(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_t pos2, const LevelInfo *current_level){
     Solution new_sol = current_sol;
     int cid = new_sol.route[v1][pos1];
+
     if (cid == depot_id) return current_sol; // không di chuyển depot
-    int customer_count = 0;
-    for (int node : new_sol.route[v1]) {
-        if (node != depot_id) customer_count++;
-    }
-    
-    if (customer_count <= 1) {
-        // Xe chỉ còn 1 khách - không được di chuyển
-        return current_sol;
-    }
-    if (pos2 == 0) {
-        return current_sol;
-    }
-    
-    // Kiểm tra không được chèn vào vị trí cuối cùng (sau depot kết thúc)
-    if (pos2 == new_sol.route[v2].size()) {
-        return current_sol;
-    }
-    
-    // Kiểm tra không được di chuyển từ vị trí đầu hoặc cuối (depot)
+
     if (pos1 == 0 || pos1 == new_sol.route[v1].size() - 1) {
         return current_sol;
     }
-    new_sol.route[v1].erase(new_sol.route[v1].begin() + pos1);
-    new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2, cid);
 
-    if (current_level != nullptr && is_merged_node(cid, *current_level)) {
-        vector<int> group = get_merged_group(cid, *current_level);
-        
-        if (group.size() > 1) {
-            // Tạo 2 solutions với 2 orientations khác nhau
-            Solution sol_normal = new_sol;
-            Solution sol_reversed = new_sol;
-            
-            // TÍNH COST CHO CẢ 2 ORIENTATIONS
-            auto result_normal = find_best_orientation(sol_normal.route[v2], pos2, cid, current_level);
-            
-            // Tạo version đảo ngược bằng cách đảo thứ tự trong node_mapping
-            vector<int> reversed_group = group;
-            reverse(reversed_group.begin(), reversed_group.end());
-            
-            // Tính cost thủ công cho orientation đảo
-            int prev_node = (pos2 > 0) ? sol_reversed.route[v2][pos2 - 1] : depot_id;
-            int next_node = (pos2 < sol_reversed.route[v2].size() - 1) ? sol_reversed.route[v2][pos2 + 1] : depot_id;
-            
-            double cost_reversed = calculate_orientation_cost(prev_node, next_node, group, true, current_level);
-            double cost_normal = calculate_orientation_cost(prev_node, next_node, group, false, current_level);
-            
-            // Chọn orientation tốt hơn
-            if (cost_reversed < cost_normal - EPSILON) {
-                // Đảo chiều tốt hơn - note lại để xử lý
-                new_sol = sol_reversed;
-                cout << "  → Move 1-0: Merged node " << cid << " REVERSED (cost " 
-                     << cost_normal << " -> " << cost_reversed << ")" << endl;
-            }
+    if (pos2 == new_sol.route[v2].size() && vehicles[v2].is_drone){
+        if (get_type(cid, current_level) == 1) return current_sol; 
+        int customer_count = 0;
+        for (int node : new_sol.route[v1]) {
+            if (node != depot_id) customer_count++;
         }
+        if (customer_count <= 1 && v1 == v2) {
+            return current_sol;
+        }
+        new_sol.route[v1].erase(new_sol.route[v1].begin() + pos1);
+        new_sol.route[v2].push_back(cid);
+        if (!new_sol.route[v2].empty() && new_sol.route[v2].back() != depot_id) {
+            new_sol.route[v2].push_back(depot_id);
+        }
+    } else {
+        if (v1 == v2) return current_sol;
+        if (pos2 == 0 || pos2 >= new_sol.route[v2].size()) return current_sol;
+        if (get_type(cid, current_level) == 1 && vehicles[v2].is_drone) {
+            return current_sol;
+        }
+        new_sol.route[v1].erase(new_sol.route[v1].begin() + pos1);
+        new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2, cid);
     }
-
+    
     evaluate_solution(new_sol, current_level);
     return new_sol;
 }
@@ -1051,7 +856,7 @@ Solution move_1_1(Solution current_sol, size_t v1, size_t node1, size_t v2, size
     int cid2 = new_sol.route[v2][node2];
     if (cid1 == depot_id || cid2 == depot_id) return current_sol; // không di chuyển depot
     swap(new_sol.route[v1][node1], new_sol.route[v2][node2]);
-    if (current_level != nullptr) {
+    /*if (current_level != nullptr) {
         bool is_merged1 = is_merged_node(cid2, *current_level); // cid2 giờ ở vị trí node1
         bool is_merged2 = is_merged_node(cid1, *current_level); // cid1 giờ ở vị trí node2
         
@@ -1105,7 +910,7 @@ Solution move_1_1(Solution current_sol, size_t v1, size_t node1, size_t v2, size
         } else if (is_merged2) {
             find_best_orientation(new_sol.route[v2], node2, cid1, current_level);
         }
-    }
+    }*/
     evaluate_solution(new_sol, current_level);
     return new_sol;
 }
@@ -1123,21 +928,26 @@ Solution move_2_0(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
     }
     int cid1 = new_sol.route[v1][pos1];
     int cid2 = new_sol.route[v1][pos1+1];
-    new_sol.route[v1].erase(new_sol.route[v1].begin() + pos1 + 1);
-    new_sol.route[v1].erase(new_sol.route[v1].begin() + pos1);
-    new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2, cid1);
-    if (current_level != nullptr) {
-        bool is_merged1 = is_merged_node(cid1, *current_level);
-        bool is_merged2 = is_merged_node(cid2, *current_level);
-        
-        if (is_merged1) {
-            find_best_orientation(new_sol.route[v2], pos2, cid1, current_level);
+
+    if (pos2 == new_sol.route[v2].size() && vehicles[v2].is_drone){
+        if (get_type(cid1, current_level) == 1 || get_type(cid2, current_level) == 1){
+            return current_sol;
         }
-        if (is_merged2) {
-            find_best_orientation(new_sol.route[v2], pos2 + 1, cid2, current_level);
+        new_sol.route[v1].erase(new_sol.route[v1].begin() + pos1 + 1);
+        new_sol.route[v1].erase(new_sol.route[v1].begin() + pos1);
+        new_sol.route[v2].push_back(cid1);
+        new_sol.route[v2].push_back(cid2);
+        new_sol.route[v2].push_back(depot_id);
+    } else {
+        if ((get_type(cid1, current_level) == 1 || get_type(cid2, current_level) == 1) && vehicles[v2].is_drone){
+            return current_sol;
         }
+        new_sol.route[v1].erase(new_sol.route[v1].begin() + pos1 + 1);
+        new_sol.route[v1].erase(new_sol.route[v1].begin() + pos1);
+        new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2, cid1);
+        new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2 + 1, cid2);
     }
-    new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2 + 1, cid2);
+
     evaluate_solution(new_sol, current_level);
     return new_sol;
 }
@@ -1191,7 +1001,7 @@ Solution move_2_1(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
     new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2, cid1);
     new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2 + 1, cid2);
 
-    if (current_level != nullptr) {
+    /*if (current_level != nullptr) {
         bool is_merged1 = is_merged_node(cid1, *current_level);
         bool is_merged2 = is_merged_node(cid2, *current_level);
         bool is_merged3 = is_merged_node(cid3, *current_level);
@@ -1240,7 +1050,7 @@ Solution move_2_1(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
                 }
             }
         }
-    }
+    }*/
 
     evaluate_solution(new_sol, current_level);
     return new_sol;
@@ -1294,7 +1104,7 @@ Solution move_2_2(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
     new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2, cid1);
     new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2 + 1, cid2);
 
-    if (current_level != nullptr) {
+    /*if (current_level != nullptr) {
         bool is_merged1 = is_merged_node(cid1, *current_level);
         bool is_merged2 = is_merged_node(cid2, *current_level);
         bool is_merged3 = is_merged_node(cid3, *current_level);
@@ -1367,7 +1177,7 @@ Solution move_2_2(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
                 }
             }
         }
-    }
+    }*/
 
     evaluate_solution(new_sol, current_level);
     return new_sol;
@@ -1400,7 +1210,7 @@ Solution move_2opt(Solution current_sol, size_t v1, size_t pos1, size_t v2, size
         
         reverse(new_sol.route[v1].begin() + pos1, new_sol.route[v1].begin() + pos2 + 1);
         
-        if (current_level != nullptr) {
+        /*if (current_level != nullptr) {
             for (size_t i = pos1; i <= pos2; i++) {
                 int node_id = new_sol.route[v1][i];
                 if (node_id != depot_id && is_merged_node(node_id, *current_level)) {
@@ -1419,7 +1229,7 @@ Solution move_2opt(Solution current_sol, size_t v1, size_t pos1, size_t v2, size
                     }
                 }
             }
-        }
+        }*/
     } 
     //  DIFFERENT TRIP
     else {
@@ -1446,7 +1256,7 @@ Solution move_2opt(Solution current_sol, size_t v1, size_t pos1, size_t v2, size
         new_sol.route[v1].insert(new_sol.route[v1].end() - 1, tail_v2.begin(), tail_v2.end());
         new_sol.route[v2].insert(new_sol.route[v2].end() - 1, tail_v1.begin(), tail_v1.end());
         
-        if (current_level != nullptr) {
+        /*if (current_level != nullptr) {
             // Kiểm tra tail_v2 (giờ ở v1)
             size_t start_pos_v1 = pos1;
             for (size_t i = 0; i < tail_v2.size(); i++) {
@@ -1490,7 +1300,7 @@ Solution move_2opt(Solution current_sol, size_t v1, size_t pos1, size_t v2, size
                     }
                 }
             }
-        }
+        }*/
     }
 
     evaluate_solution(new_sol, current_level);
@@ -1517,8 +1327,6 @@ int count_customers_in_vehicle(const Solution& sol, size_t vehicle_idx) {
 
 Solution tabu_search(Solution initial_sol, const LevelInfo &current_level, bool track_edge = true){
     update_node_index_cache(current_level);
-    optimize_all_drone_routes(initial_sol, &current_level);
-    remove_redundant_depots(initial_sol, &current_level);
 
     Solution best_sol = initial_sol;
     Solution current_sol = initial_sol;
@@ -1528,61 +1336,10 @@ Solution tabu_search(Solution initial_sol, const LevelInfo &current_level, bool 
     int last_depot_opt_iter = 0;
     int no_improve_segment_length = 0;
     const int max_no_improve_segment = 8;
-    const int PHASE_1_END = MAX_ITER * 0.7;
 
     vector<string> move_types = {"1-0", "1-1", "2-0", "2-1", "2-2", "2-opt"};
     
     for (int iter = 0; iter < MAX_ITER && no_improve_count < MAX_NO_IMPROVE; iter++){
-        bool in_phase_1 = (iter < PHASE_1_END);
-        bool should_depot_opt = false;
-        if (in_phase_1) {
-            if (iter == 10 || iter == 30 || iter == 60) {
-                should_depot_opt = true;
-            } else if (current_sol.drone_violation > 10.0 || current_sol.waiting_violation > 20.0) {
-                if (iter - last_depot_opt_iter >= 200) {
-                    should_depot_opt = true;
-                }
-            } else if (no_improve_count >= 100 && (iter - last_depot_opt_iter) >= 50) {
-                should_depot_opt = true;
-            }
-        } else {
-            if (iter % 50 == 0) {
-                if (current_sol.drone_violation > 0.5 || current_sol.waiting_violation > 0.5) {
-                    should_depot_opt = true;
-                }
-            } 
-            else if (no_improve_count >= 30 && (iter - last_depot_opt_iter) >= 30) {
-                should_depot_opt = true;
-            } 
-            else if (iter > MAX_ITER - 100 && (iter - last_depot_opt_iter) >= 30) {
-                if (current_sol.drone_violation > EPSILON || current_sol.waiting_violation > EPSILON) {
-                    should_depot_opt = true;
-                }
-            } 
-        }
-
-        if (should_depot_opt) {
-            Solution temp_sol = current_sol;
-            double old_fitness = temp_sol.fitness;
-            
-            optimize_all_drone_routes(temp_sol, &current_level);
-            remove_redundant_depots(temp_sol, &current_level);
-            
-            if (temp_sol.fitness < current_sol.fitness - EPSILON) {
-                current_sol = temp_sol;
-                last_depot_opt_iter = iter;
-                                
-                if (current_sol.fitness < best_sol.fitness - EPSILON) {
-                    best_sol = current_sol;
-                    no_improve_count = 0;
-
-                    if (track_edge) {
-                        update_edge_frequency(best_sol);
-                    }
-                }
-            }
-        }
-
         auto is_merged_group = [&](int node_id) -> bool {
             auto it = current_level.node_mapping.find(node_id);
             return (it != current_level.node_mapping.end() && it->second.size() > 1);
@@ -1608,16 +1365,21 @@ Solution tabu_search(Solution initial_sol, const LevelInfo &current_level, bool 
                 for (size_t pos1 = 1; pos1 < current_sol.route[v1].size()-1; pos1++) {
                     int n1 = current_sol.route[v1][pos1];
                     if (n1 == depot_id) continue;
-
                     int customer_count_v1 = count_customers_in_vehicle(current_sol, v1);
-                    if (customer_count_v1 <= 1) {
-                        continue; 
-                    }
+                    if (customer_count_v1 <= 1) continue; 
 
                     for (size_t v2 = 0; v2 < current_sol.route.size(); v2++) {
                         if (v1 == v2) continue;
-                        for (size_t pos2 = 1; pos2 < current_sol.route[v2].size()-1; pos2++) {
-                            if (get_type(n1, &current_level) == 1 && (vehicles[v2].is_drone || vehicles[v1].is_drone)) continue; // C1 không thể giao cho drone
+                        for (size_t pos2 = 1; pos2 <= current_sol.route[v2].size(); pos2++) {
+                            if (pos2 == current_sol.route[v2].size()){
+                                if (!vehicles[v2].is_drone) continue;
+                                if (get_type(n1, &current_level) == 1) continue;
+                                if (v1 == v2) continue;
+                            } else {
+                                if (v1 == v2) continue;
+                                if (pos2 == current_sol.route[v2].size() - 1) continue;
+                                if (get_type(n1, &current_level) == 1 && vehicles[v2].is_drone) continue;
+                            }
 
                             Solution new_sol = move_1_0(current_sol, v1, pos1, v2, pos2, &current_level);
                             TabuMove move = {"1-0", n1, -1, -1, -1, (int)v1, (int)v2, (int)pos1, -1, (int)pos2, -1, TABU_TENURE};
@@ -1699,7 +1461,10 @@ Solution tabu_search(Solution initial_sol, const LevelInfo &current_level, bool 
                     for (size_t v2 = 0; v2 < vehicles.size(); v2++){
                         if (v1 == v2) continue;
                         if ((get_type(n1, &current_level) == 1 || get_type(n2, &current_level) == 1) && vehicles[v2].is_drone) continue;
-                        for (size_t pos2 = 1; pos2 < current_sol.route[v2].size()-1; pos2++){
+                        for (size_t pos2 = 1; pos2 <= current_sol.route[v2].size(); pos2++){
+                            if (pos2 == current_sol.route[v2].size() && !vehicles[v2].is_drone) {
+                                continue;
+                            }
 
                             Solution new_sol = move_2_0(current_sol, v1, pos1, v2, pos2, &current_level);
                             TabuMove move = {"2-0", n1, n2, -1, -1, (int)v1, (int)v2, (int)pos1, (int)pos1+1, (int)pos2, (int)pos2+1, TABU_TENURE};
@@ -2050,24 +1815,18 @@ Solution tabu_search(Solution initial_sol, const LevelInfo &current_level, bool 
             cout << "Current best fitness: " << best_sol.fitness << endl;*/
         }
     }
-    optimize_all_drone_routes(best_sol, &current_level);
-    remove_redundant_depots(best_sol, &current_level);
     return best_sol;
 }
 
-void create_coarse_distance_matrix(LevelInfo& next_level, const LevelInfo& current_level,const vector<vector<double>>& curr_distances,const vector<vector<double>>& curr_original_distances,
-                                   vector<vector<double>>& next_distances,vector<vector<double>>& next_original_distances){
-    
+void create_coarse_distance_matrix(LevelInfo& next_level, const LevelInfo& current_level,const vector<vector<double>>& curr_distances,vector<vector<double>>& next_distances){   
     update_node_index_cache(current_level);
     int n = next_level.nodes.size();
     next_distances.resize(n, vector<double>(n, 0.0));
-    //next_original_distances.resize(n, vector<double>(n, 0.0));
 
     for (int i = 0; i < n; i++){
         for (int j = 0; j < n; j++){
             if (i == j){
                 next_distances[i][j] = 0.0;
-                //next_original_distances[i][j] = 0.0;
                 continue;
             }
 
@@ -2080,6 +1839,7 @@ void create_coarse_distance_matrix(LevelInfo& next_level, const LevelInfo& curre
 
             bool i_is_merged = (it_i != merged_nodes_info.end());
             bool j_is_merged = (it_j != merged_nodes_info.end());
+
             int departure_node, arrival_node;
             if (i_is_merged){
                 departure_node = it_i->second.exit_node;
@@ -2099,7 +1859,6 @@ void create_coarse_distance_matrix(LevelInfo& next_level, const LevelInfo& curre
                 distance = curr_distances[dep_idx][arr_idx];
             }
             next_distances[i][j] = distance;
-            //next_original_distances[i][j] = curr_original_distances[dep_idx][arr_idx];
         }
     }
 }
@@ -2177,11 +1936,10 @@ vector<tuple<int, int, int>> collect_merge_candidates(const LevelInfo& current_l
     return candidates;
 }
 
-LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_solution, 
-                         const vector<vector<double>>& curr_distances,
-                         const vector<vector<double>>& curr_original_distances) {
+LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_solution, const vector<vector<double>>& curr_distances) {
     LevelInfo next_level;
     next_level.level_id = current_level.level_id + 1;
+    update_node_index_cache(current_level);
     
     vector<tuple<int,int,int>> candidates = collect_merge_candidates(current_level, best_solution);
     
@@ -2336,6 +2094,10 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
                     double d = curr_distances[idx_from][idx_to];
                     info.internal_distance += d;
                 }
+                auto it_merge = merged_nodes_info.find(from);
+                if (it_merge != merged_nodes_info.end()) {
+                    info.internal_distance += it_merge->second.internal_distance;
+                }
             }
             cout << "Internal distances for merged node " << merged_node.id << ": " << info.internal_distance << endl; 
             
@@ -2426,11 +2188,6 @@ Solution project_solution_to_next_level(const Solution& old_sol, const LevelInfo
                         old_to_new_mapping[old_node_id] = new_node_id;
                         found = true;
                         
-                        cout << "Old node " << old_node_id << " [";
-                        for (int orig : old_original_nodes) cout << orig << " ";
-                        cout << "] -> New node " << new_node_id << " [";
-                        for (int orig : next_original_nodes) cout << orig << " ";
-                        cout << "]" << endl;
                         break;
                     }
                 }
@@ -2469,7 +2226,6 @@ Solution project_solution_to_next_level(const Solution& old_sol, const LevelInfo
                 } 
             }
         }
-        cout << endl;
     }
     
     return new_sol;
@@ -2711,6 +2467,7 @@ Solution unmerge_solution_to_previous_level(const Solution& coarse_sol, const Le
     return fine_sol;
 }
 
+// lỗi ở chỗ chưa tính thời gian bay cho merge node siêu dài đó mà đổi chỗ khiến nó đổi sang route dài làm vi phạm waiting time và check nốt hàm unmerge
 Solution multilevel_tabu_search() {
     Solution s = init_greedy_solution();
 
@@ -2720,7 +2477,6 @@ Solution multilevel_tabu_search() {
     current_level.nodes.insert(current_level.nodes.end(), C1.begin(), C1.end());
     current_level.nodes.insert(current_level.nodes.end(), C2.begin(), C2.end());
 
-    original_distances = distances;
     current_level.C1_level = C1;
     current_level.C2_level = C2;
 
@@ -2738,38 +2494,35 @@ Solution multilevel_tabu_search() {
     int L = 0;
     int max_levels = 4;
     bool coarsening = true;
-
     double prev_fitness = DBL_MAX;
 
     while (coarsening && L < max_levels) {
         cout << "\n--- LEVEL " << L << " ---" << endl;   
         update_node_index_cache(all_levels[L]);
-
         Solution s_current = tabu_search(s, all_levels[L], true);
-
-        if (edge_frequency.empty()){
-            update_edge_frequency(s_current);
-        }
-
+        update_edge_frequency(s);
         print_solution(s_current);
-        
         if (L >= 3 && abs(s_current.fitness - prev_fitness) < EPSILON) {
             break;
         }
-
         prev_fitness = s_current.fitness;
         s = s_current;
-        
-        LevelInfo next_level = merge_customers(all_levels[L], s, distances, original_distances);
-        
+        LevelInfo next_level = merge_customers(all_levels[L], s, distances);
         int reduction = all_levels[L].nodes.size() - next_level.nodes.size();
-        
         if (reduction < 1) {
             cout << "Insufficient reduction, stopping coarsening" << endl;
             break;
         }
-        
         all_levels.push_back(next_level);
+
+        // Update distances
+        vector<vector<double>> next_distances;
+        create_coarse_distance_matrix(next_level, all_levels[L], distances, next_distances);
+
+        distances = next_distances;
+        C1 = next_level.C1_level;
+        C2 = next_level.C2_level;
+        num_nodes = next_level.nodes.size();
         
         // Project solution
         s = project_solution_to_next_level(s, all_levels[L], next_level);
@@ -2782,16 +2535,6 @@ Solution multilevel_tabu_search() {
             }
             cout << endl;
         }
-        
-        // Update distances
-        vector<vector<double>> next_distances, next_original_distances;
-        create_coarse_distance_matrix(next_level, all_levels[L], distances, original_distances,next_distances, next_original_distances);
-
-        distances = next_distances;
-        original_distances = next_original_distances;
-        C1 = next_level.C1_level;
-        C2 = next_level.C2_level;
-        num_nodes = next_level.nodes.size();
         
         evaluate_solution(s, &next_level);
         cout << "Projected solution fitness: " << s.fitness << endl;
@@ -2829,23 +2572,18 @@ Solution multilevel_tabu_search() {
                     }
                 }
             }
-            original_distances = distances;
         } else {
             cout << "Creating coarse distances for level " << prev_level_id << "..." << endl;
             
-            vector<vector<double>> restored_distances, restored_original_distances;
-
+            vector<vector<double>> restored_distances;
             create_coarse_distance_matrix(
                 all_levels[prev_level_id], 
                 all_levels[current_level_id],  
                 distances,                      
-                original_distances,              
-                restored_distances,              
-                restored_original_distances      
+                restored_distances              
             );
             
             distances = restored_distances;
-            original_distances = restored_original_distances;
             
             cout << "Restored distances matrix: " << distances.size() << "x" << distances[0].size() << endl;
         }
@@ -2870,8 +2608,6 @@ Solution multilevel_tabu_search() {
         edge_frequency.clear();
         s = tabu_search(s, all_levels[prev_level_id], false);
         update_node_index_cache(all_levels[prev_level_id]);
-        optimize_all_drone_routes(s, &all_levels[prev_level_id]);
-        remove_redundant_depots(s);
         evaluate_solution(s, &all_levels[prev_level_id]);
         
         MAX_ITER = original_max_iter;
@@ -2955,7 +2691,7 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\50.40.1.txt"; 
+        dataset_path = "D:\\New folder\\instances\\50.10.1.txt"; 
     }
     read_dataset(dataset_path);
     printf("MAX_ITER: %d\n", MAX_ITER);
@@ -2978,14 +2714,14 @@ int main(int argc, char* argv[]) {
 
     vector<vector<int>> test_routes = {
         // 3 Technicians
-        {0, 38, 4, 8, 26, 1, 11, 30, 9, 12, 0},
-        {0, 14, 31, 47, 13, 32, 24, 46, 0},
-        {0, 29, 22, 7, 5, 0},
+        {0, 23, 50, 30, 9, 0 },
+        {0, 37, 43, 49, 15, 44, 21, 42, 41, 40, 25, 1002, 0},
+        {0, 16, 2, 0},
         
         // 3 Drones
-        {0, 16, 2, 6, 28, 35, 20, 27, 39, 36, 50, 23, 0, 17, 0},
-        {0, 45, 18, 3, 19, 48, 15, 44, 34, 33, 10, 0},
-        {0, 21, 25, 40, 42, 41, 37, 43, 49, 0}
+        {0, 14, 38, 4, 8, 13, 47, 31, 32, 0, 12, 0},
+        {0, 29, 22, 45, 19, 34, 10, 33, 46, 17, 0, 24, 0},
+        {0, 1001, 7, 39, 20, 27, 28, 35, 6, 36, 5, 0}
     };
 
     //Solution test_solution = create_test_solution_from_routes(test_routes);

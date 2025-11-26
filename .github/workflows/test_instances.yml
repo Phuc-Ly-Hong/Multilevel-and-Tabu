@@ -1,4 +1,4 @@
-name: Test Single Instance (50.40.1)
+name: Test Tabu & Multilevel Tabu (50.10.1 & 50.20.1)
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   compile:
-    name: Compile C++
+    name: Compile C++ Executables
     runs-on: ubuntu-latest
 
     steps:
@@ -24,69 +24,72 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y g++ bc
 
-    - name: Compile executable
+    - name: Compile Tabu
+      run: |
+        g++ -O2 -std=c++17 -o tabu src/Tabu.cpp
+        chmod +x tabu
+        ls -lh tabu
+
+    - name: Compile Multilevel Tabu
       run: |
         g++ -O2 -std=c++17 -o multilevel_tabu src/Multilevel_Tabu.cpp
         chmod +x multilevel_tabu
         ls -lh multilevel_tabu
 
-    - name: Upload executable
+    - name: Upload executables
       uses: actions/upload-artifact@v4
       with:
-        name: multilevel-executable
-        path: multilevel_tabu
+        name: tabu-executables
+        path: |
+          tabu
+          multilevel_tabu
         retention-days: 1
 
   run-test:
-    name: Run 50.40.1 (segments=${{ matrix.segment }})
+    name: Run Instances
     needs: compile
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
     strategy:
       matrix:
-        segment: [150, 200, 250]
+        exe: [tabu, multilevel_tabu]
+        instance: [50.10.1, 50.20.1]
+        run_id: [1, 2, 3]
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Download executable
+    - name: Download executables
       uses: actions/download-artifact@v4
       with:
-        name: multilevel-executable
+        name: tabu-executables
 
     - name: Run instance
       run: |
-        chmod +x multilevel_tabu
-
-        INSTANCE="50.40.1"
-        SEGMENT="${{ matrix.segment }}"
-        echo "🔄 Running instance ${INSTANCE} with SEGMENT=${SEGMENT}..."
-
+        chmod +x ${{ matrix.exe }}
+        INSTANCE="${{ matrix.instance }}"
+        echo "🔄 Running ${{ matrix.exe }} on $INSTANCE (run ${{ matrix.run_id }})"
         START_TIME=$(date +%s.%N)
-        timeout 30m ./multilevel_tabu instances/${INSTANCE}.txt --segment $SEGMENT > output_seg${SEGMENT}.txt 2>&1 || true
+        timeout 30m ./${{ matrix.exe }} instances/${INSTANCE}.txt > output_${{ matrix.exe }}_${INSTANCE}_run${{ matrix.run_id }}.txt 2>&1 || true
         END_TIME=$(date +%s.%N)
         RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
-        echo "$RUNTIME" > runtime_seg${SEGMENT}.txt
-
+        echo "$RUNTIME" > runtime_${{ matrix.exe }}_${INSTANCE}_run${{ matrix.run_id }}.txt
         echo "⏱️  Run completed in ${RUNTIME}s"
-
-        # Show last 20 lines of output
         echo ""
         echo "📋 Last 20 lines of output:"
-        tail -n 20 output_seg${SEGMENT}.txt
-
+        tail -n 20 output_${{ matrix.exe }}_${INSTANCE}_run${{ matrix.run_id }}.txt
         echo ""
-        echo "✅ Run completed for SEGMENT=${SEGMENT}!"
+        echo "✅ Run completed for ${{ matrix.exe }} on $INSTANCE (run ${{ matrix.run_id }})"
 
-    - name: Upload results for segment
+    - name: Upload results
       uses: actions/upload-artifact@v4
       with:
-        name: results-segment-${{ matrix.segment }}
+        name: results-${{ matrix.exe }}-${{ matrix.instance }}-run${{ matrix.run_id }}
         path: |
-          output_seg${{ matrix.segment }}.txt
-          runtime_seg${{ matrix.segment }}.txt
+          output_${{ matrix.exe }}_${{ matrix.instance }}_run${{ matrix.run_id }}.txt
+          runtime_${{ matrix.exe }}_${{ matrix.instance }}_run${{ matrix.run_id }}.txt
         retention-days: 30
 
   aggregate-results:
@@ -98,10 +101,10 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Download all segment results
+    - name: Download all results
       uses: actions/download-artifact@v4
       with:
-        pattern: results-segment-*
+        pattern: results-*
         path: results
 
     - name: Parse results and create summary
@@ -109,8 +112,9 @@ jobs:
         python3 <<'EOF'
         import re, json, os
 
-        instance = "50.40.1"
-        segments = [150, 200, 250]
+        exes = ["tabu", "multilevel_tabu"]
+        instances = ["50.10.1", "50.20.1"]
+        runs = [1, 2, 3]
         all_runs = []
 
         def parse_output(output_file, runtime_file):
@@ -160,105 +164,47 @@ jobs:
                 }
 
         print(f"\n{'='*60}")
-        print(f"📊 RESULTS FOR {instance}")
+        print(f"📊 AGGREGATED RESULTS")
         print(f"{'='*60}\n")
 
-        for seg in segments:
-            result = parse_output(f"results/results-segment-{seg}/output_seg{seg}.txt", f"results/results-segment-{seg}/runtime_seg{seg}.txt")
-            result["segment"] = seg
-            all_runs.append(result)
-            print(f"Segment {seg}:")
-            print(f"  Runtime: {result['runtime']}s")
-            print(f"  Fitness: {result['fitness']}")
-            print(f"  Makespan: {result['makespan']}")
-            print(f"  Drone Violation: {result['drone_violation']}")
-            print(f"  Waiting Violation: {result['waiting_violation']}")
-            print(f"  Feasible: {result['feasible']}")
-            print(f"  Routes: {len(result['routes'])} vehicles")
-            if result['routes']:
-                print(f"  First 3 routes:")
-                for route in result['routes'][:3]:
-                    print(f"    {route}")
-            print()
+        for exe in exes:
+            for inst in instances:
+                for run_id in runs:
+                    output_file = f"results/results-{exe}-{inst}-run{run_id}/output_{exe}_{inst}_run{run_id}.txt"
+                    runtime_file = f"results/results-{exe}-{inst}-run{run_id}/runtime_{exe}_{inst}_run{run_id}.txt"
+                    result = parse_output(output_file, runtime_file)
+                    result["exe"] = exe
+                    result["instance"] = inst
+                    result["run_id"] = run_id
+                    all_runs.append(result)
+                    print(f"{exe} | {inst} | Run {run_id}:")
+                    print(f"  Runtime: {result['runtime']}s")
+                    print(f"  Fitness: {result['fitness']}")
+                    print(f"  Makespan: {result['makespan']}")
+                    print(f"  Drone Violation: {result['drone_violation']}")
+                    print(f"  Waiting Violation: {result['waiting_violation']}")
+                    print(f"  Feasible: {result['feasible']}")
+                    print(f"  Routes: {len(result['routes'])} vehicles")
+                    if result['routes']:
+                        print(f"  First 3 routes:")
+                        for route in result['routes'][:3]:
+                            print(f"    {route}")
+                    print()
 
         # Save to JSON
-        with open("test_results.json", "w") as f:
+        with open("test_results_all.json", "w") as f:
             json.dump({
-                "instance": instance,
-                "segments": segments,
                 "runs": all_runs
             }, f, indent=2)
 
-        print(f"\n✅ Results saved to test_results.json")
+        print(f"\n✅ Results saved to test_results_all.json")
         EOF
 
-    - name: Create simple CSV
-      run: |
-        python3 <<'EOF'
-        import json, csv
-
-        with open("test_results.json") as f:
-            data = json.load(f)
-
-        instance = data["instance"]
-        segments = data["segments"]
-
-        def calculate_vehicle_distribution(num_customers):
-            if 6 <= num_customers <= 12:
-                pairs = 1
-            elif num_customers <= 20:
-                pairs = 2
-            elif num_customers <= 50:
-                pairs = 3
-            elif num_customers <= 100:
-                pairs = 4
-            else:
-                pairs = 0
-            return pairs, pairs
-
-        parts = instance.split(".")
-        size = int(parts[0])
-        replica = int(parts[2])
-        num_tech, num_drone = calculate_vehicle_distribution(size)
-
-        with open("test_results.csv", "w", newline="", encoding="utf-8") as f:
-            cols = [
-                "Instance", "Size", "Num_Technician", "Num_Drone", "Replica", "Segment",
-                "Runtime_s", "Makespan", "Drone_Violation", "Waiting_Violation",
-                "Fitness", "Feasible"
-            ]
-            writer = csv.DictWriter(f, fieldnames=cols)
-            writer.writeheader()
-            for run_data in data["runs"]:
-                writer.writerow({
-                    "Instance": instance,
-                    "Size": size,
-                    "Num_Technician": num_tech,
-                    "Num_Drone": num_drone,
-                    "Replica": replica,
-                    "Segment": run_data["segment"],
-                    "Runtime_s": run_data["runtime"],
-                    "Makespan": run_data["makespan"],
-                    "Drone_Violation": run_data["drone_violation"],
-                    "Waiting_Violation": run_data["waiting_violation"],
-                    "Fitness": run_data["fitness"],
-                    "Feasible": run_data["feasible"]
-                })
-        print("✅ CSV created: test_results.csv")
-        EOF
-
-    - name: Upload results
+    - name: Upload summary
       uses: actions/upload-artifact@v4
       with:
-        name: test-results-50.40.1
+        name: test-results-summary
         path: |
-          test_results.json
-          test_results.csv
+          test_results_all.json
           results/**
         retention-days: 30
-
-    - name: Display CSV content
-      run: |
-        echo ""
-        echo "📄 CSV Content:"
-        cat test_results.csv
