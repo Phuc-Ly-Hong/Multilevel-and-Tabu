@@ -101,50 +101,40 @@ jobs:
         import re, json, os
         instance = "${{ matrix.instance }}"
 
+        def find_metric(pattern, content):
+            m = re.search(pattern, content)
+            return float(m.group(1)) if m else 0.0
+
         def parse_output(output_file, runtime_file):
             try:
-                with open(output_file, "r") as f:
+                with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
-
                 runtime = 0.0
                 if os.path.exists(runtime_file):
                     with open(runtime_file, "r") as f:
                         runtime = float(f.read().strip())
-
-                last_route_idx = content.rfind("Route details:")
-                makespan = drone_viol = waiting_viol = fitness = 0.0
-                vehicle_routes = []
-
-                if last_route_idx != -1:
-                    solution_section = content[last_route_idx:]
-
-                    for line in solution_section.split('\n'):
-                        if "Makespan:" in line:
-                            m = re.search(r'Makespan:\s*([\d.]+)', line)
-                            if m: makespan = float(m.group(1))
-                        if "Drone violation:" in line:
-                            m = re.search(r'Drone violation:\s*([\d.]+)', line)
-                            if m: drone_viol = float(m.group(1))
-                        if "Waiting violation:" in line:
-                            m = re.search(r'Waiting violation:\s*([\d.]+)', line)
-                            if m: waiting_viol = float(m.group(1))
-                        if "Fitness:" in line:
-                            m = re.search(r'Fitness:\s*([\d.]+)', line)
-                            if m: fitness = float(m.group(1))
-
+                makespan = find_metric(r'Makespan:\s*([0-9.+\-eE]+)', content)
+                drone_viol = find_metric(r'Drone violation:\s*([0-9.+\-eE]+)', content)
+                waiting_viol = find_metric(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
+                fitness = find_metric(r'Fitness:\s*([0-9.+\-eE]+)', content)
+                # Parse routes
+                routes = []
+                idx = content.rfind("Route details:")
+                if idx != -1:
+                    for line in content[idx:].splitlines():
                         if line.startswith("Vehicle "):
-                            match = re.match(r'Vehicle (\d+):\s*(.+)', line)
-                            if match:
-                                vehicle_routes.append(f"V{match.group(1)}:{match.group(2).strip()}")
-
+                            m = re.match(r'Vehicle\s+(\d+):\s*(.+)', line)
+                            if m:
+                                routes.append(f"V{m.group(1)}:{m.group(2).strip()}")
+                feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
                 return {
                     "runtime": round(runtime, 3),
                     "makespan": round(makespan, 4),
                     "drone_violation": round(drone_viol, 4),
                     "waiting_violation": round(waiting_viol, 4),
                     "fitness": round(fitness, 4),
-                    "feasible": "YES" if (drone_viol < 0.01 and waiting_viol < 0.01) else "NO",
-                    "routes": " | ".join(vehicle_routes)
+                    "feasible": feasible,
+                    "routes": " | ".join(routes)
                 }
             except Exception as e:
                 return {
@@ -160,8 +150,8 @@ jobs:
             all_runs.append(result)
             print(f"Run {run}: Fitness={result['fitness']}, Feasible={result['feasible']}")
 
-        with open("detailed_results.json", "w") as f:
-            json.dump({"instance": instance, "runs": all_runs}, f, indent=2)
+        with open("detailed_results.json", "w", encoding="utf-8") as f:
+            json.dump({"instance": instance, "runs": all_runs}, f, indent=2, ensure_ascii=False)
 
         print(f"✅ Detailed results saved for {instance}")
         EOF
@@ -219,62 +209,59 @@ jobs:
         import re, json, os
         instance = "${{ matrix.instance }}"
 
+        def find_metric(pattern, content):
+            m = re.search(pattern, content)
+            return float(m.group(1)) if m else 0.0
+
         def parse_output(output_file, runtime_file):
             try:
-                with open(output_file, "r") as f:
+                with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
-
                 runtime = 0.0
                 if os.path.exists(runtime_file):
                     with open(runtime_file, "r") as f:
                         runtime = float(f.read().strip())
-
-                last_route_idx = content.rfind("Route details:")
-                makespan = drone_viol = waiting_viol = fitness = 0.0
-                vehicle_routes = []
-
-                if last_route_idx != -1:
-                    solution_section = content[last_route_idx:]
-
-                    for line in solution_section.split('\n'):
-                        if "Makespan:" in line:
-                            m = re.search(r'Makespan:\s*([\d.]+)', line)
-                            if m: makespan = float(m.group(1))
-                        if "Drone violation:" in line:
-                            m = re.search(r'Drone violation:\s*([\d.]+)', line)
-                            if m: drone_viol = float(m.group(1))
-                        if "Waiting violation:" in line:
-                            m = re.search(r'Waiting violation:\s*([\d.]+)', line)
-                            if m: waiting_viol = float(m.group(1))
-                        if "Fitness:" in line:
-                            m = re.search(r'Fitness:\s*([\d.]+)', line)
-                            if m: fitness = float(m.group(1))
-
+                makespan = find_metric(r'Makespan:\s*([0-9.+\-eE]+)', content)
+                drone_viol = find_metric(r'Drone violation:\s*([0-9.+\-eE]+)', content)
+                waiting_viol = find_metric(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
+                fitness = find_metric(r'Fitness:\s*([0-9.+\-eE]+)', content)
+                # Parse routes
+                routes = []
+                idx = content.rfind("Route details:")
+                if idx != -1:
+                    for line in content[idx:].splitlines():
                         if line.startswith("Vehicle "):
-                            match = re.match(r'Vehicle (\d+):\s*(.+)', line)
-                            if match:
-                                vehicle_routes.append(f"V{match.group(1)}:{match.group(2).strip()}")
-
+                            m = re.match(r'Vehicle\s+(\d+):\s*(.+)', line)
+                            if m:
+                                routes.append(f"V{m.group(1)}:{m.group(2).strip()}")
+                feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
                 return {
                     "runtime": round(runtime, 3),
                     "makespan": round(makespan, 4),
                     "drone_violation": round(drone_viol, 4),
                     "waiting_violation": round(waiting_viol, 4),
                     "fitness": round(fitness, 4),
-                    "feasible": "YES" if (drone_viol < 0.01 and waiting_viol < 0.01) else "NO",
-                    "routes": " | ".join(vehicle_routes)
+                    "feasible": feasible,
+                    "routes": " | ".join(routes)
                 }
-            except:
-                return {"runtime": 0, "makespan": 0, "drone_violation": 0, "waiting_violation": 0, "fitness": float('inf'), "feasible": "ERROR", "routes": ""}
+            except Exception as e:
+                return {
+                    "runtime": 0, "makespan": 0, "drone_violation": 0,
+                    "waiting_violation": 0, "fitness": float('inf'),
+                    "feasible": "ERROR", "routes": f"Error: {e}"
+                }
 
         all_runs = []
         for run in range(1, 4):
             result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
             result["run"] = run
             all_runs.append(result)
+            print(f"Run {run}: Fitness={result['fitness']}, Feasible={result['feasible']}")
 
-        with open("detailed_results.json", "w") as f:
-            json.dump({"instance": instance, "runs": all_runs}, f, indent=2)
+        with open("detailed_results.json", "w", encoding="utf-8") as f:
+            json.dump({"instance": instance, "runs": all_runs}, f, indent=2, ensure_ascii=False)
+
+        print(f"✅ Detailed results saved for {instance}")
         EOF
 
     - name: Upload results
@@ -328,62 +315,59 @@ jobs:
         import re, json, os
         instance = "${{ matrix.instance }}"
 
+        def find_metric(pattern, content):
+            m = re.search(pattern, content)
+            return float(m.group(1)) if m else 0.0
+
         def parse_output(output_file, runtime_file):
             try:
-                with open(output_file, "r") as f:
+                with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
-
                 runtime = 0.0
                 if os.path.exists(runtime_file):
                     with open(runtime_file, "r") as f:
                         runtime = float(f.read().strip())
-
-                last_route_idx = content.rfind("Route details:")
-                makespan = drone_viol = waiting_viol = fitness = 0.0
-                vehicle_routes = []
-
-                if last_route_idx != -1:
-                    solution_section = content[last_route_idx:]
-
-                    for line in solution_section.split('\n'):
-                        if "Makespan:" in line:
-                            m = re.search(r'Makespan:\s*([\d.]+)', line)
-                            if m: makespan = float(m.group(1))
-                        if "Drone violation:" in line:
-                            m = re.search(r'Drone violation:\s*([\d.]+)', line)
-                            if m: drone_viol = float(m.group(1))
-                        if "Waiting violation:" in line:
-                            m = re.search(r'Waiting violation:\s*([\d.]+)', line)
-                            if m: waiting_viol = float(m.group(1))
-                        if "Fitness:" in line:
-                            m = re.search(r'Fitness:\s*([\d.]+)', line)
-                            if m: fitness = float(m.group(1))
-
+                makespan = find_metric(r'Makespan:\s*([0-9.+\-eE]+)', content)
+                drone_viol = find_metric(r'Drone violation:\s*([0-9.+\-eE]+)', content)
+                waiting_viol = find_metric(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
+                fitness = find_metric(r'Fitness:\s*([0-9.+\-eE]+)', content)
+                # Parse routes
+                routes = []
+                idx = content.rfind("Route details:")
+                if idx != -1:
+                    for line in content[idx:].splitlines():
                         if line.startswith("Vehicle "):
-                            match = re.match(r'Vehicle (\d+):\s*(.+)', line)
-                            if match:
-                                vehicle_routes.append(f"V{match.group(1)}:{match.group(2).strip()}")
-
+                            m = re.match(r'Vehicle\s+(\d+):\s*(.+)', line)
+                            if m:
+                                routes.append(f"V{m.group(1)}:{m.group(2).strip()}")
+                feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
                 return {
                     "runtime": round(runtime, 3),
                     "makespan": round(makespan, 4),
                     "drone_violation": round(drone_viol, 4),
                     "waiting_violation": round(waiting_viol, 4),
                     "fitness": round(fitness, 4),
-                    "feasible": "YES" if (drone_viol < 0.01 and waiting_viol < 0.01) else "NO",
-                    "routes": " | ".join(vehicle_routes)
+                    "feasible": feasible,
+                    "routes": " | ".join(routes)
                 }
-            except:
-                return {"runtime": 0, "makespan": 0, "drone_violation": 0, "waiting_violation": 0, "fitness": float('inf'), "feasible": "ERROR", "routes": ""}
+            except Exception as e:
+                return {
+                    "runtime": 0, "makespan": 0, "drone_violation": 0,
+                    "waiting_violation": 0, "fitness": float('inf'),
+                    "feasible": "ERROR", "routes": f"Error: {e}"
+                }
 
         all_runs = []
         for run in range(1, 4):
             result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
             result["run"] = run
             all_runs.append(result)
+            print(f"Run {run}: Fitness={result['fitness']}, Feasible={result['feasible']}")
 
-        with open("detailed_results.json", "w") as f:
-            json.dump({"instance": instance, "runs": all_runs}, f, indent=2)
+        with open("detailed_results.json", "w", encoding="utf-8") as f:
+            json.dump({"instance": instance, "runs": all_runs}, f, indent=2, ensure_ascii=False)
+
+        print(f"✅ Detailed results saved for {instance}")
         EOF
 
     - name: Upload results
