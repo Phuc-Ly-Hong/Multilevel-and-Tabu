@@ -156,9 +156,9 @@ jobs:
                     "feasible": "ERROR", "routes": f"Error: {e}"
                 }
         
-        # Parse all 5 runs
+        # Parse all 3 runs
         all_runs = []
-        for run in range(1, 6):
+        for run in range(1, 4):
             result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
             result["run"] = run
             all_runs.append(result)
@@ -276,7 +276,7 @@ jobs:
                 return {"runtime": 0, "makespan": 0, "drone_violation": 0, "waiting_violation": 0, "fitness": float('inf'), "feasible": "ERROR", "routes": ""}
         
         all_runs = []
-        for run in range(1, 6):
+        for run in range(1, 4):
             result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
             result["run"] = run
             all_runs.append(result)
@@ -385,7 +385,7 @@ jobs:
                 return {"runtime": 0, "makespan": 0, "drone_violation": 0, "waiting_violation": 0, "fitness": float('inf'), "feasible": "ERROR", "routes": ""}
         
         all_runs = []
-        for run in range(1, 6):
+        for run in range(1, 4):
             result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
             result["run"] = run
             all_runs.append(result)
