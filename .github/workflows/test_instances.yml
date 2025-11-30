@@ -1,4 +1,4 @@
-name: Test Tabu & Multilevel Tabu (50.10.1 & 50.20.1)
+name: Run Experiments with Detailed Results
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   compile:
-    name: Compile C++ Executables
+    name: Compile C++
     runs-on: ubuntu-latest
 
     steps:
@@ -24,112 +24,100 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y g++ bc
 
-    - name: Compile Tabu
+    - name: Compile tabu executable
       run: |
         g++ -O2 -std=c++17 -o tabu src/Tabu.cpp
         chmod +x tabu
         ls -lh tabu
 
-    - name: Compile Multilevel Tabu
-      run: |
-        g++ -O2 -std=c++17 -o multilevel_tabu src/Multilevel_Tabu.cpp
-        chmod +x multilevel_tabu
-        ls -lh multilevel_tabu
-
-    - name: Upload executables
+    - name: Upload executable
       uses: actions/upload-artifact@v4
       with:
-        name: tabu-executables
-        path: |
-          tabu
-          multilevel_tabu
+        name: tabu-executable
+        path: tabu
         retention-days: 1
 
-  run-test:
-    name: Run Instances
+  run-small:
+    name: Small ${{ matrix.instance }}
     needs: compile
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 50
 
     strategy:
+      fail-fast: false
+      max-parallel: 12
       matrix:
-        exe: [tabu, multilevel_tabu]
-        instance: [50.10.1, 50.20.1]
-        run_id: [1, 2, 3]
+        instance: [
+          "6.5.1", "6.5.2", "6.5.3", "6.5.4",
+          "6.10.1", "6.10.2", "6.10.3", "6.10.4",
+          "6.20.1", "6.20.2", "6.20.3", "6.20.4",
+          "10.5.1", "10.5.2", "10.5.3", "10.5.4",
+          "10.10.1", "10.10.2", "10.10.3", "10.10.4",
+          "10.20.1", "10.20.2", "10.20.3", "10.20.4",
+          "12.5.1", "12.5.2", "12.5.3", "12.5.4",
+          "12.10.1", "12.10.2", "12.10.3", "12.10.4",
+          "12.20.1", "12.20.2", "12.20.3", "12.20.4",
+          "20.5.1", "20.5.2", "20.5.3", "20.5.4",
+          "20.10.1", "20.10.2", "20.10.3", "20.10.4",
+          "20.20.1", "20.20.2", "20.20.3", "20.20.4"
+        ]
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Download executables
+    - name: Download tabu executable
       uses: actions/download-artifact@v4
       with:
-        name: tabu-executables
+        name: tabu-executable
 
-    - name: Run instance
+    - name: Run instance 3 times
       run: |
-        chmod +x ${{ matrix.exe }}
-        INSTANCE="${{ matrix.instance }}"
-        echo "🔄 Running ${{ matrix.exe }} on $INSTANCE (run ${{ matrix.run_id }})"
-        START_TIME=$(date +%s.%N)
-        timeout 30m ./${{ matrix.exe }} instances/${INSTANCE}.txt > output_${{ matrix.exe }}_${INSTANCE}_run${{ matrix.run_id }}.txt 2>&1 || true
-        END_TIME=$(date +%s.%N)
-        RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
-        echo "$RUNTIME" > runtime_${{ matrix.exe }}_${INSTANCE}_run${{ matrix.run_id }}.txt
-        echo "⏱️  Run completed in ${RUNTIME}s"
+        chmod +x tabu
+
+        echo "🔄Running instance ${{ matrix.instance }} for 3 iterations..."
+
+        for run in {1..3}; do
+          echo ""
+          echo "=========================================="
+          echo "   RUN $run / 3"
+          echo "=========================================="
+
+          START_TIME=$(date +%s.%N)
+          timeout 8m ./tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1 || true
+          END_TIME=$(date +%s.%N)
+          RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
+          echo "$RUNTIME" > runtime_run${run}.txt
+
+          echo "⏱️  Run $run completed in ${RUNTIME}s"
+        done
+
         echo ""
-        echo "📋 Last 20 lines of output:"
-        tail -n 20 output_${{ matrix.exe }}_${INSTANCE}_run${{ matrix.run_id }}.txt
-        echo ""
-        echo "✅ Run completed for ${{ matrix.exe }} on $INSTANCE (run ${{ matrix.run_id }})"
+        echo "✅ All 3 runs completed!"
 
-    - name: Upload results
-      uses: actions/upload-artifact@v4
-      with:
-        name: results-${{ matrix.exe }}-${{ matrix.instance }}-run${{ matrix.run_id }}
-        path: |
-          output_${{ matrix.exe }}_${{ matrix.instance }}_run${{ matrix.run_id }}.txt
-          runtime_${{ matrix.exe }}_${{ matrix.instance }}_run${{ matrix.run_id }}.txt
-        retention-days: 30
-
-  aggregate-results:
-    name: Aggregate Results
-    needs: run-test
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Download all results
-      uses: actions/download-artifact@v4
-      with:
-        pattern: results-*
-        path: results
-
-    - name: Parse results and create summary
+    - name: Parse and create detailed JSON
       run: |
         python3 <<'EOF'
         import re, json, os
-
-        exes = ["tabu", "multilevel_tabu"]
-        instances = ["50.10.1", "50.20.1"]
-        runs = [1, 2, 3]
-        all_runs = []
+        instance = "${{ matrix.instance }}"
 
         def parse_output(output_file, runtime_file):
             try:
                 with open(output_file, "r") as f:
                     content = f.read()
+
                 runtime = 0.0
                 if os.path.exists(runtime_file):
                     with open(runtime_file, "r") as f:
                         runtime = float(f.read().strip())
+
                 last_route_idx = content.rfind("Route details:")
                 makespan = drone_viol = waiting_viol = fitness = 0.0
                 vehicle_routes = []
+
                 if last_route_idx != -1:
                     solution_section = content[last_route_idx:]
+
                     for line in solution_section.split('\n'):
                         if "Makespan:" in line:
                             m = re.search(r'Makespan:\s*([\d.]+)', line)
@@ -143,10 +131,12 @@ jobs:
                         if "Fitness:" in line:
                             m = re.search(r'Fitness:\s*([\d.]+)', line)
                             if m: fitness = float(m.group(1))
+
                         if line.startswith("Vehicle "):
                             match = re.match(r'Vehicle (\d+):\s*(.+)', line)
                             if match:
                                 vehicle_routes.append(f"V{match.group(1)}:{match.group(2).strip()}")
+
                 return {
                     "runtime": round(runtime, 3),
                     "makespan": round(makespan, 4),
@@ -154,86 +144,353 @@ jobs:
                     "waiting_violation": round(waiting_viol, 4),
                     "fitness": round(fitness, 4),
                     "feasible": "YES" if (drone_viol < 0.01 and waiting_viol < 0.01) else "NO",
-                    "routes": vehicle_routes
+                    "routes": " | ".join(vehicle_routes)
                 }
             except Exception as e:
                 return {
                     "runtime": 0, "makespan": 0, "drone_violation": 0,
                     "waiting_violation": 0, "fitness": float('inf'),
-                    "feasible": "ERROR", "routes": [], "error": str(e)
+                    "feasible": "ERROR", "routes": f"Error: {e}"
                 }
 
-        print(f"\n{'='*60}")
-        print(f"📊 AGGREGATED RESULTS")
-        print(f"{'='*60}\n")
+        all_runs = []
+        for run in range(1, 4):
+            result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
+            result["run"] = run
+            all_runs.append(result)
+            print(f"Run {run}: Fitness={result['fitness']}, Feasible={result['feasible']}")
 
-        for exe in exes:
-            for inst in instances:
-                for run_id in runs:
-                    output_file = f"results/results-{exe}-{inst}-run{run_id}/output_{exe}_{inst}_run{run_id}.txt"
-                    runtime_file = f"results/results-{exe}-{inst}-run{run_id}/runtime_{exe}_{inst}_run{run_id}.txt"
-                    result = parse_output(output_file, runtime_file)
-                    result["exe"] = exe
-                    result["instance"] = inst
-                    result["run_id"] = run_id
-                    all_runs.append(result)
-                    print(f"{exe} | {inst} | Run {run_id}:")
-                    print(f"  Runtime: {result['runtime']}s")
-                    print(f"  Fitness: {result['fitness']}")
-                    print(f"  Makespan: {result['makespan']}")
-                    print(f"  Drone Violation: {result['drone_violation']}")
-                    print(f"  Waiting Violation: {result['waiting_violation']}")
-                    print(f"  Feasible: {result['feasible']}")
-                    print(f"  Routes: {len(result['routes'])} vehicles")
-                    if result['routes']:
-                        print(f"  First 3 routes:")
-                        for route in result['routes'][:3]:
-                            print(f"    {route}")
-                    print()
+        with open("detailed_results.json", "w") as f:
+            json.dump({"instance": instance, "runs": all_runs}, f, indent=2)
 
-        # Save to JSON
-        with open("test_results_all.json", "w") as f:
-            json.dump({
-                "runs": all_runs
-            }, f, indent=2)
-
-        print(f"\n✅ Results saved to test_results_all.json")
+        print(f"✅ Detailed results saved for {instance}")
         EOF
 
-    - name: Export summary to CSV
-      run: |
-        python3 <<'EOF'
-        import json
-        import csv
-
-        with open("test_results_all.json", "r") as f:
-            data = json.load(f)
-
-        with open("test_results_summary.csv", "w", newline='') as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow([
-                "exe", "instance", "run_id", "runtime", "makespan",
-                "drone_violation", "waiting_violation", "fitness", "feasible", "routes"
-            ])
-            for run in data["runs"]:
-                writer.writerow([
-                    run.get("exe", ""),
-                    run.get("instance", ""),
-                    run.get("run_id", ""),
-                    run.get("runtime", ""),
-                    run.get("makespan", ""),
-                    run.get("drone_violation", ""),
-                    run.get("waiting_violation", ""),
-                    run.get("fitness", ""),
-                    run.get("feasible", ""),
-                    len(run.get("routes", []))
-                ])
-        print("✅ Exported test_results_summary.csv")
-        EOF
-
-    - name: Upload CSV summary
+    - name: Upload results
       uses: actions/upload-artifact@v4
       with:
-        name: test-results-csv
-        path: test_results_summary.csv
+        name: result-${{ matrix.instance }}
+        path: |
+          detailed_results.json
+          output_run*.txt
         retention-days: 30
+
+  run-medium:
+    name: Medium ${{ matrix.instance }}
+    needs: compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        instance: [
+          "50.10.1", "50.10.2", "50.10.3", "50.10.4",
+          "50.20.1", "50.20.2", "50.20.3", "50.20.4",
+          "50.30.1", "50.30.2", "50.30.3", "50.30.4",
+          "50.40.1", "50.40.2", "50.40.3", "50.40.4"
+        ]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download tabu executable
+      uses: actions/download-artifact@v4
+      with:
+        name: tabu-executable
+
+    - name: Run instance 3 times
+      run: |
+        chmod +x tabu
+
+        for run in {1..3}; do
+          START_TIME=$(date +%s.%N)
+          timeout 18m ./tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1 || true
+          END_TIME=$(date +%s.%N)
+          RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
+          echo "$RUNTIME" > runtime_run${run}.txt
+        done
+
+    - name: Parse and create detailed JSON
+      run: |
+        python3 <<'EOF'
+        import re, json, os
+        instance = "${{ matrix.instance }}"
+
+        def parse_output(output_file, runtime_file):
+            try:
+                with open(output_file, "r") as f:
+                    content = f.read()
+
+                runtime = 0.0
+                if os.path.exists(runtime_file):
+                    with open(runtime_file, "r") as f:
+                        runtime = float(f.read().strip())
+
+                last_route_idx = content.rfind("Route details:")
+                makespan = drone_viol = waiting_viol = fitness = 0.0
+                vehicle_routes = []
+
+                if last_route_idx != -1:
+                    solution_section = content[last_route_idx:]
+
+                    for line in solution_section.split('\n'):
+                        if "Makespan:" in line:
+                            m = re.search(r'Makespan:\s*([\d.]+)', line)
+                            if m: makespan = float(m.group(1))
+                        if "Drone violation:" in line:
+                            m = re.search(r'Drone violation:\s*([\d.]+)', line)
+                            if m: drone_viol = float(m.group(1))
+                        if "Waiting violation:" in line:
+                            m = re.search(r'Waiting violation:\s*([\d.]+)', line)
+                            if m: waiting_viol = float(m.group(1))
+                        if "Fitness:" in line:
+                            m = re.search(r'Fitness:\s*([\d.]+)', line)
+                            if m: fitness = float(m.group(1))
+
+                        if line.startswith("Vehicle "):
+                            match = re.match(r'Vehicle (\d+):\s*(.+)', line)
+                            if match:
+                                vehicle_routes.append(f"V{match.group(1)}:{match.group(2).strip()}")
+
+                return {
+                    "runtime": round(runtime, 3),
+                    "makespan": round(makespan, 4),
+                    "drone_violation": round(drone_viol, 4),
+                    "waiting_violation": round(waiting_viol, 4),
+                    "fitness": round(fitness, 4),
+                    "feasible": "YES" if (drone_viol < 0.01 and waiting_viol < 0.01) else "NO",
+                    "routes": " | ".join(vehicle_routes)
+                }
+            except:
+                return {"runtime": 0, "makespan": 0, "drone_violation": 0, "waiting_violation": 0, "fitness": float('inf'), "feasible": "ERROR", "routes": ""}
+
+        all_runs = []
+        for run in range(1, 4):
+            result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
+            result["run"] = run
+            all_runs.append(result)
+
+        with open("detailed_results.json", "w") as f:
+            json.dump({"instance": instance, "runs": all_runs}, f, indent=2)
+        EOF
+
+    - name: Upload results
+      uses: actions/upload-artifact@v4
+      with:
+        name: result-${{ matrix.instance }}
+        path: detailed_results.json
+        retention-days: 30
+
+  run-large:
+    name: Large ${{ matrix.instance }}
+    needs: compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 200
+
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        instance: [
+          "100.10.1", "100.10.2", "100.10.3", "100.10.4",
+          "100.20.1", "100.20.2", "100.20.3", "100.20.4",
+          "100.30.1", "100.30.2", "100.30.3", "100.30.4",
+          "100.40.1", "100.40.2", "100.40.3", "100.40.4"
+        ]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download tabu executable
+      uses: actions/download-artifact@v4
+      with:
+        name: tabu-executable
+
+    - name: Run instance 3 times
+      run: |
+        chmod +x tabu
+
+        for run in {1..3}; do
+          START_TIME=$(date +%s.%N)
+          timeout 35m ./tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1 || true
+          END_TIME=$(date +%s.%N)
+          RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
+          echo "$RUNTIME" > runtime_run${run}.txt
+        done
+
+    - name: Parse and create detailed JSON
+      run: |
+        python3 <<'EOF'
+        import re, json, os
+        instance = "${{ matrix.instance }}"
+
+        def parse_output(output_file, runtime_file):
+            try:
+                with open(output_file, "r") as f:
+                    content = f.read()
+
+                runtime = 0.0
+                if os.path.exists(runtime_file):
+                    with open(runtime_file, "r") as f:
+                        runtime = float(f.read().strip())
+
+                last_route_idx = content.rfind("Route details:")
+                makespan = drone_viol = waiting_viol = fitness = 0.0
+                vehicle_routes = []
+
+                if last_route_idx != -1:
+                    solution_section = content[last_route_idx:]
+
+                    for line in solution_section.split('\n'):
+                        if "Makespan:" in line:
+                            m = re.search(r'Makespan:\s*([\d.]+)', line)
+                            if m: makespan = float(m.group(1))
+                        if "Drone violation:" in line:
+                            m = re.search(r'Drone violation:\s*([\d.]+)', line)
+                            if m: drone_viol = float(m.group(1))
+                        if "Waiting violation:" in line:
+                            m = re.search(r'Waiting violation:\s*([\d.]+)', line)
+                            if m: waiting_viol = float(m.group(1))
+                        if "Fitness:" in line:
+                            m = re.search(r'Fitness:\s*([\d.]+)', line)
+                            if m: fitness = float(m.group(1))
+
+                        if line.startswith("Vehicle "):
+                            match = re.match(r'Vehicle (\d+):\s*(.+)', line)
+                            if match:
+                                vehicle_routes.append(f"V{match.group(1)}:{match.group(2).strip()}")
+
+                return {
+                    "runtime": round(runtime, 3),
+                    "makespan": round(makespan, 4),
+                    "drone_violation": round(drone_viol, 4),
+                    "waiting_violation": round(waiting_viol, 4),
+                    "fitness": round(fitness, 4),
+                    "feasible": "YES" if (drone_viol < 0.01 and waiting_viol < 0.01) else "NO",
+                    "routes": " | ".join(vehicle_routes)
+                }
+            except:
+                return {"runtime": 0, "makespan": 0, "drone_violation": 0, "waiting_violation": 0, "fitness": float('inf'), "feasible": "ERROR", "routes": ""}
+
+        all_runs = []
+        for run in range(1, 4):
+            result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
+            result["run"] = run
+            all_runs.append(result)
+
+        with open("detailed_results.json", "w") as f:
+            json.dump({"instance": instance, "runs": all_runs}, f, indent=2)
+        EOF
+
+    - name: Upload results
+      uses: actions/upload-artifact@v4
+      with:
+        name: result-${{ matrix.instance }}
+        path: detailed_results.json
+        retention-days: 30
+
+  aggregate:
+    name: Create Detailed Master CSV
+    needs: [run-small, run-medium, run-large]
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Download all results
+      uses: actions/download-artifact@v4
+      with:
+        pattern: result-*
+        merge-multiple: false
+
+    - name: Create detailed CSV with routes
+      run: |
+        python3 <<'EOF'
+        import json, glob, csv, os
+
+        all_data = []
+
+        for result_dir in glob.glob("result-*"):
+            json_file = os.path.join(result_dir, "detailed_results.json")
+
+            if os.path.exists(json_file):
+                try:
+                    with open(json_file) as f:
+                        data = json.load(f)
+                        all_data.append(data)
+                except Exception as e:
+                    print(f"❌ Failed: {json_file} - {e}")
+
+        print(f"📊 Total instances: {len(all_data)}")
+
+        # Sort
+        all_data.sort(key=lambda x: tuple(int(p) for p in x["instance"].split(".")))
+
+        # HÀM TÍNH SỐ TECHNICIAN VÀ DRONE THEO LOGIC TRONG MAIN()
+        def calculate_vehicle_distribution(num_customers):
+            customers = num_customers
+
+            if 6 <= customers <= 12:
+                pairs = 1
+            elif customers <= 20:
+                pairs = 2
+            elif customers <= 50:
+                pairs = 3
+            elif customers <= 100:
+                pairs = 4
+            else:
+                pairs = 0
+
+            num_technician = pairs
+            num_drone = pairs
+
+            return num_technician, num_drone
+
+        # Create CSV
+        with open("DETAILED_RESULTS.csv", "w", newline="", encoding="utf-8") as f:
+            cols = [
+                "Instance", "Size", "Num_Technician", "Num_Drone", "Replica", "Run",
+                "Runtime_s", "Makespan", "Drone_Violation", "Waiting_Violation",
+                "Fitness", "Feasible", "Routes"
+            ]
+
+            writer = csv.DictWriter(f, fieldnames=cols)
+            writer.writeheader()
+
+            for data in all_data:
+                parts = data["instance"].split(".")
+                instance = data["instance"]
+                size = int(parts[0])  # Số lượng customers
+                replica = int(parts[2])
+
+                num_technician, num_drone = calculate_vehicle_distribution(size)
+
+                for run_data in data.get("runs", []):
+                    row = {
+                        "Instance": instance,
+                        "Size": size,
+                        "Num_Technician": num_technician,
+                        "Num_Drone": num_drone,
+                        "Replica": replica,
+                        "Run": run_data["run"],
+                        "Runtime_s": run_data["runtime"],
+                        "Makespan": run_data["makespan"],
+                        "Drone_Violation": run_data["drone_violation"],
+                        "Waiting_Violation": run_data["waiting_violation"],
+                        "Fitness": run_data["fitness"],
+                        "Feasible": run_data["feasible"],
+                        "Routes": run_data["routes"]
+                    }
+                    writer.writerow(row)
+
+        print(f"✅ DETAILED CSV created with {len(all_data) * 3} rows")
+        EOF
+
+    - name: Upload detailed CSV
+      uses: actions/upload-artifact@v4
+      with:
+        name: detailed-master-results
+        path: DETAILED_RESULTS.csv
+        retention-days: 90

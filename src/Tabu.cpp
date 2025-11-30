@@ -170,7 +170,25 @@ void print_solution(const Solution &sol){
     cout << "Fitness: " << sol.fitness << endl;
 }
 
-void evaluate_solution(Solution &sol){
+void normalize_route(vector<int> &route) {
+    if (route.empty()) { route.push_back(depot_id); return; }
+    vector<int> tmp;
+    tmp.reserve(route.size());
+    // đảm bảo bắt đầu bằng depot
+    if (route.front() != depot_id) tmp.push_back(depot_id);
+    for (int x : route) {
+        // bỏ depot liên tiếp
+        if (!tmp.empty() && tmp.back() == depot_id && x == depot_id) continue;
+        tmp.push_back(x);
+    }
+    // đảm bảo chỉ một depot ở cuối
+    if (tmp.empty() || tmp.back() != depot_id) tmp.push_back(depot_id);
+    route.swap(tmp);
+}
+
+void evaluate_solution(Solution &sol) {
+    for (auto &route : sol.route) normalize_route(route);
+
     sol.makespan = 0;
     sol.drone_violation = 0;
     sol.waiting_violation = 0;
@@ -178,73 +196,61 @@ void evaluate_solution(Solution &sol){
     sol.is_feasible = true;
 
     for (size_t i = 0; i < sol.route.size(); i++){
-        if (sol.route[i].empty()) continue;
-        
-        double total_vehicle_time = 0;
+        int prev = depot_id;
         double current_time = 0;
-        int prev_node = depot_id;
-        vector<int> current_trip;
-        
+        double depart_time = 0;
+        vector<pair<int, double>> served_in_trip;
+
         for (int j = 0; j < sol.route[i].size(); j++) {
-            int current_node = sol.route[i][j];
+            int cid = sol.route[i][j];
             
-            // Tính thời gian di chuyển
-            if (j > 0) {
-                current_time += distances[prev_node][current_node] / vehicles[i].speed;
-            }
-            
-            if (current_node == depot_id) {
-                // Kết thúc một trip
-                if (!current_trip.empty()) {
-                    // Kiểm tra ràng buộc drone cho trip vừa kết thúc
-                    if (vehicles[i].is_drone) {
-                        double trip_duration = current_time; // thời gian từ start đến depot
-                        double trip_start_time = current_time; // tìm thời gian bắt đầu trip
-                        for (int k = j; k >= 0; k--) {
-                            if (sol.route[i][k] == depot_id && k < j) {
-                                // Tính thời gian từ depot trước đó
-                                trip_start_time = 0;
-                                for (int m = 0; m <= k; m++) {
-                                    if (m > 0) {
-                                        trip_start_time += distances[sol.route[i][m-1]][sol.route[i][m]] / vehicles[i].speed;
-                                    }
-                                }
-                                break;
-                            }
-                        }
-                        double actual_trip_time = current_time - trip_start_time;
-                        
-                        if (actual_trip_time > vehicles[i].limit_drone) {
-                            sol.drone_violation += (actual_trip_time - vehicles[i].limit_drone);
-                        }
-                        
-                        // Kiểm tra thời gian chờ (từ khách hàng cuối đến depot)
-                        if (!current_trip.empty()) {
-                            double last_customer_time = current_time - (distances[current_trip.back()][depot_id] / vehicles[i].speed);
-                            double wait_time = current_time - last_customer_time;
-                            if (wait_time > C2[0].limit_wait) {
-                                sol.waiting_violation += (wait_time - C2[0].limit_wait);
-                            }
-                        }
-                    }
-                    current_trip.clear();
+            if (cid == depot_id){
+                if (prev != depot_id){
+                    double travel_distance = distances[prev][depot_id];
+                    current_time += travel_distance / vehicles[i].speed;
                 }
+                
+                double arrival_depot = current_time;
+                double flight_time = arrival_depot - depart_time;
+                
+                // Kiểm tra vi phạm thời gian bay của drone
+                if (vehicles[i].is_drone && flight_time > vehicles[i].limit_drone){
+                    sol.drone_violation += (flight_time - vehicles[i].limit_drone);
+                }
+                
+                // Kiểm tra vi phạm thời gian chờ của các khách hàng đã phục vụ
+                for (auto &p : served_in_trip){
+                    int served_node_id = p.first;
+                    double time_arrived_at_node = p.second;
+                    
+                    double wait_time = arrival_depot - time_arrived_at_node;
+                    if (!C2.empty() && wait_time > C2[0].limit_wait) {
+                        sol.waiting_violation += (wait_time - C2[0].limit_wait);
+                    }
+                }
+                
+                if (sol.drone_violation > 0 || sol.waiting_violation > 0) {
+                    sol.is_feasible = false;
+                }
+                
+                depart_time = current_time;
+                served_in_trip.clear();
+                prev = depot_id;
             } else {
-                // Thêm khách hàng vào trip hiện tại
-                current_trip.push_back(current_node);
+                // Di chuyển từ prev đến customer cid
+                double travel_distance = distances[prev][cid];
+                double entry_time = current_time + (travel_distance / vehicles[i].speed);
+                
+                served_in_trip.push_back({cid, entry_time});
+                
+                current_time += travel_distance / vehicles[i].speed;
+                prev = cid;
             }
-            
-            prev_node = current_node;
         }
-        
         sol.makespan = max(sol.makespan, current_time);
     }
 
-    if (sol.drone_violation > 0 || sol.waiting_violation > 0) {
-        sol.is_feasible = false;
-    }
-    
-    sol.fitness = sol.makespan + alpha1 * sol.drone_violation + alpha2 * sol.waiting_violation;
+    sol.fitness = sol.makespan + alpha1*sol.drone_violation + alpha2*sol.waiting_violation;
 }
 
 Solution init_greedy_solution() {
@@ -1070,7 +1076,7 @@ Solution tabu_search(){
 
 int main(){
     srand(time(nullptr));
-    read_dataset("D:\\New folder\\instances\\50.10.1.txt");
+    read_dataset("D:\\New folder\\instances\\50.40.1.txt");
     printf(" %d\n", MAX_ITER);
  
     // Khởi tạo danh sách xe 
