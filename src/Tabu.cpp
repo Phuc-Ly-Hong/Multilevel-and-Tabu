@@ -1074,9 +1074,14 @@ Solution tabu_search(){
     return best_sol;
 }
 
-int main(){
-    srand(time(nullptr));
-    read_dataset("D:\\New folder\\instances\\50.40.1.txt");
+int main(int argc, char* argv[]){
+    string dataset_path;
+    if (argc > 1) {
+        dataset_path = argv[1];
+    } else {
+        dataset_path = "D:\\New folder\\instances\\50.40.1.txt"; 
+    }
+    read_dataset(dataset_path);
     printf(" %d\n", MAX_ITER);
  
     // Khởi tạo danh sách xe 
