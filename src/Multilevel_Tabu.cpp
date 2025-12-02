@@ -405,173 +405,157 @@ Solution init_greedy_solution() {
     Solution sol;
     sol.route.resize(vehicles.size());
 
-    for (size_t v = 0; v < vehicles.size(); ++v)
+    // Khởi tạo: mỗi xe bắt đầu từ depot
+    for (size_t v = 0; v < vehicles.size(); ++v) {
         sol.route[v].push_back(depot_id);
-
-    // 1. GÁN C1 CHO TECHNICIAN
-    vector<int> unserved_C1;
-    for (const auto& n : C1) unserved_C1.push_back(n.id);
-
-    vector<int> tech_pos;
-    vector<int> tech_indices;
-    for (size_t v = 0; v < vehicles.size(); v++) {
-        if (!vehicles[v].is_drone) {
-            tech_pos.push_back(depot_id);
-            tech_indices.push_back(v);
-        }
     }
 
-    while (!unserved_C1.empty()) {
-        double best_dist = DBL_MAX;
-        int best_tech = -1, best_cid = -1, best_idx = -1;
-        for (size_t t = 0; t < tech_indices.size(); t++) {
-            for (size_t i = 0; i < unserved_C1.size(); i++) {
-                int cid = unserved_C1[i];
-                double d = distances[tech_pos[t]][cid];
-                if (d < best_dist) {
-                    best_dist = d;
-                    best_tech = t;
-                    best_cid = cid;
-                    best_idx = i;
-                }
-            }
-        }
-        int vehicle_id = tech_indices[best_tech];
-        sol.route[vehicle_id].push_back(best_cid);
-        tech_pos[best_tech] = best_cid;
-        unserved_C1.erase(unserved_C1.begin() + best_idx);
-    } 
-
-    // 2. GÁN C2 - MULTIPLE TRIPS CHO DRONE
+    // --- Gán C2 cho tất cả xe ---
     vector<int> unserved_C2;
     for (const auto& n : C2) unserved_C2.push_back(n.id);
 
+    // Vị trí hiện tại của từng xe
     vector<int> current_pos(vehicles.size(), depot_id);
+    
+    // Thời gian hiện tại của mỗi xe (tính từ lúc bắt đầu)
     vector<double> current_time(vehicles.size(), 0.0);
+    
+    // Thời gian bắt đầu trip hiện tại (cho drone)
     vector<double> trip_start_time(vehicles.size(), 0.0);
     
-    // Theo dõi thời gian phục vụ từng customer trong trip hiện tại
-    vector<vector<pair<int, double>>> served_in_current_trip(vehicles.size());
+    // Đếm số khách hàng đã phục vụ trong trip hiện tại
+    vector<int> customers_in_current_trip(vehicles.size(), 0);
+    
+    // Theo dõi khách hàng đã phục vụ trong trip hiện tại
+    vector<vector<pair<int, double>>> served_in_trip(vehicles.size());
 
-    cout << "\n🚀 INITIALIZING C2 CUSTOMERS" << endl;
-    cout << "  Total C2: " << unserved_C2.size() << endl;
+    cout << "\n🚀 INITIALIZING SOLUTION WITH MULTIPLE TRIPS" << endl;
+    cout << "  Total C2 customers: " << unserved_C2.size() << endl;
     cout << "  Drone flight limit: " << vehicles[3].limit_drone << " min" << endl;
     cout << "  Waiting limit: " << C2[0].limit_wait << " min" << endl;
 
+    // Phân bố đều khách hàng cho các xe
     while (!unserved_C2.empty()) {
-        bool assigned = false;
+        bool assigned_any = false;
         
         for (size_t v = 0; v < vehicles.size() && !unserved_C2.empty(); v++) {
-            // Nếu là drone và đang ở depot, bắt đầu trip mới
+            // Nếu xe là drone và đang ở depot, bắt đầu trip mới
             if (vehicles[v].is_drone && current_pos[v] == depot_id) {
                 trip_start_time[v] = current_time[v];
-                served_in_current_trip[v].clear();
-                cout << "  Vehicle " << v << " (Drone) → START NEW TRIP" << endl;
+                customers_in_current_trip[v] = 0;
+                served_in_trip[v].clear();
+                //cout << "  Vehicle " << v << " (Drone) → START NEW TRIP" << endl;
+            }
+            
+            // Nếu xe là technician và đã có nhiều khách hàng, skip để phân bố đều
+            if (!vehicles[v].is_drone && customers_in_current_trip[v] > 0) {
+                // Technician có thể phục vụ nhiều khách hàng trong 1 trip
+                // Tiếp tục tìm khách hàng
             }
 
-            // Tìm customer gần nhất hợp lệ
+            // Tìm khách hàng gần nhất hợp lệ
             double best_dist = DBL_MAX;
             int best_idx = -1;
-            double best_estimated_return_time = 0.0;
+            double best_estimated_time = 0.0;
 
             for (size_t i = 0; i < unserved_C2.size(); i++) {
                 int cid = unserved_C2[i];
-                double dist_to_customer = distances[current_pos[v]][cid];
-                double time_to_customer = dist_to_customer / vehicles[v].speed;
+                double dist = distances[current_pos[v]][cid];
+                double travel_time = dist / vehicles[v].speed;
                 
-                // Thời gian đến customer
-                double arrive_at_customer = current_time[v] + time_to_customer;
+                // Thời gian đến khách hàng
+                double arrive_at_customer = current_time[v] + travel_time;
                 
-                // Thời gian về depot từ customer này
-                double dist_to_depot = distances[cid][depot_id];
-                double time_to_depot = dist_to_depot / vehicles[v].speed;
-                double arrive_at_depot = arrive_at_customer + time_to_depot;
+                // Thời gian về depot từ khách hàng này
+                double return_time = distances[cid][depot_id] / vehicles[v].speed;
+                double arrive_at_depot = arrive_at_customer + return_time;
                 
                 bool valid = true;
                 
+                // Kiểm tra ràng buộc cho drone
                 if (vehicles[v].is_drone) {
-                    // ✅ KIỂM TRA DRONE FLIGHT TIME
-                    double total_flight_time = arrive_at_depot - trip_start_time[v];
-                    if (total_flight_time > vehicles[v].limit_drone) {
+                    // 1. Kiểm tra thời gian bay
+                    double flight_time = arrive_at_depot - trip_start_time[v];
+                    if (flight_time > vehicles[v].limit_drone) {
                         valid = false;
-                        //cout << "    ✗ " << cid << " violates flight: " << total_flight_time << " > " << vehicles[v].limit_drone << endl;
+                        //cout << "    ✗ " << cid << " violates flight: " << flight_time << " > " << vehicles[v].limit_drone << endl;
                     }
                     
-                    // ✅ KIỂM TRA WAITING TIME CHO TẤT CẢ CUSTOMERS TRONG TRIP
+                    // 2. Kiểm tra thời gian chờ cho tất cả khách hàng trong trip
                     if (valid) {
-                        for (const auto& served : served_in_current_trip[v]) {
-                            double customer_wait_time = arrive_at_depot - served.second;
-                            if (customer_wait_time > C2[0].limit_wait) {
+                        for (const auto& served : served_in_trip[v]) {
+                            double wait_time = arrive_at_depot - served.second;
+                            if (wait_time > C2[0].limit_wait) {
                                 valid = false;
-                                //cout << "    ✗ " << cid << " makes customer " << served.first << " wait: " << customer_wait_time << endl;
+                                //cout << "    ✗ " << cid << " makes " << served.first << " wait: " << wait_time << endl;
                                 break;
                             }
                         }
                     }
                     
-                    // ✅ KIỂM TRA WAITING TIME CHO CHÍNH CUSTOMER NÀY
+                    // 3. Kiểm tra thời gian chờ cho chính khách hàng này
                     if (valid) {
-                        double this_customer_wait = time_to_depot;
-                        if (this_customer_wait > C2[0].limit_wait) {
+                        double customer_wait = return_time;
+                        if (customer_wait > C2[0].limit_wait) {
                             valid = false;
-                            //cout << "    ✗ " << cid << " self wait: " << this_customer_wait << endl;
+                            //cout << "    ✗ " << cid << " self wait: " << customer_wait << endl;
                         }
                     }
                 }
 
-                if (valid && dist_to_customer < best_dist) {
-                    best_dist = dist_to_customer;
+                if (valid && dist < best_dist) {
+                    best_dist = dist;
                     best_idx = i;
-                    best_estimated_return_time = arrive_at_depot;
+                    best_estimated_time = arrive_at_customer;
                 }
             }
 
             if (best_idx != -1) {
-                // Tìm thấy customer hợp lệ
+                // Tìm thấy khách hàng hợp lệ
                 int best_cid = unserved_C2[best_idx];
                 
+                // Thêm khách hàng vào route
                 sol.route[v].push_back(best_cid);
                 
+                // Cập nhật thời gian và vị trí
                 double travel_time = distances[current_pos[v]][best_cid] / vehicles[v].speed;
                 current_time[v] += travel_time;
                 current_pos[v] = best_cid;
+                customers_in_current_trip[v]++;
                 
-                // Lưu thời gian phục vụ customer này
+                // Lưu thời gian phục vụ khách hàng này (cho drone)
                 if (vehicles[v].is_drone) {
-                    served_in_current_trip[v].push_back({best_cid, current_time[v]});
+                    served_in_trip[v].push_back({best_cid, current_time[v]});
                 }
                 
                 unserved_C2.erase(unserved_C2.begin() + best_idx);
-                assigned = true;
+                assigned_any = true;
                 
-                cout << "  Vehicle " << v << (vehicles[v].is_drone ? " (Drone)" : " (Tech)") 
-                     << " ← " << best_cid << " [time: " << current_time[v] << " min";
-                
-                if (vehicles[v].is_drone) {
-                    double current_flight = current_time[v] - trip_start_time[v];
-                    cout << ", flight: " << current_flight << " min";
-                }
-                cout << "]" << endl;
+                //cout << "  Vehicle " << v << (vehicles[v].is_drone ? " (Drone)" : " (Tech)") 
+                //     << " ← " << best_cid << " [time: " << current_time[v] << "]" << endl;
                 
             } else if (vehicles[v].is_drone && current_pos[v] != depot_id) {
-                // ❌ KHÔNG tìm được customer hợp lệ → VỀ DEPOT
+                // ❌ Không tìm được khách hàng hợp lệ cho drone → VỀ DEPOT
                 double return_time = distances[current_pos[v]][depot_id] / vehicles[v].speed;
                 current_time[v] += return_time;
                 current_pos[v] = depot_id;
                 
+                // Thêm depot vào route (kết thúc trip)
                 sol.route[v].push_back(depot_id);
                 
-                double trip_flight_time = current_time[v] - trip_start_time[v];
-                cout << "  🚁 Vehicle " << v << " → RETURN TO DEPOT" 
-                     << " [trip time: " << trip_flight_time << " min, " 
-                     << "customers: " << served_in_current_trip[v].size() << "]" << endl;
+                //cout << "  🚁 Vehicle " << v << " → RETURN TO DEPOT" 
+                //     << " [customers: " << customers_in_current_trip[v] << "]" << endl;
                 
-                assigned = true;
+                // Reset cho trip mới
+                customers_in_current_trip[v] = 0;
+                served_in_trip[v].clear();
+                assigned_any = true;
             }
         }
 
-        // Nếu không gán được, buộc drone về depot
-        if (!assigned) {
+        // Nếu không gán được khách hàng nào, buộc tất cả drone về depot
+        if (!assigned_any && !unserved_C2.empty()) {
+            bool any_drone_returned = false;
             for (size_t v = 0; v < vehicles.size(); v++) {
                 if (vehicles[v].is_drone && current_pos[v] != depot_id) {
                     double return_time = distances[current_pos[v]][depot_id] / vehicles[v].speed;
@@ -580,71 +564,68 @@ Solution init_greedy_solution() {
                     
                     sol.route[v].push_back(depot_id);
                     
-                    double trip_flight_time = current_time[v] - trip_start_time[v];
-                    cout << "  🔄 Vehicle " << v << " → FORCED RETURN" 
-                         << " [trip time: " << trip_flight_time << " min]" << endl;
+                    //cout << "  🔄 Vehicle " << v << " → FORCED RETURN" << endl;
+                    
+                    customers_in_current_trip[v] = 0;
+                    served_in_trip[v].clear();
+                    any_drone_returned = true;
                 }
             }
             
-            // Nếu vẫn không gán được, dùng fallback
-            if (!assigned && !unserved_C2.empty()) {
-                cout << "  ⚠️  USING FALLBACK FOR " << unserved_C2.size() << " CUSTOMERS" << endl;
-                break;
-            }
-        }
-    }
-
-    // ✅ FALLBACK: GÁN CUSTOMERS CÒN LẠI CHO TECHNICIAN
-    if (!unserved_C2.empty()) {
-        for (int cid : unserved_C2) {
-            double best_dist = DBL_MAX;
-            int best_tech = -1;
-            
-            for (size_t v = 0; v < vehicles.size(); v++) {
-                if (!vehicles[v].is_drone) {
-                    double d = distances[current_pos[v]][cid];
-                    if (d < best_dist) {
-                        best_dist = d;
-                        best_tech = v;
+            // Nếu đã cho drone về depot mà vẫn không gán được, dùng fallback
+            if (!any_drone_returned) {
+                // Fallback: gán khách hàng gần nhất cho technician (bỏ qua ràng buộc)
+                for (size_t v = 0; v < vehicles.size() && !unserved_C2.empty(); v++) {
+                    if (!vehicles[v].is_drone) {
+                        double best_dist = DBL_MAX;
+                        int best_idx = -1;
+                        for (size_t i = 0; i < unserved_C2.size(); i++) {
+                            int cid = unserved_C2[i];
+                            double d = distances[current_pos[v]][cid];
+                            if (d < best_dist) {
+                                best_dist = d;
+                                best_idx = i;
+                            }
+                        }
+                        if (best_idx != -1) {
+                            int best_cid = unserved_C2[best_idx];
+                            sol.route[v].push_back(best_cid);
+                            double travel_time = distances[current_pos[v]][best_cid] / vehicles[v].speed;
+                            current_time[v] += travel_time;
+                            current_pos[v] = best_cid;
+                            unserved_C2.erase(unserved_C2.begin() + best_idx);
+                            //cout << "  Fallback: Tech " << v << " ← " << best_cid << endl;
+                        }
                     }
                 }
             }
-            
-            if (best_tech != -1) {
-                sol.route[best_tech].push_back(cid);
-                double travel_time = distances[current_pos[best_tech]][cid] / vehicles[best_tech].speed;
-                current_time[best_tech] += travel_time;
-                current_pos[best_tech] = cid;
-                cout << "  Fallback: Tech " << best_tech << " ← " << cid << endl;
-            }
         }
     }
 
-    // ✅ KẾT THÚC TẤT CẢ ROUTES Ở DEPOT
+    // Kết thúc: đảm bảo mỗi route kết thúc bằng depot
     for (size_t v = 0; v < vehicles.size(); v++) {
         if (current_pos[v] != depot_id) {
+            // Nếu xe chưa ở depot, tính thời gian về depot
             double return_time = distances[current_pos[v]][depot_id] / vehicles[v].speed;
             current_time[v] += return_time;
             sol.route[v].push_back(depot_id);
-            
-            if (vehicles[v].is_drone) {
-                double trip_flight_time = current_time[v] - trip_start_time[v];
-                cout << "  Vehicle " << v << " (Drone) → FINAL RETURN" 
-                     << " [trip time: " << trip_flight_time << " min]" << endl;
-            }
         }
         
-        // Đếm số trips
+        // Chuẩn hóa route (loại bỏ depot trùng lặp)
+        normalize_route(sol.route[v]);
+        
+        // Debug: đếm số trips
         int trips = 0;
         for (int node : sol.route[v]) {
             if (node == depot_id) trips++;
         }
-        cout << "  Vehicle " << v << " trips: " << (trips - 1) << endl;
+        //cout << "  Vehicle " << v << (vehicles[v].is_drone ? " (Drone)" : " (Tech)") 
+        //     << " trips: " << (trips - 1) << ", total time: " << current_time[v] << endl;
     }
 
     evaluate_solution(sol);
     
-    cout << "\n📊 INITIAL SOLUTION:" << endl;
+    cout << "\n📊 INITIAL SOLUTION CREATED:" << endl;
     print_solution(sol);
     
     return sol;
@@ -1628,8 +1609,8 @@ vector<tuple<int, int, int>> collect_merge_candidates(const LevelInfo& current_l
         
         if (same_type){
             candidates.emplace_back(make_tuple(frequency, from_node, to_node));
-            cout << "Candidate edge: (" << from_node << ", " << to_node 
-                 << ") frequency=" << frequency  << endl;
+            /*cout << "Candidate edge: (" << from_node << ", " << to_node 
+                 << ") frequency=" << frequency  << endl;*/
         }
     }
 
@@ -1651,7 +1632,7 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
     // Tính 20% số CẠNH, không phải nodes
     int num_to_merge = max(1, (int)(candidates.size() * 0.2));
     
-    cout << "\n=== MERGING " << num_to_merge << " / " << candidates.size() << " EDGES (20%) ===" << endl;
+    //cout << "\n=== MERGING " << num_to_merge << " / " << candidates.size() << " EDGES (20%) ===" << endl;
     
     set<int> merged_nodes;
     vector<vector<int>> merged_groups;
@@ -1696,7 +1677,7 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
             merged_groups.push_back({node_a, node_b});
             merged_nodes.insert(node_a);
             merged_nodes.insert(node_b);
-            cout << "Edge " << (i+1) << ": (" << node_a << " → " << node_b << ") freq=" << frequency << " → NEW GROUP" << endl;
+            //cout << "Edge " << (i+1) << ": (" << node_a << " → " << node_b << ") freq=" << frequency << " → NEW GROUP" << endl;
         }
         // Case 2: node_a đã có group, node_b chưa -> Thêm node_b vào group của node_a
         else if (group_idx_a != -1 && group_idx_b == -1) {
@@ -1711,8 +1692,8 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
                 continue;
             }
             merged_nodes.insert(node_b);
-            cout << "Edge " << (i+1) << ": (" << node_a << " → " << node_b 
-                 << ") freq=" << frequency << " → ADD TO GROUP " << group_idx_a << endl;
+            /*cout << "Edge " << (i+1) << ": (" << node_a << " → " << node_b 
+                 << ") freq=" << frequency << " → ADD TO GROUP " << group_idx_a << endl;*/
         }
         // Case 3: node_b đã có group, node_a chưa -> Thêm node_a vào group của node_b
         else if (group_idx_a == -1 && group_idx_b != -1) {
@@ -1725,8 +1706,8 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
                 continue;
             }
             merged_nodes.insert(node_a);
-            cout << "Edge " << (i+1) << ": (" << node_a << " → " << node_b 
-                 << ") freq=" << frequency << " → ADD TO GROUP " << group_idx_b << endl;
+            /*cout << "Edge " << (i+1) << ": (" << node_a << " → " << node_b 
+                 << ") freq=" << frequency << " → ADD TO GROUP " << group_idx_b << endl;*/
         }
         // Case 4: Cả 2 đã có group khác nhau → Merge 2 groups
         else if (group_idx_a != group_idx_b) {
@@ -1739,15 +1720,15 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
                     merged_groups[group_idx_b].end()
                 );
                 merged_groups.erase(merged_groups.begin() + group_idx_b);
-                cout << "Edge " << (i+1) << ": (" << node_a << " → " << node_b 
-                     << ") freq=" << frequency << " → CONNECT GROUPS" << endl;
+                /*cout << "Edge " << (i+1) << ": (" << node_a << " → " << node_b 
+                     << ") freq=" << frequency << " → CONNECT GROUPS" << endl;*/
             } else {
                 cout << " Cannot connect - nodes not at boundaries" << endl;
             }
         }
     }
     
-    cout << "\n=== FINAL MERGED GROUPS ===" << endl;
+    //cout << "\n=== FINAL MERGED GROUPS ===" << endl;
     for (size_t i = 0; i < merged_groups.size(); i++) {
         cout << "Group " << (i+1) << ": [";
         for (size_t j = 0; j < merged_groups[i].size(); j++) {
@@ -1805,7 +1786,12 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
                     info.internal_distance += it_merge->second.internal_distance;
                 }
             }
-            cout << "Internal distances for merged node " << merged_node.id << ": " << info.internal_distance << endl; 
+            int exit_node = group.back();
+            auto it_exit = merged_nodes_info.find(exit_node);
+            if (it_exit != merged_nodes_info.end()) {
+                info.internal_distance += it_exit->second.internal_distance;
+            }
+            //cout << "Internal distances for merged node " << merged_node.id << ": " << info.internal_distance << endl; 
             
             // ánh xạ node merge về toàn bộ node gốc
             vector<int> original_nodes;
@@ -1865,6 +1851,9 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
             
             if (idx_i != -1 && idx_j != -1) {
                 distance = curr_distances[idx_i][idx_j];
+                /*cout << "  d[" << node_id_i << "][" << node_id_j << "] = "
+                     << "curr_d[" << idx_i << "][" << idx_j << "] = "
+                     << distance << endl;*/
             } else if (idx_i != -1 && idx_j == -1) {
                 // node_j là node merged
                 auto it_j = merged_nodes_info.find(node_id_j);
@@ -1872,6 +1861,9 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
                     int entry_node_j = it_j->second.entry_node;
                     int idx_entry_j = find_node_index_fast(entry_node_j);
                     distance = curr_distances[idx_i][idx_entry_j];
+                    /*cout << "  d[" << node_id_i << "][" << node_id_j << "] = "
+                         << "curr_d[" << idx_i << "][" << idx_entry_j << "] = "
+                         << distance << endl;*/
                 }
             } else if (idx_i == -1 && idx_j != -1) {
                 // node_i là node merged
@@ -1880,6 +1872,9 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
                     int exit_node_i = it_i->second.exit_node;
                     int idx_exit_i = find_node_index_fast(exit_node_i);
                     distance = curr_distances[idx_exit_i][idx_j];
+                    /*cout << "  d[" << node_id_i << "][" << node_id_j << "] = "
+                         << "curr_d[" << idx_exit_i << "][" << idx_j << "] = "
+                         << distance << endl;*/
                 }
             } else {
                 // cả 2 đều là node merged
@@ -1891,6 +1886,9 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
                     int idx_exit_i = find_node_index_fast(exit_node_i);
                     int idx_entry_j = find_node_index_fast(entry_node_j);
                     distance = curr_distances[idx_exit_i][idx_entry_j];
+                    /*cout << "  d[" << node_id_i << "][" << node_id_j << "] = "
+                         << "curr_d[" << idx_exit_i << "][" << idx_entry_j << "] = "
+                         << distance << endl;*/
                 }
             }
             
@@ -1898,10 +1896,10 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
         }
     }
     
-    cout << "\n Level " << next_level.level_id << " created: " 
+    /*cout << "\n Level " << next_level.level_id << " created: " 
          << current_level.nodes.size() << " → " << next_level.nodes.size() 
          << " nodes (merged " << (current_level.nodes.size() - next_level.nodes.size()) 
-         << ")" << endl;
+         << ")" << endl;*/
     
     return next_level;
 }
@@ -1991,11 +1989,6 @@ Solution project_solution_to_next_level(const Solution& old_sol, const LevelInfo
 }
 
 Solution unmerge_solution_to_previous_level(const Solution& coarse_sol, const LevelInfo& coarse_level, const LevelInfo& fine_level) {
-    cout << "\n🔄 UNMERGING: Level " << coarse_level.level_id 
-         << " → Level " << fine_level.level_id << endl;
-    cout << "Before: fitness=" << coarse_sol.fitness 
-         << ", feasible=" << (coarse_sol.is_feasible ? "✅" : "❌") << endl;
-    
     Solution fine_sol;
     fine_sol.route.resize(coarse_sol.route.size());
 
@@ -2017,28 +2010,28 @@ Solution unmerge_solution_to_previous_level(const Solution& coarse_sol, const Le
             
             const MergedNodeInfo& info = info_it->second;
             
-            cout << "  UNMERGE " << coarse_node.id << " → [";
+            /*cout << "  UNMERGE " << coarse_node.id << " → [";
             for (size_t i = 0; i < info.current_sequence.size(); i++) {
                 cout << info.current_sequence[i];
                 if (i < info.current_sequence.size() - 1) cout << ", ";
             }
-            cout << "]" << endl;
+            cout << "]" << endl;*/
             
             coarse_to_fine[coarse_node.id] = info.current_sequence;
         } else if (fine_level_node_ids.find(coarse_node.id) != fine_level_node_ids.end()) {
-            cout << "  KEEP " << coarse_node.id << " (exists in fine level)" << endl;
+            //cout << "  KEEP " << coarse_node.id << " (exists in fine level)" << endl;
             coarse_to_fine[coarse_node.id] = {coarse_node.id};
         } else {
-            cout << "  WARNING: Node " << coarse_node.id 
-                 << " not found in fine level and not merged at current level!" << endl;
+            /*cout << "  WARNING: Node " << coarse_node.id 
+                 << " not found in fine level and not merged at current level!" << endl;*/
             if (info_it != merged_nodes_info.end()) {
-                cout << "  FORCE UNMERGE " << coarse_node.id 
+                /*cout << "  FORCE UNMERGE " << coarse_node.id 
                      << " (merged at level " << info_it->second.level_id << ") → [";
                 for (size_t i = 0; i < info_it->second.current_sequence.size(); i++) {
                     cout << info_it->second.current_sequence[i];
                     if (i < info_it->second.current_sequence.size() - 1) cout << ", ";
                 }
-                cout << "]" << endl;
+                cout << "]" << endl;*/
                 
                 coarse_to_fine[coarse_node.id] = info_it->second.current_sequence;
             } else {
@@ -2068,7 +2061,6 @@ Solution unmerge_solution_to_previous_level(const Solution& coarse_sol, const Le
     return fine_sol;
 }
 
-// lỗi ở chỗ chưa tính thời gian bay cho merge node siêu dài đó mà đổi chỗ khiến nó đổi sang route dài làm vi phạm waiting time và check nốt hàm unmerge
 Solution multilevel_tabu_search() {
     Solution s = init_greedy_solution();
 
@@ -2100,7 +2092,7 @@ Solution multilevel_tabu_search() {
     double prev_fitness = DBL_MAX;
 
     while (coarsening && L < max_levels) {
-        cout << "\n--- LEVEL " << L << " ---" << endl;   
+        //cout << "\n--- LEVEL " << L << " ---" << endl;   
         update_node_index_cache(all_levels[L]);
         Solution s_current = tabu_search(s, all_levels[L], true);
         update_edge_frequency(s);
@@ -2111,9 +2103,9 @@ Solution multilevel_tabu_search() {
         prev_fitness = s_current.fitness;
         s = s_current;
         LevelInfo next_level = merge_customers(all_levels[L], s, distances);
-        cout << "Nodes in next_level: ";
-        for (const auto& node : next_level.nodes) cout << node.id << " ";
-        cout << endl;
+        //cout << "Nodes in next_level: ";
+        //for (const auto& node : next_level.nodes) cout << node.id << " ";
+        //cout << endl;
         int reduction = all_levels[L].nodes.size() - next_level.nodes.size();
         if (reduction < 1) {
             cout << "Insufficient reduction, stopping coarsening" << endl;
@@ -2150,7 +2142,7 @@ Solution multilevel_tabu_search() {
         int current_level_id = L - i;
         int prev_level_id = L - i - 1;
         
-        cout << "\n=== REFINING FROM LEVEL " << current_level_id << " TO LEVEL " << prev_level_id << " ===" << endl;
+        //cout << "\n=== REFINING FROM LEVEL " << current_level_id << " TO LEVEL " << prev_level_id << " ===" << endl;
         
         // Unmerge solution
         s = unmerge_solution_to_previous_level(s, all_levels[current_level_id], all_levels[prev_level_id]);
@@ -2161,11 +2153,11 @@ Solution multilevel_tabu_search() {
         C2 = all_levels[prev_level_id].C2_level;
         num_nodes = all_levels[prev_level_id].nodes.size();
         
-        cout << "Level " << prev_level_id << " stats:" << endl;
+        /*cout << "Level " << prev_level_id << " stats:" << endl;
         cout << "  Nodes: " << num_nodes << endl;
         cout << "  C1: " << C1.size() << ", C2: " << C2.size() << endl;
         cout << "  Matrix: " << distances.size() << "x" 
-             << (distances.empty() ? 0 : distances[0].size()) << endl;
+             << (distances.empty() ? 0 : distances[0].size()) << endl;*/
         
         update_node_index_cache(all_levels[prev_level_id]);
         evaluate_solution(s, &all_levels[prev_level_id]);
@@ -2176,15 +2168,16 @@ Solution multilevel_tabu_search() {
         update_node_index_cache(all_levels[prev_level_id]);
         evaluate_solution(s, &all_levels[prev_level_id]);
         
-        cout << "After tabu: " << s.fitness << endl;
+        cout << "After tabu: " << endl;
+        print_solution(s);
         best_overall = s;
         
-        cout << "\nCurrent route at level " << prev_level_id << ":" << endl;
+        /*cout << "\nCurrent route at level " << prev_level_id << ":" << endl;
         for (size_t v = 0; v < s.route.size(); v++) {
             cout << "Vehicle " << v << ": ";
             for (int cid : s.route[v]) cout << cid << " ";
             cout << endl;
-        }
+        }*/
     }
 
     return best_overall;
@@ -2279,14 +2272,14 @@ int main(int argc, char* argv[]) {
 
     vector<vector<int>> test_routes = {
         // 3 Technicians
-        {0, 38, 4, 8, 26, 1, 11, 30, 9, 12, 0},
-        {0, 14, 31, 47, 13, 32, 24, 46, 0},
-        {0, 29, 22, 7, 5, 0},
+        {0, 43, 49, 48, 15, 44, 34, 0},
+        {0, 30, 9, 16, 23, 12, 0},
+        {0, 8, 26, 1, 11, 38, 4, 14, 32, 0},
         
         // 3 Drones
-        {0, 16, 2, 6, 28, 35, 20, 27, 39, 36, 50, 23, 0, 17, 0},
-        {0, 45, 18, 3, 19, 48, 15, 44, 34, 33, 10, 0},
-        {0, 21, 25, 40, 42, 41, 37, 43, 49, 0}
+        {0, 37, 41, 40, 25, 42, 21, 13, 47, 31, 0},
+        {0, 19, 3, 18, 45, 22, 29, 5, 10, 33, 46, 17, 0, 24, 0},
+        {0, 2, 6, 28, 35, 20, 27, 39, 7, 36, 50, 0}
     };
 
     //Solution test_solution = create_test_solution_from_routes(test_routes);
