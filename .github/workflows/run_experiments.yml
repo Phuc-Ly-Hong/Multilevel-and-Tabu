@@ -1,4 +1,4 @@
-name: Run Experiments with Detailed Results
+name: Compare Multilevel Tabu vs Tabu Search
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   compile:
-    name: Compile C++
+    name: Compile Both Algorithms
     runs-on: ubuntu-latest
     
     steps:
@@ -24,24 +24,27 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y g++ bc
     
-    - name: Compile executable
+    - name: Compile both executables
       run: |
         g++ -O2 -std=c++17 -o multilevel_tabu src/Multilevel_Tabu.cpp
-        chmod +x multilevel_tabu
-        ls -lh multilevel_tabu
+        g++ -O2 -std=c++17 -o tabu src/Tabu.cpp
+        chmod +x multilevel_tabu tabu
+        ls -lh multilevel_tabu tabu
     
-    - name: Upload executable
+    - name: Upload executables
       uses: actions/upload-artifact@v4
       with:
-        name: multilevel-executable
-        path: multilevel_tabu
+        name: executables
+        path: |
+          multilevel_tabu
+          tabu
         retention-days: 1
 
   run-small:
     name: Small ${{ matrix.instance }}
     needs: compile
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 100
     
     strategy:
       fail-fast: false
@@ -66,79 +69,75 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
     
-    - name: Download executable
+    - name: Download executables
       uses: actions/download-artifact@v4
       with:
-        name: multilevel-executable
+        name: executables
     
-    - name: Run instance 3 times
+    - name: Run both algorithms 5 times each
       run: |
-        chmod +x multilevel_tabu
+        chmod +x multilevel_tabu tabu
         
-        echo "🔄Running instance ${{ matrix.instance }} for 3 iterations..."
+        echo "🔄 Running instance ${{ matrix.instance }} - 5 runs per algorithm"
         
-        for run in {1..3}; do
-          echo ""
-          echo "=========================================="
-          echo "   RUN $run / 3"
-          echo "=========================================="
-          
+        # Run Multilevel Tabu 5 times
+        for run in {1..5}; do
+          echo "========== MULTILEVEL TABU - RUN $run/5 =========="
           START_TIME=$(date +%s.%N)
-          timeout 8m ./multilevel_tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1 || true
+          timeout 8m ./multilevel_tabu instances/${{ matrix.instance }}.txt > multilevel_run${run}.txt 2>&1 || true
           END_TIME=$(date +%s.%N)
           RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
-          echo "$RUNTIME" > runtime_run${run}.txt
-          
-          echo "⏱️  Run $run completed in ${RUNTIME}s"
+          echo "$RUNTIME" > multilevel_runtime${run}.txt
+          echo "⏱️  Multilevel run $run: ${RUNTIME}s"
         done
         
-        echo ""
-        echo "✅ All 3 runs completed!"
+        # Run Tabu 5 times
+        for run in {1..5}; do
+          echo "========== TABU SEARCH - RUN $run/5 =========="
+          START_TIME=$(date +%s.%N)
+          timeout 8m ./tabu instances/${{ matrix.instance }}.txt > tabu_run${run}.txt 2>&1 || true
+          END_TIME=$(date +%s.%N)
+          RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
+          echo "$RUNTIME" > tabu_runtime${run}.txt
+          echo "⏱️  Tabu run $run: ${RUNTIME}s"
+        done
+        
+        echo "✅ All 10 runs completed!"
     
-    - name: Parse and create detailed CSV
+    - name: Parse results and create comparison JSON
       run: |
         python3 <<'EOF'
         import re, json, os
         instance = "${{ matrix.instance }}"
         
+        def find_metric(pattern, content):
+            m = re.search(pattern, content)
+            return float(m.group(1)) if m else 0.0
+        
         def parse_output(output_file, runtime_file):
             try:
-                with open(output_file, "r") as f:
+                with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
-                
                 runtime = 0.0
                 if os.path.exists(runtime_file):
                     with open(runtime_file, "r") as f:
                         runtime = float(f.read().strip())
                 
-                last_route_idx = content.rfind("Route details:")
-                makespan = drone_viol = waiting_viol = fitness = 0.0
-                vehicle_routes = []
+                makespan = find_metric(r'Makespan:\s*([0-9.+\-eE]+)', content)
+                drone_viol = find_metric(r'Drone violation:\s*([0-9.+\-eE]+)', content)
+                waiting_viol = find_metric(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
+                fitness = find_metric(r'Fitness:\s*([0-9.+\-eE]+)', content)
                 
-                if last_route_idx != -1:
-                    solution_section = content[last_route_idx:]
-                    
-                    for line in solution_section.split('\n'):
-                        if "Makespan:" in line:
-                            m = re.search(r'Makespan:\s*([\d.]+)', line)
-                            if m: makespan = float(m.group(1))
-                        if "Drone violation:" in line:
-                            m = re.search(r'Drone violation:\s*([\d.]+)', line)
-                            if m: drone_viol = float(m.group(1))
-                        if "Waiting violation:" in line:
-                            m = re.search(r'Waiting violation:\s*([\d.]+)', line)
-                            if m: waiting_viol = float(m.group(1))
-                        if "Fitness:" in line:
-                            m = re.search(r'Fitness:\s*([\d.]+)', line)
-                            if m: fitness = float(m.group(1))
-                        
-                        # Parse routes
+                routes = []
+                idx = content.rfind("Route details:")
+                if idx != -1:
+                    for line in content[idx:].splitlines():
                         if line.startswith("Vehicle "):
-                            match = re.match(r'Vehicle (\d+):\s*(.+)', line)
-                            if match:
-                                vehicle_id = int(match.group(1))
-                                route_str = match.group(2).strip()
-                                vehicle_routes.append(f"V{vehicle_id}:{route_str}")
+                            m = re.match(r'Vehicle\s+(\d+):\s*(.+)', line)
+                            if m:
+                                routes.append(f"V{m.group(1)}:{m.group(2).strip()}")
+                
+                feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
                 
                 return {
                     "runtime": round(runtime, 3),
@@ -146,8 +145,8 @@ jobs:
                     "drone_violation": round(drone_viol, 4),
                     "waiting_violation": round(waiting_viol, 4),
                     "fitness": round(fitness, 4),
-                    "feasible": "YES" if (drone_viol < 0.01 and waiting_viol < 0.01) else "NO",
-                    "routes": " | ".join(vehicle_routes)
+                    "feasible": feasible,
+                    "routes": " | ".join(routes)
                 }
             except Exception as e:
                 return {
@@ -156,22 +155,33 @@ jobs:
                     "feasible": "ERROR", "routes": f"Error: {e}"
                 }
         
-        # Parse all 3 runs
-        all_runs = []
-        for run in range(1, 4):
-            result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
+        # Parse Multilevel Tabu runs
+        multilevel_runs = []
+        for run in range(1, 6):
+            result = parse_output(f"multilevel_run{run}.txt", f"multilevel_runtime{run}.txt")
             result["run"] = run
-            all_runs.append(result)
-            print(f"Run {run}: Fitness={result['fitness']}, Feasible={result['feasible']}")
+            result["algorithm"] = "Multilevel_Tabu"
+            multilevel_runs.append(result)
+            print(f"Multilevel Run {run}: Fitness={result['fitness']}, Feasible={result['feasible']}")
+        
+        # Parse Tabu runs
+        tabu_runs = []
+        for run in range(1, 6):
+            result = parse_output(f"tabu_run{run}.txt", f"tabu_runtime{run}.txt")
+            result["run"] = run
+            result["algorithm"] = "Tabu"
+            tabu_runs.append(result)
+            print(f"Tabu Run {run}: Fitness={result['fitness']}, Feasible={result['feasible']}")
         
         # Save to JSON
-        with open("detailed_results.json", "w") as f:
+        with open("comparison_results.json", "w", encoding="utf-8") as f:
             json.dump({
                 "instance": instance,
-                "runs": all_runs
-            }, f, indent=2)
+                "multilevel_runs": multilevel_runs,
+                "tabu_runs": tabu_runs
+            }, f, indent=2, ensure_ascii=False)
         
-        print(f"✅ Detailed results saved for {instance}")
+        print(f"✅ Comparison results saved for {instance}")
         EOF
     
     - name: Upload results
@@ -179,15 +189,16 @@ jobs:
       with:
         name: result-${{ matrix.instance }}
         path: |
-          detailed_results.json
-          output_run*.txt
+          comparison_results.json
+          multilevel_run*.txt
+          tabu_run*.txt
         retention-days: 30
 
   run-medium:
     name: Medium ${{ matrix.instance }}
     needs: compile
     runs-on: ubuntu-latest
-    timeout-minutes: 100
+    timeout-minutes: 200
     
     strategy:
       fail-fast: false
@@ -204,99 +215,99 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
     
-    - name: Download executable
+    - name: Download executables
       uses: actions/download-artifact@v4
       with:
-        name: multilevel-executable
+        name: executables
     
-    - name: Run instance 3 times
+    - name: Run both algorithms 5 times each
       run: |
-        chmod +x multilevel_tabu
+        chmod +x multilevel_tabu tabu
         
-        for run in {1..3}; do
+        for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 18m ./multilevel_tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1 || true
+          timeout 18m ./multilevel_tabu instances/${{ matrix.instance }}.txt > multilevel_run${run}.txt 2>&1 || true
           END_TIME=$(date +%s.%N)
-          RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
-          echo "$RUNTIME" > runtime_run${run}.txt
+          echo "$(echo "$END_TIME - $START_TIME" | bc)" > multilevel_runtime${run}.txt
+        done
+        
+        for run in {1..5}; do
+          START_TIME=$(date +%s.%N)
+          timeout 18m ./tabu instances/${{ matrix.instance }}.txt > tabu_run${run}.txt 2>&1 || true
+          END_TIME=$(date +%s.%N)
+          echo "$(echo "$END_TIME - $START_TIME" | bc)" > tabu_runtime${run}.txt
         done
     
-    - name: Parse and create detailed CSV
+    - name: Parse results
       run: |
         python3 <<'EOF'
         import re, json, os
         instance = "${{ matrix.instance }}"
         
+        def find_metric(pattern, content):
+            m = re.search(pattern, content)
+            return float(m.group(1)) if m else 0.0
+        
         def parse_output(output_file, runtime_file):
             try:
-                with open(output_file, "r") as f:
+                with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
-                
                 runtime = 0.0
                 if os.path.exists(runtime_file):
                     with open(runtime_file, "r") as f:
                         runtime = float(f.read().strip())
-                
-                last_route_idx = content.rfind("Route details:")
-                makespan = drone_viol = waiting_viol = fitness = 0.0
-                vehicle_routes = []
-                
-                if last_route_idx != -1:
-                    solution_section = content[last_route_idx:]
-                    
-                    for line in solution_section.split('\n'):
-                        if "Makespan:" in line:
-                            m = re.search(r'Makespan:\s*([\d.]+)', line)
-                            if m: makespan = float(m.group(1))
-                        if "Drone violation:" in line:
-                            m = re.search(r'Drone violation:\s*([\d.]+)', line)
-                            if m: drone_viol = float(m.group(1))
-                        if "Waiting violation:" in line:
-                            m = re.search(r'Waiting violation:\s*([\d.]+)', line)
-                            if m: waiting_viol = float(m.group(1))
-                        if "Fitness:" in line:
-                            m = re.search(r'Fitness:\s*([\d.]+)', line)
-                            if m: fitness = float(m.group(1))
-                        
+                makespan = find_metric(r'Makespan:\s*([0-9.+\-eE]+)', content)
+                drone_viol = find_metric(r'Drone violation:\s*([0-9.+\-eE]+)', content)
+                waiting_viol = find_metric(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
+                fitness = find_metric(r'Fitness:\s*([0-9.+\-eE]+)', content)
+                routes = []
+                idx = content.rfind("Route details:")
+                if idx != -1:
+                    for line in content[idx:].splitlines():
                         if line.startswith("Vehicle "):
-                            match = re.match(r'Vehicle (\d+):\s*(.+)', line)
-                            if match:
-                                vehicle_routes.append(f"V{match.group(1)}:{match.group(2).strip()}")
-                
+                            m = re.match(r'Vehicle\s+(\d+):\s*(.+)', line)
+                            if m:
+                                routes.append(f"V{m.group(1)}:{m.group(2).strip()}")
+                feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
                 return {
-                    "runtime": round(runtime, 3),
-                    "makespan": round(makespan, 4),
-                    "drone_violation": round(drone_viol, 4),
-                    "waiting_violation": round(waiting_viol, 4),
-                    "fitness": round(fitness, 4),
-                    "feasible": "YES" if (drone_viol < 0.01 and waiting_viol < 0.01) else "NO",
-                    "routes": " | ".join(vehicle_routes)
+                    "runtime": round(runtime, 3), "makespan": round(makespan, 4),
+                    "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
+                    "fitness": round(fitness, 4), "feasible": feasible, "routes": " | ".join(routes)
                 }
             except:
-                return {"runtime": 0, "makespan": 0, "drone_violation": 0, "waiting_violation": 0, "fitness": float('inf'), "feasible": "ERROR", "routes": ""}
+                return {"runtime": 0, "makespan": 0, "drone_violation": 0, "waiting_violation": 0,
+                        "fitness": float('inf'), "feasible": "ERROR", "routes": ""}
         
-        all_runs = []
-        for run in range(1, 4):
-            result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
+        multilevel_runs = []
+        for run in range(1, 6):
+            result = parse_output(f"multilevel_run{run}.txt", f"multilevel_runtime{run}.txt")
             result["run"] = run
-            all_runs.append(result)
+            result["algorithm"] = "Multilevel_Tabu"
+            multilevel_runs.append(result)
         
-        with open("detailed_results.json", "w") as f:
-            json.dump({"instance": instance, "runs": all_runs}, f, indent=2)
+        tabu_runs = []
+        for run in range(1, 6):
+            result = parse_output(f"tabu_run{run}.txt", f"tabu_runtime{run}.txt")
+            result["run"] = run
+            result["algorithm"] = "Tabu"
+            tabu_runs.append(result)
+        
+        with open("comparison_results.json", "w", encoding="utf-8") as f:
+            json.dump({"instance": instance, "multilevel_runs": multilevel_runs, "tabu_runs": tabu_runs}, f, indent=2)
         EOF
     
     - name: Upload results
       uses: actions/upload-artifact@v4
       with:
         name: result-${{ matrix.instance }}
-        path: detailed_results.json
+        path: comparison_results.json
         retention-days: 30
 
   run-large:
     name: Large ${{ matrix.instance }}
     needs: compile
     runs-on: ubuntu-latest
-    timeout-minutes: 200
+    timeout-minutes: 400
     
     strategy:
       fail-fast: false
@@ -313,96 +324,96 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
     
-    - name: Download executable
+    - name: Download executables
       uses: actions/download-artifact@v4
       with:
-        name: multilevel-executable
+        name: executables
     
-    - name: Run instance 3 times
+    - name: Run both algorithms 5 times each
       run: |
-        chmod +x multilevel_tabu
+        chmod +x multilevel_tabu tabu
         
-        for run in {1..3}; do
+        for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 35m ./multilevel_tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1 || true
+          timeout 35m ./multilevel_tabu instances/${{ matrix.instance }}.txt > multilevel_run${run}.txt 2>&1 || true
           END_TIME=$(date +%s.%N)
-          RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
-          echo "$RUNTIME" > runtime_run${run}.txt
+          echo "$(echo "$END_TIME - $START_TIME" | bc)" > multilevel_runtime${run}.txt
+        done
+        
+        for run in {1..5}; do
+          START_TIME=$(date +%s.%N)
+          timeout 35m ./tabu instances/${{ matrix.instance }}.txt > tabu_run${run}.txt 2>&1 || true
+          END_TIME=$(date +%s.%N)
+          echo "$(echo "$END_TIME - $START_TIME" | bc)" > tabu_runtime${run}.txt
         done
     
-    - name: Parse and create detailed CSV
+    - name: Parse results
       run: |
         python3 <<'EOF'
         import re, json, os
         instance = "${{ matrix.instance }}"
         
+        def find_metric(pattern, content):
+            m = re.search(pattern, content)
+            return float(m.group(1)) if m else 0.0
+        
         def parse_output(output_file, runtime_file):
             try:
-                with open(output_file, "r") as f:
+                with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
-                
                 runtime = 0.0
                 if os.path.exists(runtime_file):
                     with open(runtime_file, "r") as f:
                         runtime = float(f.read().strip())
-                
-                last_route_idx = content.rfind("Route details:")
-                makespan = drone_viol = waiting_viol = fitness = 0.0
-                vehicle_routes = []
-                
-                if last_route_idx != -1:
-                    solution_section = content[last_route_idx:]
-                    
-                    for line in solution_section.split('\n'):
-                        if "Makespan:" in line:
-                            m = re.search(r'Makespan:\s*([\d.]+)', line)
-                            if m: makespan = float(m.group(1))
-                        if "Drone violation:" in line:
-                            m = re.search(r'Drone violation:\s*([\d.]+)', line)
-                            if m: drone_viol = float(m.group(1))
-                        if "Waiting violation:" in line:
-                            m = re.search(r'Waiting violation:\s*([\d.]+)', line)
-                            if m: waiting_viol = float(m.group(1))
-                        if "Fitness:" in line:
-                            m = re.search(r'Fitness:\s*([\d.]+)', line)
-                            if m: fitness = float(m.group(1))
-                        
+                makespan = find_metric(r'Makespan:\s*([0-9.+\-eE]+)', content)
+                drone_viol = find_metric(r'Drone violation:\s*([0-9.+\-eE]+)', content)
+                waiting_viol = find_metric(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
+                fitness = find_metric(r'Fitness:\s*([0-9.+\-eE]+)', content)
+                routes = []
+                idx = content.rfind("Route details:")
+                if idx != -1:
+                    for line in content[idx:].splitlines():
                         if line.startswith("Vehicle "):
-                            match = re.match(r'Vehicle (\d+):\s*(.+)', line)
-                            if match:
-                                vehicle_routes.append(f"V{match.group(1)}:{match.group(2).strip()}")
-                
+                            m = re.match(r'Vehicle\s+(\d+):\s*(.+)', line)
+                            if m:
+                                routes.append(f"V{m.group(1)}:{m.group(2).strip()}")
+                feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
                 return {
-                    "runtime": round(runtime, 3),
-                    "makespan": round(makespan, 4),
-                    "drone_violation": round(drone_viol, 4),
-                    "waiting_violation": round(waiting_viol, 4),
-                    "fitness": round(fitness, 4),
-                    "feasible": "YES" if (drone_viol < 0.01 and waiting_viol < 0.01) else "NO",
-                    "routes": " | ".join(vehicle_routes)
+                    "runtime": round(runtime, 3), "makespan": round(makespan, 4),
+                    "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
+                    "fitness": round(fitness, 4), "feasible": feasible, "routes": " | ".join(routes)
                 }
             except:
-                return {"runtime": 0, "makespan": 0, "drone_violation": 0, "waiting_violation": 0, "fitness": float('inf'), "feasible": "ERROR", "routes": ""}
+                return {"runtime": 0, "makespan": 0, "drone_violation": 0, "waiting_violation": 0,
+                        "fitness": float('inf'), "feasible": "ERROR", "routes": ""}
         
-        all_runs = []
-        for run in range(1, 4):
-            result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
+        multilevel_runs = []
+        for run in range(1, 6):
+            result = parse_output(f"multilevel_run{run}.txt", f"multilevel_runtime{run}.txt")
             result["run"] = run
-            all_runs.append(result)
+            result["algorithm"] = "Multilevel_Tabu"
+            multilevel_runs.append(result)
         
-        with open("detailed_results.json", "w") as f:
-            json.dump({"instance": instance, "runs": all_runs}, f, indent=2)
+        tabu_runs = []
+        for run in range(1, 6):
+            result = parse_output(f"tabu_run{run}.txt", f"tabu_runtime{run}.txt")
+            result["run"] = run
+            result["algorithm"] = "Tabu"
+            tabu_runs.append(result)
+        
+        with open("comparison_results.json", "w", encoding="utf-8") as f:
+            json.dump({"instance": instance, "multilevel_runs": multilevel_runs, "tabu_runs": tabu_runs}, f, indent=2)
         EOF
     
     - name: Upload results
       uses: actions/upload-artifact@v4
       with:
         name: result-${{ matrix.instance }}
-        path: detailed_results.json
+        path: comparison_results.json
         retention-days: 30
 
   aggregate:
-    name: Create Detailed Master CSV
+    name: Create Comparison Report
     needs: [run-small, run-medium, run-large]
     runs-on: ubuntu-latest
     
@@ -413,7 +424,7 @@ jobs:
         pattern: result-*
         merge-multiple: false
     
-    - name: Create detailed CSV with routes
+    - name: Create detailed comparison CSV and summary
       run: |
         python3 <<'EOF'
         import json, glob, csv, os
@@ -421,8 +432,7 @@ jobs:
         all_data = []
         
         for result_dir in glob.glob("result-*"):
-            json_file = os.path.join(result_dir, "detailed_results.json")
-            
+            json_file = os.path.join(result_dir, "comparison_results.json")
             if os.path.exists(json_file):
                 try:
                     with open(json_file) as f:
@@ -433,51 +443,27 @@ jobs:
         
         print(f"📊 Total instances: {len(all_data)}")
         
-        # Sort
         all_data.sort(key=lambda x: tuple(int(p) for p in x["instance"].split(".")))
         
-        # HÀM TÍNH SỐ TECHNICIAN VÀ DRONE THEO LOGIC TRONG MAIN()
         def calculate_vehicle_distribution(num_customers):
-            """
-            Logic từ main() của Multilevel_Tabu.cpp:
-            int customers = num_nodes-1;
-            int pairs = 0;
-            if (customers >= 6 && customers <= 12) pairs = 1;
-            else if (customers <= 20) pairs = 2;
-            else if (customers <= 50) pairs = 3;
-            else if (customers <= 100) pairs = 4;
-            
-            for (int i = 0; i < pairs; ++i) {
-                vehicles.push_back({ i+1, 0.58f, false, 0.0 }); // technician
-            }
-            for (int i = 0; i < pairs; ++i) {
-                vehicles.push_back({ pairs + i + 1, 0.83f, true, 120.0 }); // drone
-            }
-            """
-            customers = num_customers
-            
-            if 6 <= customers <= 12:
+            if 6 <= num_customers <= 12:
                 pairs = 1
-            elif customers <= 20:
+            elif num_customers <= 20:
                 pairs = 2
-            elif customers <= 50:
+            elif num_customers <= 50:
                 pairs = 3
-            elif customers <= 100:
+            elif num_customers <= 100:
                 pairs = 4
             else:
                 pairs = 0
-            
-            num_technician = pairs
-            num_drone = pairs
-            
-            return num_technician, num_drone
+            return pairs, pairs
         
-        # Create CSV
-        with open("DETAILED_RESULTS.csv", "w", newline="", encoding="utf-8") as f:
+        # ===== CREATE DETAILED CSV =====
+        with open("DETAILED_COMPARISON.csv", "w", newline="", encoding="utf-8") as f:
             cols = [
-                "Instance", "Size", "Num_Technician", "Num_Drone", "Replica", "Run",
-                "Runtime_s", "Makespan", "Drone_Violation", "Waiting_Violation",
-                "Fitness", "Feasible", "Routes"
+                "Instance", "Size", "Num_Technician", "Num_Drone", "Replica", 
+                "Algorithm", "Run", "Runtime_s", "Makespan", "Drone_Violation", 
+                "Waiting_Violation", "Fitness", "Feasible", "Routes"
             ]
             
             writer = csv.DictWriter(f, fieldnames=cols)
@@ -486,42 +472,115 @@ jobs:
             for data in all_data:
                 parts = data["instance"].split(".")
                 instance = data["instance"]
-                size = int(parts[0])  # Số lượng customers
+                size = int(parts[0])
                 replica = int(parts[2])
+                num_tech, num_drone = calculate_vehicle_distribution(size)
                 
-                # ✅ TÍNH SỐ TECHNICIAN VÀ DRONE THEO LOGIC C++
-                num_technician, num_drone = calculate_vehicle_distribution(size)
-                
-                for run_data in data.get("runs", []):
-                    row = {
-                        "Instance": instance,
-                        "Size": size,
-                        "Num_Technician": num_technician,
-                        "Num_Drone": num_drone,
-                        "Replica": replica,
-                        "Run": run_data["run"],
-                        "Runtime_s": run_data["runtime"],
+                # Write Multilevel Tabu runs
+                for run_data in data.get("multilevel_runs", []):
+                    writer.writerow({
+                        "Instance": instance, "Size": size,
+                        "Num_Technician": num_tech, "Num_Drone": num_drone,
+                        "Replica": replica, "Algorithm": "Multilevel_Tabu",
+                        "Run": run_data["run"], "Runtime_s": run_data["runtime"],
                         "Makespan": run_data["makespan"],
                         "Drone_Violation": run_data["drone_violation"],
                         "Waiting_Violation": run_data["waiting_violation"],
                         "Fitness": run_data["fitness"],
                         "Feasible": run_data["feasible"],
                         "Routes": run_data["routes"]
-                    }
-                    writer.writerow(row)
+                    })
+                
+                # Write Tabu runs
+                for run_data in data.get("tabu_runs", []):
+                    writer.writerow({
+                        "Instance": instance, "Size": size,
+                        "Num_Technician": num_tech, "Num_Drone": num_drone,
+                        "Replica": replica, "Algorithm": "Tabu",
+                        "Run": run_data["run"], "Runtime_s": run_data["runtime"],
+                        "Makespan": run_data["makespan"],
+                        "Drone_Violation": run_data["drone_violation"],
+                        "Waiting_Violation": run_data["waiting_violation"],
+                        "Fitness": run_data["fitness"],
+                        "Feasible": run_data["feasible"],
+                        "Routes": run_data["routes"]
+                    })
         
-        print(f"✅ DETAILED CSV created with {len(all_data) * 5} rows")
+        print(f"✅ DETAILED CSV created with {len(all_data) * 10} rows")
         
-        # ✅ IN RA VÍ DỤ ĐỂ KIỂM TRA
-        print("\n📋 Sample vehicle distribution:")
-        for size in [10, 20, 50, 100]:
-            tech, drone = calculate_vehicle_distribution(size)
-            print(f"  {size} customers → {tech} technician + {drone} drone = {tech + drone} total")
+        # ===== CREATE COMPARISON SUMMARY =====
+        with open("COMPARISON_SUMMARY.csv", "w", newline="", encoding="utf-8") as f:
+            cols = [
+                "Instance", "Size", "Replica",
+                "ML_Avg_Fitness", "ML_Best_Fitness", "ML_Avg_Runtime",
+                "Tabu_Avg_Fitness", "Tabu_Best_Fitness", "Tabu_Avg_Runtime",
+                "Fitness_Gap_%", "Runtime_Gap_%", "Winner"
+            ]
+            
+            writer = csv.DictWriter(f, fieldnames=cols)
+            writer.writeheader()
+            
+            for data in all_data:
+                parts = data["instance"].split(".")
+                instance = data["instance"]
+                size = int(parts[0])
+                replica = int(parts[2])
+                
+                ml_runs = data.get("multilevel_runs", [])
+                tabu_runs = data.get("tabu_runs", [])
+                
+                ml_fitness = [r["fitness"] for r in ml_runs if r["fitness"] != float('inf')]
+                tabu_fitness = [r["fitness"] for r in tabu_runs if r["fitness"] != float('inf')]
+                
+                ml_runtime = [r["runtime"] for r in ml_runs if r["runtime"] > 0]
+                tabu_runtime = [r["runtime"] for r in tabu_runs if r["runtime"] > 0]
+                
+                ml_avg_fit = sum(ml_fitness) / len(ml_fitness) if ml_fitness else float('inf')
+                ml_best_fit = min(ml_fitness) if ml_fitness else float('inf')
+                ml_avg_time = sum(ml_runtime) / len(ml_runtime) if ml_runtime else 0
+                
+                tabu_avg_fit = sum(tabu_fitness) / len(tabu_fitness) if tabu_fitness else float('inf')
+                tabu_best_fit = min(tabu_fitness) if tabu_fitness else float('inf')
+                tabu_avg_time = sum(tabu_runtime) / len(tabu_runtime) if tabu_runtime else 0
+                
+                if tabu_avg_fit > 0 and ml_avg_fit != float('inf'):
+                    fitness_gap = ((ml_avg_fit - tabu_avg_fit) / tabu_avg_fit) * 100
+                else:
+                    fitness_gap = 0
+                
+                if tabu_avg_time > 0:
+                    runtime_gap = ((ml_avg_time - tabu_avg_time) / tabu_avg_time) * 100
+                else:
+                    runtime_gap = 0
+                
+                if ml_best_fit < tabu_best_fit:
+                    winner = "Multilevel_Tabu"
+                elif tabu_best_fit < ml_best_fit:
+                    winner = "Tabu"
+                else:
+                    winner = "Tie"
+                
+                writer.writerow({
+                    "Instance": instance, "Size": size, "Replica": replica,
+                    "ML_Avg_Fitness": round(ml_avg_fit, 4),
+                    "ML_Best_Fitness": round(ml_best_fit, 4),
+                    "ML_Avg_Runtime": round(ml_avg_time, 3),
+                    "Tabu_Avg_Fitness": round(tabu_avg_fit, 4),
+                    "Tabu_Best_Fitness": round(tabu_best_fit, 4),
+                    "Tabu_Avg_Runtime": round(tabu_avg_time, 3),
+                    "Fitness_Gap_%": round(fitness_gap, 2),
+                    "Runtime_Gap_%": round(runtime_gap, 2),
+                    "Winner": winner
+                })
+        
+        print(f"✅ COMPARISON SUMMARY created with {len(all_data)} rows")
         EOF
     
-    - name: Upload detailed CSV
+    - name: Upload comparison reports
       uses: actions/upload-artifact@v4
       with:
-        name: detailed-master-results
-        path: DETAILED_RESULTS.csv
+        name: comparison-reports
+        path: |
+          DETAILED_COMPARISON.csv
+          COMPARISON_SUMMARY.csv
         retention-days: 90

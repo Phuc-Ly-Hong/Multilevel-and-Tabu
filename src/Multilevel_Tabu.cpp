@@ -150,14 +150,14 @@ void read_dataset(const string &filename){
 
     cout << "Read " << nodes.size() << " nodes (including depot)." << endl;
     if (nodes.size() >= 100) {
-        MAX_ITER = 80 * nodes.size() / 2;
-        SEGMENT_LENGTH = 75;
+        MAX_ITER = 2000;
+        SEGMENT_LENGTH = 200;
     } else if (nodes.size() >= 50){
         MAX_ITER = 1000;
         SEGMENT_LENGTH = 100;
     } else {
-        MAX_ITER = 2000;
-        SEGMENT_LENGTH = 100;
+        MAX_ITER = 500;
+        SEGMENT_LENGTH = 50;
     }
     for (const auto& node : nodes) {
         if (node.id == depot_id) {
