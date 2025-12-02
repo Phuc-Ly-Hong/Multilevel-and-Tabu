@@ -401,236 +401,6 @@ void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) 
     sol.fitness = sol.makespan + alpha1*sol.drone_violation + alpha2*sol.waiting_violation;
 }
 
-Solution init_greedy_solution() {
-    Solution sol;
-    sol.route.resize(vehicles.size());
-
-    // Khởi tạo: mỗi xe bắt đầu từ depot
-    for (size_t v = 0; v < vehicles.size(); ++v) {
-        sol.route[v].push_back(depot_id);
-    }
-
-    // --- Gán C2 cho tất cả xe ---
-    vector<int> unserved_C2;
-    for (const auto& n : C2) unserved_C2.push_back(n.id);
-
-    // Vị trí hiện tại của từng xe
-    vector<int> current_pos(vehicles.size(), depot_id);
-    
-    // Thời gian hiện tại của mỗi xe (tính từ lúc bắt đầu)
-    vector<double> current_time(vehicles.size(), 0.0);
-    
-    // Thời gian bắt đầu trip hiện tại (cho drone)
-    vector<double> trip_start_time(vehicles.size(), 0.0);
-    
-    // Đếm số khách hàng đã phục vụ trong trip hiện tại
-    vector<int> customers_in_current_trip(vehicles.size(), 0);
-    
-    // Theo dõi khách hàng đã phục vụ trong trip hiện tại
-    vector<vector<pair<int, double>>> served_in_trip(vehicles.size());
-
-    cout << "\n🚀 INITIALIZING SOLUTION WITH MULTIPLE TRIPS" << endl;
-    cout << "  Total C2 customers: " << unserved_C2.size() << endl;
-    cout << "  Drone flight limit: " << vehicles[3].limit_drone << " min" << endl;
-    cout << "  Waiting limit: " << C2[0].limit_wait << " min" << endl;
-
-    // Phân bố đều khách hàng cho các xe
-    while (!unserved_C2.empty()) {
-        bool assigned_any = false;
-        
-        for (size_t v = 0; v < vehicles.size() && !unserved_C2.empty(); v++) {
-            // Nếu xe là drone và đang ở depot, bắt đầu trip mới
-            if (vehicles[v].is_drone && current_pos[v] == depot_id) {
-                trip_start_time[v] = current_time[v];
-                customers_in_current_trip[v] = 0;
-                served_in_trip[v].clear();
-                //cout << "  Vehicle " << v << " (Drone) → START NEW TRIP" << endl;
-            }
-            
-            // Nếu xe là technician và đã có nhiều khách hàng, skip để phân bố đều
-            if (!vehicles[v].is_drone && customers_in_current_trip[v] > 0) {
-                // Technician có thể phục vụ nhiều khách hàng trong 1 trip
-                // Tiếp tục tìm khách hàng
-            }
-
-            // Tìm khách hàng gần nhất hợp lệ
-            double best_dist = DBL_MAX;
-            int best_idx = -1;
-            double best_estimated_time = 0.0;
-
-            for (size_t i = 0; i < unserved_C2.size(); i++) {
-                int cid = unserved_C2[i];
-                double dist = distances[current_pos[v]][cid];
-                double travel_time = dist / vehicles[v].speed;
-                
-                // Thời gian đến khách hàng
-                double arrive_at_customer = current_time[v] + travel_time;
-                
-                // Thời gian về depot từ khách hàng này
-                double return_time = distances[cid][depot_id] / vehicles[v].speed;
-                double arrive_at_depot = arrive_at_customer + return_time;
-                
-                bool valid = true;
-                
-                // Kiểm tra ràng buộc cho drone
-                if (vehicles[v].is_drone) {
-                    // 1. Kiểm tra thời gian bay
-                    double flight_time = arrive_at_depot - trip_start_time[v];
-                    if (flight_time > vehicles[v].limit_drone) {
-                        valid = false;
-                        //cout << "    ✗ " << cid << " violates flight: " << flight_time << " > " << vehicles[v].limit_drone << endl;
-                    }
-                    
-                    // 2. Kiểm tra thời gian chờ cho tất cả khách hàng trong trip
-                    if (valid) {
-                        for (const auto& served : served_in_trip[v]) {
-                            double wait_time = arrive_at_depot - served.second;
-                            if (wait_time > C2[0].limit_wait) {
-                                valid = false;
-                                //cout << "    ✗ " << cid << " makes " << served.first << " wait: " << wait_time << endl;
-                                break;
-                            }
-                        }
-                    }
-                    
-                    // 3. Kiểm tra thời gian chờ cho chính khách hàng này
-                    if (valid) {
-                        double customer_wait = return_time;
-                        if (customer_wait > C2[0].limit_wait) {
-                            valid = false;
-                            //cout << "    ✗ " << cid << " self wait: " << customer_wait << endl;
-                        }
-                    }
-                }
-
-                if (valid && dist < best_dist) {
-                    best_dist = dist;
-                    best_idx = i;
-                    best_estimated_time = arrive_at_customer;
-                }
-            }
-
-            if (best_idx != -1) {
-                // Tìm thấy khách hàng hợp lệ
-                int best_cid = unserved_C2[best_idx];
-                
-                // Thêm khách hàng vào route
-                sol.route[v].push_back(best_cid);
-                
-                // Cập nhật thời gian và vị trí
-                double travel_time = distances[current_pos[v]][best_cid] / vehicles[v].speed;
-                current_time[v] += travel_time;
-                current_pos[v] = best_cid;
-                customers_in_current_trip[v]++;
-                
-                // Lưu thời gian phục vụ khách hàng này (cho drone)
-                if (vehicles[v].is_drone) {
-                    served_in_trip[v].push_back({best_cid, current_time[v]});
-                }
-                
-                unserved_C2.erase(unserved_C2.begin() + best_idx);
-                assigned_any = true;
-                
-                //cout << "  Vehicle " << v << (vehicles[v].is_drone ? " (Drone)" : " (Tech)") 
-                //     << " ← " << best_cid << " [time: " << current_time[v] << "]" << endl;
-                
-            } else if (vehicles[v].is_drone && current_pos[v] != depot_id) {
-                // ❌ Không tìm được khách hàng hợp lệ cho drone → VỀ DEPOT
-                double return_time = distances[current_pos[v]][depot_id] / vehicles[v].speed;
-                current_time[v] += return_time;
-                current_pos[v] = depot_id;
-                
-                // Thêm depot vào route (kết thúc trip)
-                sol.route[v].push_back(depot_id);
-                
-                //cout << "  🚁 Vehicle " << v << " → RETURN TO DEPOT" 
-                //     << " [customers: " << customers_in_current_trip[v] << "]" << endl;
-                
-                // Reset cho trip mới
-                customers_in_current_trip[v] = 0;
-                served_in_trip[v].clear();
-                assigned_any = true;
-            }
-        }
-
-        // Nếu không gán được khách hàng nào, buộc tất cả drone về depot
-        if (!assigned_any && !unserved_C2.empty()) {
-            bool any_drone_returned = false;
-            for (size_t v = 0; v < vehicles.size(); v++) {
-                if (vehicles[v].is_drone && current_pos[v] != depot_id) {
-                    double return_time = distances[current_pos[v]][depot_id] / vehicles[v].speed;
-                    current_time[v] += return_time;
-                    current_pos[v] = depot_id;
-                    
-                    sol.route[v].push_back(depot_id);
-                    
-                    //cout << "  🔄 Vehicle " << v << " → FORCED RETURN" << endl;
-                    
-                    customers_in_current_trip[v] = 0;
-                    served_in_trip[v].clear();
-                    any_drone_returned = true;
-                }
-            }
-            
-            // Nếu đã cho drone về depot mà vẫn không gán được, dùng fallback
-            if (!any_drone_returned) {
-                // Fallback: gán khách hàng gần nhất cho technician (bỏ qua ràng buộc)
-                for (size_t v = 0; v < vehicles.size() && !unserved_C2.empty(); v++) {
-                    if (!vehicles[v].is_drone) {
-                        double best_dist = DBL_MAX;
-                        int best_idx = -1;
-                        for (size_t i = 0; i < unserved_C2.size(); i++) {
-                            int cid = unserved_C2[i];
-                            double d = distances[current_pos[v]][cid];
-                            if (d < best_dist) {
-                                best_dist = d;
-                                best_idx = i;
-                            }
-                        }
-                        if (best_idx != -1) {
-                            int best_cid = unserved_C2[best_idx];
-                            sol.route[v].push_back(best_cid);
-                            double travel_time = distances[current_pos[v]][best_cid] / vehicles[v].speed;
-                            current_time[v] += travel_time;
-                            current_pos[v] = best_cid;
-                            unserved_C2.erase(unserved_C2.begin() + best_idx);
-                            //cout << "  Fallback: Tech " << v << " ← " << best_cid << endl;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Kết thúc: đảm bảo mỗi route kết thúc bằng depot
-    for (size_t v = 0; v < vehicles.size(); v++) {
-        if (current_pos[v] != depot_id) {
-            // Nếu xe chưa ở depot, tính thời gian về depot
-            double return_time = distances[current_pos[v]][depot_id] / vehicles[v].speed;
-            current_time[v] += return_time;
-            sol.route[v].push_back(depot_id);
-        }
-        
-        // Chuẩn hóa route (loại bỏ depot trùng lặp)
-        normalize_route(sol.route[v]);
-        
-        // Debug: đếm số trips
-        int trips = 0;
-        for (int node : sol.route[v]) {
-            if (node == depot_id) trips++;
-        }
-        //cout << "  Vehicle " << v << (vehicles[v].is_drone ? " (Drone)" : " (Tech)") 
-        //     << " trips: " << (trips - 1) << ", total time: " << current_time[v] << endl;
-    }
-
-    evaluate_solution(sol);
-    
-    cout << "\n📊 INITIAL SOLUTION CREATED:" << endl;
-    print_solution(sol);
-    
-    return sol;
-}
-
 int get_type(int nid, const LevelInfo *current_level = nullptr) {
     if (current_level != nullptr) {
         // Dùng level hiện tại
@@ -646,6 +416,170 @@ int get_type(int nid, const LevelInfo *current_level = nullptr) {
         for (const auto& n : C1) if (n.id == nid) return 1;
     }
     return -1;
+}
+
+Solution init_greedy_solution() {
+    Solution sol;
+    sol.route.resize(vehicles.size());
+
+    for (size_t v = 0; v < vehicles.size(); ++v)
+        sol.route[v].push_back(depot_id);
+
+    // 1. GÁN C1 CHO TECHNICIAN (GIỮ NGUYÊN LOGIC CŨ)
+    vector<int> unserved_C1;
+    for (const auto& n : C1) unserved_C1.push_back(n.id);
+
+    vector<int> tech_pos;
+    vector<int> tech_indices;
+    for (size_t v = 0; v < vehicles.size(); v++) {
+        if (!vehicles[v].is_drone) {
+            tech_pos.push_back(depot_id);
+            tech_indices.push_back(v);
+        }
+    }
+    
+    while (!unserved_C1.empty()) {
+        double best_dist = DBL_MAX;
+        int best_tech = -1, best_cid = -1, best_idx = -1;
+        for (size_t t = 0; t < tech_indices.size(); t++) {
+            for (size_t i = 0; i < unserved_C1.size(); i++) {
+                int cid = unserved_C1[i];
+                double d = distances[tech_pos[t]][cid];
+                if (d < best_dist) {
+                    best_dist = d;
+                    best_tech = t;
+                    best_cid = cid;
+                    best_idx = i;
+                }
+            }
+        }
+        int vehicle_id = tech_indices[best_tech];
+        sol.route[vehicle_id].push_back(best_cid);
+        tech_pos[best_tech] = best_cid;
+        unserved_C1.erase(unserved_C1.begin() + best_idx);
+    }
+
+    // 2. ✅ PHÂN BỔ ĐỀU C2 CHO TẤT CẢ XE
+    vector<int> unserved_C2;
+    for (const auto& n : C2) unserved_C2.push_back(n.id);
+
+    int total_vehicles = vehicles.size();
+    int customers_per_vehicle = unserved_C2.size() / total_vehicles;
+    int extra_customers = unserved_C2.size() % total_vehicles;
+
+    // ✅ TÍNH QUOTA CHO TỪNG XE
+    vector<int> vehicle_quota(total_vehicles);
+    for (int v = 0; v < total_vehicles; v++) {
+        vehicle_quota[v] = customers_per_vehicle;
+        if (v < extra_customers) vehicle_quota[v]++; 
+    }
+
+    cout << "\n📊 CUSTOMER ALLOCATION:" << endl;
+    for (size_t v = 0; v < vehicles.size(); v++) {
+        cout << "Vehicle " << v << " (" 
+             << (vehicles[v].is_drone ? "Drone" : "Tech") 
+             << "): " << vehicle_quota[v] << " customers" << endl;
+    }
+
+    // ✅ KHỞI TẠO VỊ TRÍ HIỆN TẠI
+    vector<int> current_pos(vehicles.size());
+    vector<int> assigned_count(vehicles.size(), 0);
+
+    for (size_t v = 0; v < vehicles.size(); v++) {
+        if (!sol.route[v].empty() && sol.route[v].back() != depot_id) {
+            current_pos[v] = sol.route[v].back();
+        } else {
+            current_pos[v] = depot_id;
+        }
+    }
+
+    // ✅ GÁN CUSTOMERS THEO NEAREST NEIGHBOR + QUOTA
+    while (!unserved_C2.empty()) {
+        double best_dist = DBL_MAX;
+        int best_vehicle = -1;
+        int best_cid_idx = -1;
+
+        // Tìm customer gần nhất cho từng xe (chưa đủ quota)
+        for (size_t v = 0; v < vehicles.size(); v++) {
+            // Bỏ qua nếu đã đủ quota
+            if (assigned_count[v] >= vehicle_quota[v]) continue;
+
+            for (size_t i = 0; i < unserved_C2.size(); i++) {
+                int cid = unserved_C2[i];
+                
+                // Drone không được gán C1
+                if (vehicles[v].is_drone && get_type(cid, nullptr) == 1) {
+                    continue;
+                }
+
+                double dist = distances[current_pos[v]][cid];
+
+                if (dist < best_dist) {
+                    best_dist = dist;
+                    best_vehicle = v;
+                    best_cid_idx = i;
+                }
+            }
+        }
+
+        // Gán customer cho xe
+        if (best_vehicle != -1) {
+            int best_cid = unserved_C2[best_cid_idx];
+
+            sol.route[best_vehicle].push_back(best_cid);
+            current_pos[best_vehicle] = best_cid;
+            assigned_count[best_vehicle]++;
+
+            unserved_C2.erase(unserved_C2.begin() + best_cid_idx);
+        } else {
+            cout << "⚠️  WARNING: Cannot assign " << unserved_C2.size() 
+                 << " remaining customers!" << endl;
+            break;
+        }
+    }
+
+    // ✅ THÊM DEPOT VÀO CUỐI
+    for (size_t v = 0; v < vehicles.size(); v++) {
+        if (sol.route[v].back() != depot_id) {
+            sol.route[v].push_back(depot_id);
+        }
+    }
+
+    // ✅ TỐI ƯU HÓA ROUTE (2-OPT INTRA-ROUTE)
+    for (size_t v = 0; v < vehicles.size(); v++) {
+        if (sol.route[v].size() <= 3) continue;
+
+        bool improved = true;
+        while (improved) {
+            improved = false;
+            for (size_t i = 1; i < sol.route[v].size() - 2; i++) {
+                for (size_t j = i + 1; j < sol.route[v].size() - 1; j++) {
+                    // Tính cost hiện tại
+                    double current_cost = 
+                        distances[sol.route[v][i-1]][sol.route[v][i]] +
+                        distances[sol.route[v][j]][sol.route[v][j+1]];
+                    
+                    // Tính cost sau khi đảo
+                    double new_cost = 
+                        distances[sol.route[v][i-1]][sol.route[v][j]] +
+                        distances[sol.route[v][i]][sol.route[v][j+1]];
+                    
+                    if (new_cost < current_cost - EPSILON) {
+                        // Đảo đoạn [i, j]
+                        reverse(sol.route[v].begin() + i, sol.route[v].begin() + j + 1);
+                        improved = true;
+                    }
+                }
+            }
+        }
+    }
+
+    evaluate_solution(sol);
+
+    cout << "\n📊 INITIAL SOLUTION:" << endl;
+    print_solution(sol);
+
+    return sol;
 }
 
 map<pair<int,int>, int> edge_frequency;
