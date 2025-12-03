@@ -66,21 +66,11 @@ struct MergedNodeInfo {
     MergedNodeInfo() : merged_node_id(-1), internal_distance(0.0), entry_node_original(-1), exit_node_original(-1), entry_node(-1), exit_node(-1), level_id(-1) {}
 };
 
-struct MergedNodeOrientation {
-    int merged_node_id;      // ID của merged node
-    bool is_reversed;        // Có đảo chiều không
-    int level_id;            // Level nào
-    
-    MergedNodeOrientation(int id = -1, bool rev = false, int lvl = -1) 
-        : merged_node_id(id), is_reversed(rev), level_id(lvl) {}
-};
-
 vector<vector<double>> distances;
 vector<Node> C1; // customers served only by technicians
 vector<Node> C2; // customers served by drones or technicians
 vector<VehicleFamily> vehicles;
 map<int, MergedNodeInfo> merged_nodes_info;
-map<int, MergedNodeOrientation> merged_node_orientations;
 
 int depot_id = 0;
 int num_nodes = 0;
@@ -90,7 +80,7 @@ double Beta = 0.5; // tham số điều chỉnh hệ số hàm phạt
 
 int MAX_ITER;
 int TABU_TENURE;
-int MAX_NO_IMPROVE = 4000;
+int MAX_NO_IMPROVE;
 double EPSILON = 1e-6;
 
 // Adaptive parameters
@@ -150,14 +140,17 @@ void read_dataset(const string &filename){
 
     cout << "Read " << nodes.size() << " nodes (including depot)." << endl;
     if (nodes.size() >= 100) {
+        MAX_ITER = 3000;
+        SEGMENT_LENGTH = 300;
+        MAX_NO_IMPROVE = 3000;
+    } else if (nodes.size() >= 50){
         MAX_ITER = 2000;
         SEGMENT_LENGTH = 200;
-    } else if (nodes.size() >= 50){
-        MAX_ITER = 1000;
-        SEGMENT_LENGTH = 100;
+        MAX_NO_IMPROVE = 2000;
     } else {
         MAX_ITER = 500;
         SEGMENT_LENGTH = 50;
+        MAX_NO_IMPROVE = 500;
     }
     for (const auto& node : nodes) {
         if (node.id == depot_id) {
@@ -239,6 +232,8 @@ void normalize_route(vector<int> &route) {
     route.swap(tmp);
 }
 
+map<int, double> internal_distance_cache;
+
 void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) {
     for (auto &route : sol.route) normalize_route(route);
 
@@ -299,19 +294,29 @@ void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) 
                                     int node_in_group = info.current_sequence[k];
                                     
                                     double dist_to_this_node = 0.0;
-                                    for (size_t m = 0; m < k; m++) {
-                                        int from = info.current_sequence[m];
-                                        int to = info.current_sequence[m + 1];
-                                        int idx_from = find_node_index_fast(from);
-                                        int idx_to = find_node_index_fast(to);
-                                        if (idx_from != -1 && idx_to != -1) {
-                                            dist_to_this_node += distances[idx_from][idx_to];
+                                    
+                                    int cache_key = served_node_id * 1000 + k;
+                                    
+                                    auto cache_it = internal_distance_cache.find(cache_key);
+                                    if (cache_it != internal_distance_cache.end()) {
+                                        dist_to_this_node = cache_it->second;
+                                    } else {
+                                        for (size_t m = 0; m < k; m++) {
+                                            int from = info.current_sequence[m];
+                                            int to = info.current_sequence[m + 1];
+                                            int idx_from = find_node_index_fast(from);
+                                            int idx_to = find_node_index_fast(to);
+                                            if (idx_from != -1 && idx_to != -1) {
+                                                dist_to_this_node += distances[idx_from][idx_to];
+                                            }
+                                            
+                                            auto it_from_merge = merged_nodes_info.find(from);
+                                            if (it_from_merge != merged_nodes_info.end()) {
+                                                dist_to_this_node += it_from_merge->second.internal_distance;
+                                            }
                                         }
                                         
-                                        auto it_from_merge = merged_nodes_info.find(from);
-                                        if (it_from_merge != merged_nodes_info.end()) {
-                                            dist_to_this_node += it_from_merge->second.internal_distance;
-                                        }
+                                        internal_distance_cache[cache_key] = dist_to_this_node;
                                     }
                                     
                                     double time_served_this_node = time_in_merged + (dist_to_this_node / vehicles[i].speed);
@@ -419,6 +424,7 @@ int get_type(int nid, const LevelInfo *current_level = nullptr) {
 }
 
 Solution init_greedy_solution() {
+    auto start_time = chrono::high_resolution_clock::now();
     Solution sol;
     sol.route.resize(vehicles.size());
 
@@ -493,7 +499,6 @@ Solution init_greedy_solution() {
         }
     }
 
-    // ✅ GÁN CUSTOMERS THEO NEAREST NEIGHBOR + QUOTA
     while (!unserved_C2.empty()) {
         double best_dist = DBL_MAX;
         int best_vehicle = -1;
@@ -575,7 +580,9 @@ Solution init_greedy_solution() {
     }
 
     evaluate_solution(sol);
-
+    auto end_time = chrono::high_resolution_clock::now();
+    chrono::duration<double> elapsed = end_time - start_time;
+    cout << "\n⏱️  Initial solution generated in " << elapsed.count() << " seconds." << endl;
     cout << "\n📊 INITIAL SOLUTION:" << endl;
     print_solution(sol);
 
@@ -1564,7 +1571,7 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
     vector<tuple<int,int,int>> candidates = collect_merge_candidates(current_level, best_solution);
     
     // Tính 20% số CẠNH, không phải nodes
-    int num_to_merge = max(1, (int)(candidates.size() * 0.2));
+    int num_to_merge = max(1, (int)(candidates.size() * 0.3));
     
     //cout << "\n=== MERGING " << num_to_merge << " / " << candidates.size() << " EDGES (20%) ===" << endl;
     
@@ -1996,6 +2003,7 @@ Solution unmerge_solution_to_previous_level(const Solution& coarse_sol, const Le
 }
 
 Solution multilevel_tabu_search() {
+    auto total_start = chrono::high_resolution_clock::now();
     Solution s = init_greedy_solution();
 
     LevelInfo current_level;
@@ -2021,12 +2029,13 @@ Solution multilevel_tabu_search() {
     all_levels.push_back(current_level);
 
     int L = 0;
-    int max_levels = 4;
+    int max_levels = 2;
     bool coarsening = true;
     double prev_fitness = DBL_MAX;
 
     while (coarsening && L < max_levels) {
-        //cout << "\n--- LEVEL " << L << " ---" << endl;   
+        //cout << "\n--- LEVEL " << L << " ---" << endl;
+        auto level_start = chrono::high_resolution_clock::now();   
         update_node_index_cache(all_levels[L]);
         Solution s_current = tabu_search(s, all_levels[L], true);
         update_edge_frequency(s);
@@ -2036,11 +2045,16 @@ Solution multilevel_tabu_search() {
         }
         prev_fitness = s_current.fitness;
         s = s_current;
+        auto merge_start = chrono::high_resolution_clock::now();
         LevelInfo next_level = merge_customers(all_levels[L], s, distances);
         //cout << "Nodes in next_level: ";
         //for (const auto& node : next_level.nodes) cout << node.id << " ";
         //cout << endl;
+        auto merge_end = chrono::high_resolution_clock::now();
+        double merge_time = chrono::duration<double>(merge_end - merge_start).count();
         int reduction = all_levels[L].nodes.size() - next_level.nodes.size();
+        cout << "⏱️  Level " << all_levels[L].level_id << " Merging Time: " 
+             << fixed << setprecision(10) << merge_time << "s" << endl;
         if (reduction < 1) {
             cout << "Insufficient reduction, stopping coarsening" << endl;
             break;
@@ -2053,7 +2067,12 @@ Solution multilevel_tabu_search() {
         num_nodes = next_level.nodes.size();
         
         // Project solution
+        auto project_start = chrono::high_resolution_clock::now();
         s = project_solution_to_next_level(s, all_levels[L], next_level);
+        auto project_end = chrono::high_resolution_clock::now();
+        double project_time = chrono::duration<double>(project_end - project_start).count();
+        cout << "⏱️  Level " << all_levels[L].level_id << " Projection Time: " 
+             << fixed << setprecision(10) << project_time << "s" << endl;
         update_node_index_cache(next_level);
         for (size_t v = 0; v < s.route.size(); v++) {
             cout << "Vehicle " << v << ": ";
@@ -2069,6 +2088,11 @@ Solution multilevel_tabu_search() {
         
         L++;
         edge_frequency.clear();
+        auto level_end = chrono::high_resolution_clock::now();
+        double level_time = chrono::duration<double>(level_end - level_start).count();
+        
+        cout << "⏱️  Level " << all_levels[L-1].level_id << " Tabu Search Time: " 
+             << fixed << setprecision(10) << level_time << "s" << endl;
     }
     Solution best_overall = s;
     
@@ -2079,8 +2103,12 @@ Solution multilevel_tabu_search() {
         //cout << "\n=== REFINING FROM LEVEL " << current_level_id << " TO LEVEL " << prev_level_id << " ===" << endl;
         
         // Unmerge solution
+        auto unmerge_start = chrono::high_resolution_clock::now();
         s = unmerge_solution_to_previous_level(s, all_levels[current_level_id], all_levels[prev_level_id]);
-        
+        auto unmerge_end = chrono::high_resolution_clock::now();
+        double unmerge_time = chrono::duration<double>(unmerge_end - unmerge_start).count();
+        cout << "⏱️  Unmerging from level " << current_level_id << " to " << prev_level_id 
+             << " Time: " << fixed << setprecision(10) << unmerge_time << "s" << endl;
         distances = all_levels[prev_level_id].distance_matrix;
 
         C1 = all_levels[prev_level_id].C1_level;
@@ -2097,11 +2125,16 @@ Solution multilevel_tabu_search() {
         evaluate_solution(s, &all_levels[prev_level_id]);
         print_solution(s);
         
+        auto refine_start = chrono::high_resolution_clock::now();
         edge_frequency.clear();
         s = tabu_search(s, all_levels[prev_level_id], false);
         update_node_index_cache(all_levels[prev_level_id]);
         evaluate_solution(s, &all_levels[prev_level_id]);
         
+        auto refine_end = chrono::high_resolution_clock::now();
+        double refine_time = chrono::duration<double>(refine_end - refine_start).count();
+        cout << "⏱️  Refining at level " << prev_level_id << " Time: " 
+             << fixed << setprecision(10) << refine_time << "s" << endl;
         cout << "After tabu: " << endl;
         print_solution(s);
         best_overall = s;

@@ -54,7 +54,7 @@ double Beta = 0.5; // tham số điều chỉnh hệ số hàm phạt
 
 int MAX_ITER;
 int TABU_TENURE;
-int MAX_NO_IMPROVE = 10000;
+int MAX_NO_IMPROVE = 24000;
 double EPSILON = 1e-6;
 
 // Adaptive parameters
@@ -114,11 +114,11 @@ void read_dataset(const string &filename){
 
     cout << "Read " << nodes.size() << " nodes (including depot)." << endl;
     if (nodes.size() >= 100) {
+        MAX_ITER = 24000;
+        SEGMENT_LENGTH = 300;
+    } else if (nodes.size() >= 50){
         MAX_ITER = 16000;
         SEGMENT_LENGTH = 200;
-    } else if (nodes.size() >= 50){
-        MAX_ITER = 8000;
-        SEGMENT_LENGTH = 100;
     } else {
         MAX_ITER = 4000;
         SEGMENT_LENGTH = 50;
