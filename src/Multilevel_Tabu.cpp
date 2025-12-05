@@ -142,15 +142,15 @@ void read_dataset(const string &filename){
     if (nodes.size() >= 100) {
         MAX_ITER = 3000;
         SEGMENT_LENGTH = 300;
-        MAX_NO_IMPROVE = 3000;
+        MAX_NO_IMPROVE = 50000;
     } else if (nodes.size() >= 50){
         MAX_ITER = 2000;
         SEGMENT_LENGTH = 200;
-        MAX_NO_IMPROVE = 2000;
+        MAX_NO_IMPROVE = 50000;
     } else {
         MAX_ITER = 500;
         SEGMENT_LENGTH = 50;
-        MAX_NO_IMPROVE = 500;
+        MAX_NO_IMPROVE = 50000;
     }
     for (const auto& node : nodes) {
         if (node.id == depot_id) {
@@ -2029,7 +2029,7 @@ Solution multilevel_tabu_search() {
     all_levels.push_back(current_level);
 
     int L = 0;
-    int max_levels = 2;
+    int max_levels = 4;
     bool coarsening = true;
     double prev_fitness = DBL_MAX;
 

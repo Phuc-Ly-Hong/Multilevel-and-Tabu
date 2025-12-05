@@ -54,7 +54,7 @@ double Beta = 0.5; // tham số điều chỉnh hệ số hàm phạt
 
 int MAX_ITER;
 int TABU_TENURE;
-int MAX_NO_IMPROVE = 24000;
+int MAX_NO_IMPROVE = 70000;
 double EPSILON = 1e-6;
 
 // Adaptive parameters
