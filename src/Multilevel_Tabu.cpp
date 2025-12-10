@@ -913,16 +913,6 @@ Solution move_2opt(Solution current_sol, size_t v1, size_t pos1, size_t v2, size
     return new_sol;
 }
 
-bool would_create_empty_vehicle(const Solution& sol, size_t vehicle_idx) {
-    if (sol.route[vehicle_idx].size() <= 2) {
-        for (int node : sol.route[vehicle_idx]) {
-            if (node != depot_id) return false;
-        }
-        return true; // Xe trống
-    }
-    return false;
-}
-
 int count_customers_in_vehicle(const Solution& sol, size_t vehicle_idx) {
     int count = 0;
     for (int node : sol.route[vehicle_idx]) {
@@ -2180,7 +2170,7 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\10.10.1.txt"; 
+        dataset_path = "D:\\New folder\\instances\\50.40.4.txt"; 
     }
     read_dataset(dataset_path);
     printf("MAX_ITER: %d\n", MAX_ITER);
