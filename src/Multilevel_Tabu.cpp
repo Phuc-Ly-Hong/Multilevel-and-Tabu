@@ -589,23 +589,6 @@ Solution init_greedy_solution() {
     return sol;
 }
 
-map<pair<int,int>, int> edge_frequency;
-
-void update_edge_frequency(const Solution& best_solution) {
-    for (size_t v = 0; v < best_solution.route.size(); v++) {
-        const vector<int>& route = best_solution.route[v];
-        for (size_t i = 0; i < route.size() - 1; i++) {
-            int from_node = route[i];
-            int to_node = route[i + 1];
-            if (from_node != depot_id && to_node != depot_id) {
-                pair<int,int> edge = make_pair(from_node, to_node);
-                edge_frequency[edge]++;
-                //cout << "Edge (" << from_node << ", " << to_node << ") frequency: " << edge_frequency[edge] << endl;
-            }
-        }
-    }
-}
-
 bool is_merged_node(int node_id, const LevelInfo& level) {
     if (node_id == depot_id) return false;
     auto it = level.node_mapping.find(node_id);
@@ -930,16 +913,6 @@ Solution move_2opt(Solution current_sol, size_t v1, size_t pos1, size_t v2, size
     return new_sol;
 }
 
-bool would_create_empty_vehicle(const Solution& sol, size_t vehicle_idx) {
-    if (sol.route[vehicle_idx].size() <= 2) {
-        for (int node : sol.route[vehicle_idx]) {
-            if (node != depot_id) return false;
-        }
-        return true; // Xe trống
-    }
-    return false;
-}
-
 int count_customers_in_vehicle(const Solution& sol, size_t vehicle_idx) {
     int count = 0;
     for (int node : sol.route[vehicle_idx]) {
@@ -948,7 +921,7 @@ int count_customers_in_vehicle(const Solution& sol, size_t vehicle_idx) {
     return count;
 }
 
-Solution tabu_search(Solution initial_sol, const LevelInfo &current_level, bool track_edge = true){
+Solution tabu_search(Solution initial_sol, const LevelInfo &current_level){
     update_node_index_cache(current_level);
 
     Solution best_sol = initial_sol;
@@ -1409,9 +1382,6 @@ Solution tabu_search(Solution initial_sol, const LevelInfo &current_level, bool 
                 no_improve_count = 0;
                 scorePi[move_type_idx] += delta1;
                 segment_improved = true;
-                if (track_edge) {
-                    update_edge_frequency(best_sol);
-                }
             } else if (current_sol.fitness < current_fitness - EPSILON) {
                 scorePi[move_type_idx] += delta2;
                 no_improve_count++;
@@ -1504,12 +1474,11 @@ void classify_customers(LevelInfo& level){
     level.num_customers = level.C1_level.size() + level.C2_level.size();
 }
 
-vector<tuple<int, int, int>> collect_merge_candidates(const LevelInfo& current_level, const Solution& best_solution){
-    vector<tuple<int, int, int>> candidates;
-    map<pair<int,int>, int> solution_edges;
+vector<tuple<double, int, int>> collect_merge_candidates(const LevelInfo& current_level, const Solution& best_solution){
+    vector<tuple<double, int, int>> candidates;
+    set<pair<int,int>> solution_edges;
     
     for (size_t v = 0; v < best_solution.route.size(); v++) {
-        
         const vector<int>& route = best_solution.route[v];
         for (size_t i = 0; i < route.size() - 1; i++) {
             int from_node = route[i];
@@ -1517,28 +1486,17 @@ vector<tuple<int, int, int>> collect_merge_candidates(const LevelInfo& current_l
             
             if (from_node == depot_id || to_node == depot_id) continue;
             
-            pair<int,int> edge = make_pair(from_node, to_node);
-            solution_edges[edge]++;
+            solution_edges.insert(make_pair(from_node, to_node));
         }
     }
 
-    for (const auto& edge_pair : solution_edges){
-        int from_node = edge_pair.first.first;
-        int to_node = edge_pair.first.second;
+    for (const auto& edge : solution_edges){
+        int from_node = edge.first;
+        int to_node = edge.second;
 
-        if (from_node == depot_id || to_node == depot_id) continue;
-
-        int count = edge_pair.second; 
-        
-        int frequency = 0;
-        auto it = edge_frequency.find(edge_pair.first);
-        if (it != edge_frequency.end()) {
-            frequency = it->second;
-        }
-        
         int idx_from = find_node_index_fast(from_node);
         int idx_to = find_node_index_fast(to_node);
-        if (idx_from == -1 || idx_to == -1) {
+        if (idx_from == -1 || idx_to == -1){
             continue;
         }
 
@@ -1549,15 +1507,14 @@ vector<tuple<int, int, int>> collect_merge_candidates(const LevelInfo& current_l
                         (node_from.c1_or_c2 > 0 && node_to.c1_or_c2 > 0);
         
         if (same_type){
-            candidates.emplace_back(make_tuple(frequency, from_node, to_node));
-            /*cout << "Candidate edge: (" << from_node << ", " << to_node 
-                 << ") frequency=" << frequency  << endl;*/
+            double distance = distances[idx_from][idx_to];
+            candidates.emplace_back(make_tuple(distance, from_node, to_node));
+            
         }
     }
 
-    sort(candidates.begin(), candidates.end(), 
-         [](const tuple<int, int, int>& a, const tuple<int, int, int>& b) {
-        return get<0>(a) > get<0>(b);
+    sort(candidates.begin(), candidates.end(), [](const tuple<double, int, int>& a, const tuple<double, int, int>& b) {
+        return get<0>(a) < get<0>(b);
     });
     
     return candidates;
@@ -1568,9 +1525,9 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
     next_level.level_id = current_level.level_id + 1;
     update_node_index_cache(current_level);
     
-    vector<tuple<int,int,int>> candidates = collect_merge_candidates(current_level, best_solution);
+    vector<tuple<double,int,int>> candidates = collect_merge_candidates(current_level, best_solution);
     
-    // Tính 20% số CẠNH, không phải nodes
+    // Tính 30% số CẠNH, không phải nodes
     int num_to_merge = max(1, (int)(candidates.size() * 0.3));
     
     //cout << "\n=== MERGING " << num_to_merge << " / " << candidates.size() << " EDGES (20%) ===" << endl;
@@ -1579,7 +1536,7 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
     vector<vector<int>> merged_groups;
     
     for (int i = 0; i < num_to_merge && i < candidates.size(); i++) {
-        int frequency = get<0>(candidates[i]);
+        double distance = get<0>(candidates[i]);
         int node_a = get<1>(candidates[i]);
         int node_b = get<2>(candidates[i]);
 
@@ -1618,7 +1575,7 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
             merged_groups.push_back({node_a, node_b});
             merged_nodes.insert(node_a);
             merged_nodes.insert(node_b);
-            //cout << "Edge " << (i+1) << ": (" << node_a << " → " << node_b << ") freq=" << frequency << " → NEW GROUP" << endl;
+            cout << "Edge " << (i+1) << ": (" << node_a << " → " << node_b << ") distance=" << distance << " → NEW GROUP" << endl;
         }
         // Case 2: node_a đã có group, node_b chưa -> Thêm node_b vào group của node_a
         else if (group_idx_a != -1 && group_idx_b == -1) {
@@ -1633,8 +1590,8 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
                 continue;
             }
             merged_nodes.insert(node_b);
-            /*cout << "Edge " << (i+1) << ": (" << node_a << " → " << node_b 
-                 << ") freq=" << frequency << " → ADD TO GROUP " << group_idx_a << endl;*/
+            cout << "Edge " << (i+1) << ": (" << node_a << " → " << node_b 
+                 << ") distance=" << distance << " → ADD TO GROUP " << group_idx_a << endl;
         }
         // Case 3: node_b đã có group, node_a chưa -> Thêm node_a vào group của node_b
         else if (group_idx_a == -1 && group_idx_b != -1) {
@@ -1647,8 +1604,8 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
                 continue;
             }
             merged_nodes.insert(node_a);
-            /*cout << "Edge " << (i+1) << ": (" << node_a << " → " << node_b 
-                 << ") freq=" << frequency << " → ADD TO GROUP " << group_idx_b << endl;*/
+            cout << "Edge " << (i+1) << ": (" << node_a << " → " << node_b 
+                 << ") distance=" << distance << " → ADD TO GROUP " << group_idx_b << endl;
         }
         // Case 4: Cả 2 đã có group khác nhau → Merge 2 groups
         else if (group_idx_a != group_idx_b) {
@@ -1661,15 +1618,15 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
                     merged_groups[group_idx_b].end()
                 );
                 merged_groups.erase(merged_groups.begin() + group_idx_b);
-                /*cout << "Edge " << (i+1) << ": (" << node_a << " → " << node_b 
-                     << ") freq=" << frequency << " → CONNECT GROUPS" << endl;*/
+                cout << "Edge " << (i+1) << ": (" << node_a << " → " << node_b 
+                     << ") distance=" << distance << " → CONNECT GROUPS" << endl;
             } else {
                 cout << " Cannot connect - nodes not at boundaries" << endl;
             }
         }
     }
     
-    //cout << "\n=== FINAL MERGED GROUPS ===" << endl;
+    cout << "\n=== FINAL MERGED GROUPS ===" << endl;
     for (size_t i = 0; i < merged_groups.size(); i++) {
         cout << "Group " << (i+1) << ": [";
         for (size_t j = 0; j < merged_groups[i].size(); j++) {
@@ -2037,8 +1994,7 @@ Solution multilevel_tabu_search() {
         //cout << "\n--- LEVEL " << L << " ---" << endl;
         auto level_start = chrono::high_resolution_clock::now();   
         update_node_index_cache(all_levels[L]);
-        Solution s_current = tabu_search(s, all_levels[L], true);
-        update_edge_frequency(s);
+        Solution s_current = tabu_search(s, all_levels[L]);
         print_solution(s_current);
         if (L >= 3 && s_current.fitness == prev_fitness) {
             break;
@@ -2087,7 +2043,6 @@ Solution multilevel_tabu_search() {
         cout << "Projected solution fitness: " << s.fitness << endl;
         
         L++;
-        edge_frequency.clear();
         auto level_end = chrono::high_resolution_clock::now();
         double level_time = chrono::duration<double>(level_end - level_start).count();
         
@@ -2126,8 +2081,7 @@ Solution multilevel_tabu_search() {
         print_solution(s);
         
         auto refine_start = chrono::high_resolution_clock::now();
-        edge_frequency.clear();
-        s = tabu_search(s, all_levels[prev_level_id], false);
+        s = tabu_search(s, all_levels[prev_level_id]);
         update_node_index_cache(all_levels[prev_level_id]);
         evaluate_solution(s, &all_levels[prev_level_id]);
         
@@ -2216,7 +2170,7 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\50.40.1.txt"; 
+        dataset_path = "D:\\New folder\\instances\\50.40.4.txt"; 
     }
     read_dataset(dataset_path);
     printf("MAX_ITER: %d\n", MAX_ITER);
