@@ -879,8 +879,8 @@ int count_customers_in_vehicle(const Solution& sol, size_t vehicle_idx) {
     return count;
 }
 
-Solution tabu_search(Solution initial_sol, const LevelInfo &current_level, bool track_edge = true){
-    update_node_index_cache(current_level);
+Solution tabu_search(Solution initial_sol, const LevelInfo *current_level, bool track_edge = true){
+    if (current_level != nullptr) update_node_index_cache(*current_level);
 
     Solution best_sol = initial_sol;
     Solution current_sol = initial_sol;
@@ -894,11 +894,6 @@ Solution tabu_search(Solution initial_sol, const LevelInfo &current_level, bool 
     vector<string> move_types = {"1-0", "1-1", "2-0", "2-1", "2-2", "2-opt"};
     
     for (int iter = 0; iter < MAX_ITER && no_improve_count < MAX_NO_IMPROVE; iter++){
-        auto is_merged_group = [&](int node_id) -> bool {
-            auto it = current_level.node_mapping.find(node_id);
-            return (it != current_level.node_mapping.end() && it->second.size() > 1);
-        };
-
         double best_Neighbor_fitness = DBL_MAX;
         Solution best_Neighbor_sol = current_sol;
         double current_fitness = current_sol.fitness;
@@ -927,15 +922,15 @@ Solution tabu_search(Solution initial_sol, const LevelInfo &current_level, bool 
                         for (size_t pos2 = 1; pos2 <= current_sol.route[v2].size(); pos2++) {
                             if (pos2 == current_sol.route[v2].size()){
                                 if (!vehicles[v2].is_drone) continue;
-                                if (get_type(n1, &current_level) == 1) continue;
+                                if (get_type(n1, current_level) == 1) continue;
                                 if (v1 == v2) continue;
                             } else {
                                 if (v1 == v2) continue;
                                 if (pos2 == current_sol.route[v2].size() - 1) continue;
-                                if (get_type(n1, &current_level) == 1 && vehicles[v2].is_drone) continue;
+                                if (get_type(n1, current_level) == 1 && vehicles[v2].is_drone) continue;
                             }
 
-                            Solution new_sol = move_1_0(current_sol, v1, pos1, v2, pos2, &current_level);
+                            Solution new_sol = move_1_0(current_sol, v1, pos1, v2, pos2, current_level);
                             TabuMove move = {"1-0", n1, -1, -1, -1, (int)v1, (int)v2, (int)pos1, -1, (int)pos2, -1, TABU_TENURE};
                             bool tabu = is_tabu(tabu_list, move);
 
@@ -974,9 +969,9 @@ Solution tabu_search(Solution initial_sol, const LevelInfo &current_level, bool 
                     for (size_t v2 = 0; v2 < vehicles.size(); v2++) {
                         for (size_t pos2 = 1; pos2 < current_sol.route[v2].size()-1; pos2++) {
                             int n2 = current_sol.route[v2][pos2];
-                            if (n2 == depot_id || n1 == n2 || get_type(n1, &current_level) != get_type(n2, &current_level) || ((abs(int(pos1)-int(pos2)) <= 1) && (v1 == v2))) continue;
+                            if (n2 == depot_id || n1 == n2 || get_type(n1, current_level) != get_type(n2, current_level) || ((abs(int(pos1)-int(pos2)) <= 1) && (v1 == v2))) continue;
 
-                            Solution new_sol = move_1_1(current_sol, v1, pos1, v2, pos2, &current_level);
+                            Solution new_sol = move_1_1(current_sol, v1, pos1, v2, pos2, current_level);
                             TabuMove move = {"1-1", n1, -1, n2, -1, (int)v1, (int)v2, (int)pos1, -1, (int)pos2, -1, TABU_TENURE};
                             bool tabu = is_tabu(tabu_list, move);
 
@@ -1014,13 +1009,13 @@ Solution tabu_search(Solution initial_sol, const LevelInfo &current_level, bool 
                     if (n1 == depot_id || n2 == depot_id) continue;
                     for (size_t v2 = 0; v2 < vehicles.size(); v2++){
                         if (v1 == v2) continue;
-                        if ((get_type(n1, &current_level) == 1 || get_type(n2, &current_level) == 1) && vehicles[v2].is_drone) continue;
+                        if ((get_type(n1, current_level) == 1 || get_type(n2, current_level) == 1) && vehicles[v2].is_drone) continue;
                         for (size_t pos2 = 1; pos2 <= current_sol.route[v2].size(); pos2++){
                             if (pos2 == current_sol.route[v2].size() && !vehicles[v2].is_drone) {
                                 continue;
                             }
 
-                            Solution new_sol = move_2_0(current_sol, v1, pos1, v2, pos2, &current_level);
+                            Solution new_sol = move_2_0(current_sol, v1, pos1, v2, pos2, current_level);
                             TabuMove move = {"2-0", n1, n2, -1, -1, (int)v1, (int)v2, (int)pos1, (int)pos1+1, (int)pos2, (int)pos2+1, TABU_TENURE};
                             bool tabu = is_tabu(tabu_list, move);
 
@@ -1063,9 +1058,9 @@ Solution tabu_search(Solution initial_sol, const LevelInfo &current_level, bool 
                             int n3 = current_sol.route[v2][pos2];
                             if (n3 == depot_id) continue;
                             if (v1 == v2 && (abs(int(pos1)-int(pos2)) <= 2)) continue;
-                            if ((get_type(n1, &current_level) == 1 || get_type(n2, &current_level) == 1) && vehicles[v2].is_drone) continue;
-                            if (get_type(n3, &current_level) == 1 && vehicles[v1].is_drone) continue;
-                            Solution new_sol = move_2_1(current_sol, v1, pos1, v2, pos2, &current_level);
+                            if ((get_type(n1, current_level) == 1 || get_type(n2, current_level) == 1) && vehicles[v2].is_drone) continue;
+                            if (get_type(n3, current_level) == 1 && vehicles[v1].is_drone) continue;
+                            Solution new_sol = move_2_1(current_sol, v1, pos1, v2, pos2, current_level);
                             TabuMove move = {"2-1", n1, n2, n3, -1, (int)v1, (int)v2, (int)pos1, (int)pos1+1, (int)pos2, -1, TABU_TENURE};
                             bool tabu = is_tabu(tabu_list, move);
                             if (new_sol.is_feasible && (new_sol.fitness < best_sol.fitness - EPSILON)) {
@@ -1106,10 +1101,10 @@ Solution tabu_search(Solution initial_sol, const LevelInfo &current_level, bool 
                             int n3 = current_sol.route[v2][pos2];
                             int n4 = current_sol.route[v2][pos2+1];
                             if (n3 == depot_id || n4 == depot_id) continue;
-                            if ((get_type(n1, &current_level) == 1 || get_type(n2, &current_level) == 1) && vehicles[v2].is_drone) continue;
-                            if ((get_type(n3, &current_level) == 1 || get_type(n4, &current_level) == 1) && vehicles[v1].is_drone) continue;
+                            if ((get_type(n1, current_level) == 1 || get_type(n2, current_level) == 1) && vehicles[v2].is_drone) continue;
+                            if ((get_type(n3, current_level) == 1 || get_type(n4, current_level) == 1) && vehicles[v1].is_drone) continue;
 
-                            Solution new_sol = move_2_2(current_sol, v1, pos1, v2, pos2, &current_level);
+                            Solution new_sol = move_2_2(current_sol, v1, pos1, v2, pos2, current_level);
                             TabuMove move = {"2-2", n1, n2, n3, n4, int(v1), int(v2), int(pos1), int(pos1+1), int(pos2), int(pos2+1), TABU_TENURE};
                             bool tabu = is_tabu(tabu_list, move);
                             if (new_sol.is_feasible && (new_sol.fitness < best_sol.fitness - EPSILON)) {
@@ -1150,7 +1145,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo &current_level, bool 
                         int customer_at_pos1 = current_sol.route[v1][pos1];
                         int customer_at_pos2 = current_sol.route[v1][pos2];
 
-                        Solution new_sol = move_2opt(current_sol, v1, pos1, v1, pos2, &current_level); // Cùng xe v1
+                        Solution new_sol = move_2opt(current_sol, v1, pos1, v1, pos2, current_level); // Cùng xe v1
                         TabuMove move = {"2-opt", customer_at_pos1, -1, customer_at_pos2, -1, (int)v1, (int)v1, (int)pos1, -1, (int)pos2, -1, TABU_TENURE};
                         bool tabu = is_tabu(tabu_list, move);
                         
@@ -1190,7 +1185,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo &current_level, bool 
                             if (vehicles[v2].is_drone) {
                                 for (size_t i = pos1; i < current_sol.route[v1].size() - 1; i++) {
                                     int cid = current_sol.route[v1][i];
-                                    if (cid != depot_id && get_type(cid, &current_level) == 1) {  
+                                    if (cid != depot_id && get_type(cid, current_level) == 1) {  
                                         invalid_move = true;
                                         break;
                                     }
@@ -1200,7 +1195,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo &current_level, bool 
                             if (!invalid_move && vehicles[v1].is_drone) {
                                 for (size_t i = pos2; i < current_sol.route[v2].size() - 1; i++) {
                                     int cid = current_sol.route[v2][i];
-                                    if (cid != depot_id && get_type(cid, &current_level) == 1) {  
+                                    if (cid != depot_id && get_type(cid, current_level) == 1) {  
                                         invalid_move = true;
                                         break;
                                     }
@@ -1212,7 +1207,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo &current_level, bool 
                             int customer_at_pos1 = current_sol.route[v1][pos1];
                             int customer_at_pos2 = current_sol.route[v2][pos2];
                             
-                            Solution new_sol = move_2opt(current_sol, v1, pos1, v2, pos2, &current_level); // Khác xe v1 và v2
+                            Solution new_sol = move_2opt(current_sol, v1, pos1, v2, pos2, current_level); // Khác xe v1 và v2
                             TabuMove move = {"2-opt", customer_at_pos1, -1, customer_at_pos2, -1, (int)v1, (int)v2, (int)pos1, -1, (int)pos2, -1, TABU_TENURE};
                             bool tabu = is_tabu(tabu_list, move);
                             
@@ -1265,7 +1260,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo &current_level, bool 
         
         if (should_apply_move) {
             current_sol = best_Neighbor_sol;
-            evaluate_solution(current_sol, &current_level);
+            evaluate_solution(current_sol, current_level);
 
             /*cout << "Iter: " << iter << " Move: " << move_type 
                  << " current makespan: " << current_sol.makespan 
@@ -1975,7 +1970,7 @@ Solution multilevel_tabu_search() {
         //cout << "\n--- LEVEL " << L << " ---" << endl;
         auto level_start = chrono::high_resolution_clock::now();   
         update_node_index_cache(all_levels[L]);
-        Solution s_current = tabu_search(s, all_levels[L], true);
+        Solution s_current = tabu_search(s, &all_levels[L], true);
         update_edge_frequency(s);
         auto level_end = chrono::high_resolution_clock::now();
         double level_time = chrono::duration<double>(level_end - level_start).count();
@@ -2072,13 +2067,7 @@ Solution multilevel_tabu_search() {
             auto refine_start = chrono::high_resolution_clock::now();
             edge_frequency.clear();
             
-            LevelInfo level_0_simple = all_levels[0];
-            // Clear merged info để tránh overhead
-            for (auto& pair : level_0_simple.node_mapping) {
-                pair.second = {pair.first}; // Mỗi node map về chính nó
-            }
-            
-            s = tabu_search(s, level_0_simple, false);
+            s = tabu_search(s, nullptr, false);
             
             // ✅ EVALUATE SAU TABU (nullptr)
             evaluate_solution(s, nullptr);
@@ -2115,7 +2104,7 @@ Solution multilevel_tabu_search() {
             edge_frequency.clear();
             
             // ✅ TABU SEARCH VỚI LEVEL
-            s = tabu_search(s, all_levels[prev_level_id], false);
+            s = tabu_search(s, &all_levels[prev_level_id], false);
             evaluate_solution(s, &all_levels[prev_level_id]);
             
             auto refine_end = chrono::high_resolution_clock::now();
