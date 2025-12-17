@@ -1419,21 +1419,14 @@ set<pair<int, int>> get_existing_edges(const Solution& sol) {
     return edges;
 }
 
-vector<tuple<int, int, int>> collect_merge_candidates(const LevelInfo& current_level, const Solution& best_solution){
-    vector<tuple<int, int, int>> candidates;
-    map<pair<int,int>, int> solution_edges;
+vector<tuple<double, int, int>> find_missing_shortest_edges(const LevelInfo& current_level, const Solution& best_solution){
+    set<pair<int,int>> existing = get_existing_edges(best_solution);
+    vector<tuple<double, int, int>> candidates;
     
-    for (size_t v = 0; v < best_solution.route.size(); v++) {
-        
-        const vector<int>& route = best_solution.route[v];
-        for (size_t i = 0; i < route.size() - 1; i++) {
-            int from_node = route[i];
-            int to_node = route[i + 1];
-            
-            if (from_node == depot_id || to_node == depot_id) continue;
-            
-            pair<int,int> edge = make_pair(from_node, to_node);
-            solution_edges[edge]++;
+    for (size_t i = 0; i < current_level.nodes.size(); i++) {
+        for (size_t j = i+1; j < current_level.nodes.size(); j++) {
+            int node_a = current_level.nodes[i].id;
+            int node_b = current_level.nodes[j].id;
         }
     }
 
