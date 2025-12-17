@@ -520,23 +520,6 @@ Solution init_greedy_solution() {
     return sol;
 }
 
-map<pair<int,int>, int> edge_frequency;
-
-void update_edge_frequency(const Solution& best_solution) {
-    for (size_t v = 0; v < best_solution.route.size(); v++) {
-        const vector<int>& route = best_solution.route[v];
-        for (size_t i = 0; i < route.size() - 1; i++) {
-            int from_node = route[i];
-            int to_node = route[i + 1];
-            if (from_node != depot_id && to_node != depot_id) {
-                pair<int,int> edge = make_pair(from_node, to_node);
-                edge_frequency[edge]++;
-                //cout << "Edge (" << from_node << ", " << to_node << ") frequency: " << edge_frequency[edge] << endl;
-            }
-        }
-    }
-}
-
 bool is_merged_node(int node_id, const LevelInfo& level) {
     if (node_id == depot_id) return false;
     auto it = level.node_mapping.find(node_id);
@@ -873,7 +856,7 @@ int count_customers_in_vehicle(const Solution& sol, size_t vehicle_idx) {
     return count;
 }
 
-Solution tabu_search(Solution initial_sol, const LevelInfo *current_level, bool track_edge = true){
+Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
     if (current_level != nullptr) update_node_index_cache(*current_level);
 
     Solution best_sol = initial_sol;
@@ -1255,9 +1238,6 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level, bool 
         if (should_apply_move) {
             current_sol = best_Neighbor_sol;
             evaluate_solution(current_sol, current_level);
-            if (track_edge) {
-                update_edge_frequency(best_sol);
-            }
 
             /*cout << "Iter: " << iter << " Move: " << move_type 
                  << " current makespan: " << current_sol.makespan 
@@ -1425,6 +1405,20 @@ void classify_customers(LevelInfo& level){
     level.num_customers = level.C1_level.size() + level.C2_level.size();
 }
 
+set<pair<int, int>> get_existing_edges(const Solution& sol) {
+    set<pair<int, int>> edges;
+    for (const auto& route : sol.route) {
+        for (size_t i = 0; i < route.size() - 1; i++) {
+            int from = route[i];
+            int to = route[i+1];
+            if (from != depot_id && to != depot_id) {
+                edges.insert({min(from,to), max(from,to)});
+            }
+        }
+    }
+    return edges;
+}
+
 vector<tuple<int, int, int>> collect_merge_candidates(const LevelInfo& current_level, const Solution& best_solution){
     vector<tuple<int, int, int>> candidates;
     map<pair<int,int>, int> solution_edges;
@@ -1452,10 +1446,6 @@ vector<tuple<int, int, int>> collect_merge_candidates(const LevelInfo& current_l
         int count = edge_pair.second; 
         
         int frequency = 0;
-        auto it = edge_frequency.find(edge_pair.first);
-        if (it != edge_frequency.end()) {
-            frequency = it->second;
-        }
         
         int idx_from = find_node_index_fast(from_node);
         int idx_to = find_node_index_fast(to_node);
@@ -1965,8 +1955,7 @@ Solution multilevel_tabu_search() {
         //cout << "\n--- LEVEL " << L << " ---" << endl;
         auto level_start = chrono::high_resolution_clock::now();   
         update_node_index_cache(all_levels[L]);
-        Solution s_current = tabu_search(s, &all_levels[L], true);
-        update_edge_frequency(s);
+        Solution s_current = tabu_search(s, &all_levels[L]);
         auto level_end = chrono::high_resolution_clock::now();
         double level_time = chrono::duration<double>(level_end - level_start).count();
         print_solution(s_current);
@@ -2017,7 +2006,6 @@ Solution multilevel_tabu_search() {
         cout << "Projected solution fitness: " << s.fitness << endl;
         
         L++;
-        edge_frequency.clear();
         
         cout << "⏱️  Level " << all_levels[L-1].level_id << " Tabu Search Time: " 
              << fixed << setprecision(10) << level_time << "s" << endl;
@@ -2058,9 +2046,8 @@ Solution multilevel_tabu_search() {
             print_solution(s);
             
             auto refine_start = chrono::high_resolution_clock::now();
-            edge_frequency.clear();
             
-            s = tabu_search(s, nullptr, false);
+            s = tabu_search(s, nullptr);
             
             evaluate_solution(s, nullptr);
             
@@ -2090,9 +2077,8 @@ Solution multilevel_tabu_search() {
             print_solution(s);
             
             auto refine_start = chrono::high_resolution_clock::now();
-            edge_frequency.clear();
             
-            s = tabu_search(s, &all_levels[prev_level_id], false);
+            s = tabu_search(s, &all_levels[prev_level_id]);
             evaluate_solution(s, &all_levels[prev_level_id]);
             
             auto refine_end = chrono::high_resolution_clock::now();
