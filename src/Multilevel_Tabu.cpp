@@ -1521,7 +1521,7 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
         if (already_merged_together) {
             continue;
         }
-        
+     
         // Tìm hoặc tạo group chứa node_a và node_b
         int group_idx_a = -1, group_idx_b = -1;
         
