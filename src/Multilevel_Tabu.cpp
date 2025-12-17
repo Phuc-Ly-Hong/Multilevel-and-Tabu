@@ -822,12 +822,6 @@ Solution move_2opt(Solution current_sol, size_t v1, size_t pos1, size_t v2, size
             return current_sol;
         }
         
-        // Lưu segment bị đảo
-        vector<int> reversed_segment;
-        for (size_t i = pos1; i <= pos2; i++) {
-            reversed_segment.push_back(new_sol.route[v1][i]);
-        }
-        
         reverse(new_sol.route[v1].begin() + pos1, new_sol.route[v1].begin() + pos2 + 1);
     } 
     //  DIFFERENT TRIP
@@ -1261,6 +1255,9 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level, bool 
         if (should_apply_move) {
             current_sol = best_Neighbor_sol;
             evaluate_solution(current_sol, current_level);
+            if (track_edge) {
+                update_edge_frequency(best_sol);
+            }
 
             /*cout << "Iter: " << iter << " Move: " << move_type 
                  << " current makespan: " << current_sol.makespan 
@@ -1335,9 +1332,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level, bool 
                 no_improve_count = 0;
                 scorePi[move_type_idx] += delta1;
                 segment_improved = true;
-                if (track_edge) {
-                    update_edge_frequency(best_sol);
-                }
+
             } else if (current_sol.fitness < current_fitness - EPSILON) {
                 scorePi[move_type_idx] += delta2;
                 no_improve_count++;
@@ -2054,13 +2049,11 @@ Solution multilevel_tabu_search() {
              << (distances.empty() ? 0 : distances[0].size()) << endl;*/
 
         update_node_index_cache(all_levels[prev_level_id]);
-        // ✅ CASE 1: LEVEL 0 - DÙNG EVALUATE VÀ TABU KHÔNG CÓ LEVEL
         if (prev_level_id == 0) {
             cout << "\n🎯 FINAL REFINEMENT AT LEVEL 0 (No merged nodes)" << endl;
             merged_nodes_info.clear();
             internal_distance_cache.clear();
             
-            // ✅ EVALUATE KHÔNG CÓ LEVEL (nullptr)
             evaluate_solution(s, nullptr);
             print_solution(s);
             
@@ -2069,7 +2062,6 @@ Solution multilevel_tabu_search() {
             
             s = tabu_search(s, nullptr, false);
             
-            // ✅ EVALUATE SAU TABU (nullptr)
             evaluate_solution(s, nullptr);
             
             auto refine_end = chrono::high_resolution_clock::now();
@@ -2080,11 +2072,9 @@ Solution multilevel_tabu_search() {
             print_solution(s);
             best_overall = s;
         }
-        // ✅ CASE 2: LEVEL 1, 2, 3... - VẪN DÙNG MULTILEVEL
         else {
             cout << "\n🔧 Refining at level " << prev_level_id << " (with merged nodes)" << endl;
             
-            // ✅ CLEAR MERGED INFO CỦA LEVEL CAO HƠN
             auto it = merged_nodes_info.begin();
             while (it != merged_nodes_info.end()) {
                 if (it->second.level_id > prev_level_id) {
@@ -2096,14 +2086,12 @@ Solution multilevel_tabu_search() {
             cout << "🧹 Cleaned merged_nodes_info: kept " << merged_nodes_info.size() 
                 << " nodes for level " << prev_level_id << endl;
             
-            // ✅ EVALUATE VỚI LEVEL
             evaluate_solution(s, &all_levels[prev_level_id]);
             print_solution(s);
             
             auto refine_start = chrono::high_resolution_clock::now();
             edge_frequency.clear();
             
-            // ✅ TABU SEARCH VỚI LEVEL
             s = tabu_search(s, &all_levels[prev_level_id], false);
             evaluate_solution(s, &all_levels[prev_level_id]);
             
