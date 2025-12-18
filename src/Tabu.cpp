@@ -972,7 +972,7 @@ Solution tabu_search(){
             current_sol = best_Neighbor_sol;
             evaluate_solution(current_sol);
 
-            cout << "Iter: " << iter << " Move: " << move_type 
+            /*cout << "Iter: " << iter << " Move: " << move_type 
                  << " current makespan: " << current_sol.makespan 
                  << ", drone_violation: " << current_sol.drone_violation 
                  << ", waiting_violation: " << current_sol.waiting_violation 
@@ -982,7 +982,7 @@ Solution tabu_search(){
                 cout << "Vehicle " << v << ": ";
                 for (int cid : current_sol.route[v]) cout << cid << " ";
                 cout << endl;
-            }
+            }*/
 
             // Cập nhật tabu list
             for (auto it = tabu_list.begin(); it != tabu_list.end(); ) {
@@ -994,7 +994,7 @@ Solution tabu_search(){
                 }
             }
             tabu_list.push_back(best_move);
-            cout << "Tabu move added: type=" << best_move.type
+            /*cout << "Tabu move added: type=" << best_move.type
                  << ", customer1=" << best_move.customer_id1
                  << ", customer2=" << best_move.customer_id2
                  << ", customer3=" << best_move.customer_id3
@@ -1005,7 +1005,7 @@ Solution tabu_search(){
                  << ", pos2=" << best_move.pos2
                  << ", pos3=" << best_move.pos3
                  << ", pos4=" << best_move.pos4
-                 << ", tenure=" << best_move.tenure << endl;
+                 << ", tenure=" << best_move.tenure << endl;*/
             TabuMove reverse_move;
             if (move_type == "1-0") {
                 reverse_move = {"1-0", best_move_node1, -1, -1, -1, best_move.vehicle2, best_move.vehicle1, best_move.pos3, -1, best_move.pos1, -1, TABU_TENURE};
@@ -1027,7 +1027,7 @@ Solution tabu_search(){
             }
             tabu_list.push_back(reverse_move);
 
-            cout << "Tabu move added: type=" << reverse_move.type
+            /*cout << "Tabu move added: type=" << reverse_move.type
                  << ", customer1=" << reverse_move.customer_id1
                  << ", customer2=" << reverse_move.customer_id2
                  << ", customer3=" << reverse_move.customer_id3
@@ -1038,7 +1038,7 @@ Solution tabu_search(){
                  << ", pos2=" << reverse_move.pos2
                  << ", pos3=" << reverse_move.pos3
                  << ", pos4=" << reverse_move.pos4
-                 << ", tenure=" << reverse_move.tenure << endl;
+                 << ", tenure=" << reverse_move.tenure << endl;*/
             
             if (current_sol.is_feasible && current_sol.fitness < best_sol.fitness - EPSILON){
                 best_sol = current_sol;
@@ -1079,7 +1079,7 @@ int main(int argc, char* argv[]){
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\50.40.1.txt"; 
+        dataset_path = "D:\\New folder\\instances\\50.10.1.txt"; 
     }
     read_dataset(dataset_path);
     printf(" %d\n", MAX_ITER);
@@ -1104,6 +1104,3 @@ int main(int argc, char* argv[]){
 
     return 0;
 }
-
-
-
