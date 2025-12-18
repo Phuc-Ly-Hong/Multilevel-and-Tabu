@@ -1427,42 +1427,21 @@ vector<tuple<double, int, int>> find_missing_shortest_edges(const LevelInfo& cur
         for (size_t j = i+1; j < current_level.nodes.size(); j++) {
             int node_a = current_level.nodes[i].id;
             int node_b = current_level.nodes[j].id;
+
+            if (node_a == depot_id || node_b == depot_id) continue;
+
+            if (current_level.nodes[i].c1_or_c2 != current_level.nodes[j].c1_or_c2) continue;
+
+            pair<int, int> edge = {min(node_a, node_b), max(node_a, node_b)};
+
+            if (existing.find(edge) == existing.end()) {
+                double dist = current_level.distance_matrix[i][j];
+                candidates.push_back({dist, node_a, node_b});
+            }
         }
     }
 
-    for (const auto& edge_pair : solution_edges){
-        int from_node = edge_pair.first.first;
-        int to_node = edge_pair.first.second;
-
-        if (from_node == depot_id || to_node == depot_id) continue;
-
-        int count = edge_pair.second; 
-        
-        int frequency = 0;
-        
-        int idx_from = find_node_index_fast(from_node);
-        int idx_to = find_node_index_fast(to_node);
-        if (idx_from == -1 || idx_to == -1) {
-            continue;
-        }
-
-        const Node& node_from = current_level.nodes[idx_from];
-        const Node& node_to = current_level.nodes[idx_to];
-        
-        bool same_type = (node_from.c1_or_c2 == 0 && node_to.c1_or_c2 == 0) || 
-                        (node_from.c1_or_c2 > 0 && node_to.c1_or_c2 > 0);
-        
-        if (same_type){
-            candidates.emplace_back(make_tuple(frequency, from_node, to_node));
-            /*cout << "Candidate edge: (" << from_node << ", " << to_node 
-                 << ") frequency=" << frequency  << endl;*/
-        }
-    }
-
-    sort(candidates.begin(), candidates.end(), 
-         [](const tuple<int, int, int>& a, const tuple<int, int, int>& b) {
-        return get<0>(a) > get<0>(b);
-    });
+    sort(candidates.begin(), candidates.end());
     
     return candidates;
 }
@@ -1472,9 +1451,9 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
     next_level.level_id = current_level.level_id + 1;
     update_node_index_cache(current_level);
     
-    vector<tuple<int,int,int>> candidates = collect_merge_candidates(current_level, best_solution);
+    vector<tuple<double,int,int>> candidates = find_missing_shortest_edges(current_level, best_solution);
     
-    // Tính 20% số CẠNH, không phải nodes
+    // Tính 30% số CẠNH, không phải nodes
     int num_to_merge = max(1, (int)(candidates.size() * 0.3));
     
     //cout << "\n=== MERGING " << num_to_merge << " / " << candidates.size() << " EDGES (20%) ===" << endl;
