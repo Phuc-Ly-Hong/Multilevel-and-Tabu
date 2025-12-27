@@ -2365,7 +2365,6 @@ Solution multilevel_tabu_search() {
     return test_sol;
 }*/
 
-
 int main(int argc, char* argv[]) {
     srand(time(nullptr));
 
