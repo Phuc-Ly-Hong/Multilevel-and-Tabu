@@ -834,6 +834,16 @@ Solution move_2opt(Solution current_sol, size_t v1, size_t pos1, size_t v2, size
     return new_sol;
 }
 
+bool would_create_empty_vehicle(const Solution& sol, size_t vehicle_idx) {
+    if (sol.route[vehicle_idx].size() <= 2) {
+        for (int node : sol.route[vehicle_idx]) {
+            if (node != depot_id) return false;
+        }
+        return true; // Xe trống
+    }
+    return false;
+}
+
 int count_customers_in_vehicle(const Solution& sol, size_t vehicle_idx) {
     int count = 0;
     for (int node : sol.route[vehicle_idx]) {
@@ -1418,15 +1428,12 @@ vector<tuple<double, int, int>> find_missing_shortest_edges(const LevelInfo& cur
             bool both_c2 = (current_level.nodes[i].c1_or_c2 > 0 && current_level.nodes[j].c1_or_c2 > 0);
             if (!both_c1 && !both_c2) continue;
             
-            // Kiểm tra cả 2 chiều
-            pair<int, int> edge_ab = make_pair(node_a, node_b);
-            pair<int, int> edge_ba = make_pair(node_b, node_a);
+            pair<int, int> edge = make_pair(node_a, node_b);
+            pair<int, int> edge_rev = make_pair(node_b, node_a);
             
-            bool ab_exists = (existing_edges.find(edge_ab) != existing_edges.end());
-            bool ba_exists = (existing_edges.find(edge_ba) != existing_edges.end());
+            bool exists = (existing_edges.find(edge) != existing_edges.end() || existing_edges.find(edge_rev) != existing_edges.end());
             
-            // Nếu cả 2 chiều đều không tồn tại, thêm cả 2 vào candidates
-            if (!ab_exists && !ba_exists) {
+            if (!exists) {
                 double dist = distances[i][j];
                 candidates.push_back(make_tuple(dist, node_a, node_b));
                 candidates.push_back(make_tuple(dist, node_b, node_a));
@@ -1438,33 +1445,41 @@ vector<tuple<double, int, int>> find_missing_shortest_edges(const LevelInfo& cur
         return get<0>(a) < get<0>(b);
     });
     
-    cout << "🔍 All missing edge candidates (both directions):" << endl;
+    cout << "🔍 All missing edge candidates:" << endl;
     for (size_t k = 0; k < candidates.size(); k++) {
         cout << "   Candidate " << (k+1) << ": Distance=" << get<0>(candidates[k])
              << " (" << get<1>(candidates[k]) << " → " << get<2>(candidates[k]) << ")" << endl;
     }
 
-    // Filter: loại bỏ các cạnh có node trùng lặp
     vector<tuple<double, int, int>> filtered;
-    set<int> used_nodes;
+    set<int> used_start_nodes;
+    set<int> used_end_nodes;
+    set<pair<int,int>> selected_edges; // để tránh cạnh đảo ngược 
 
     for (const auto& candidate : candidates) {
         double dist = get<0>(candidate);
         int node_a = get<1>(candidate);
         int node_b = get<2>(candidate);
+
+        pair<int, int> edge = make_pair(node_a, node_b);
+        pair<int, int> edge_rev = make_pair(node_b, node_a);
+
+        if (selected_edges.find(edge_rev) != selected_edges.end()) {
+            continue; // Bỏ qua cạnh đảo ngược đã được chọn
+        }
         
-        // Nếu bất kỳ node nào đã được dùng, skip
-        if (used_nodes.find(node_a) != used_nodes.end() || 
-            used_nodes.find(node_b) != used_nodes.end()) {
+        if (used_start_nodes.find(node_a) != used_start_nodes.end() || used_end_nodes.find(node_b) != used_end_nodes.end()) {
             continue;
         }
         
         filtered.push_back(candidate);
-        used_nodes.insert(node_a);
-        used_nodes.insert(node_b);
+        selected_edges.insert(edge);
+        selected_edges.insert(edge_rev);
+        used_start_nodes.insert(node_a);
+        used_end_nodes.insert(node_b);
     }
 
-    cout << "\n🔍 Missing edges (sorted by distance, filtered - no duplicate nodes):" << endl;
+    cout << "\n🔍 Missing edges (filtered - no duplicate start/end):" << endl;
     for (size_t k = 0; k < filtered.size(); k++) {
         cout << "   Edge " << (k+1) << ": Distance=" << get<0>(filtered[k])
              << " (" << get<1>(filtered[k]) << " → " << get<2>(filtered[k]) << ")" << endl;
@@ -1617,12 +1632,27 @@ Solution insertion_process(const Solution& best_sol, const LevelInfo& current_le
     
     Solution current_sol = best_sol;
     int successful_insertions = 0;
-    vector<tuple<int, int, int, double>> inserted_edges; // cạnh đã insert thành công
+    vector<tuple<int, int, int, double>> inserted_edges; 
+    
+    set<pair<int,int>> remaining_candidates;
+    for (const auto& candidate : candidates) {
+        int node_a = get<1>(candidate);
+        int node_b = get<2>(candidate);
+        // Chuẩn hóa cạnh (luôn lưu dạng min, max)
+        remaining_candidates.insert({min(node_a, node_b), max(node_a, node_b)});
+    }
     
     for (const auto& candidate : candidates) {
         double dist = get<0>(candidate);
         int node_a = get<1>(candidate);
         int node_b = get<2>(candidate);
+        
+        pair<int,int> normalized_edge = {min(node_a, node_b), max(node_a, node_b)};
+        if (remaining_candidates.find(normalized_edge) == remaining_candidates.end()) {
+            cout << "   ⏭️  Skip edge (" << node_a << ", " << node_b 
+                 << ") - already exists (created accidentally)" << endl;
+            continue;
+        }
         
         auto [veh_a, pos_a] = find_node_position(current_sol, node_a);
         auto [veh_b, pos_b] = find_node_position(current_sol, node_b);
@@ -1658,6 +1688,26 @@ Solution insertion_process(const Solution& best_sol, const LevelInfo& current_le
             current_sol = best_new_sol;
             successful_insertions++;
             inserted_edges.push_back({node_a, node_b, best_method, best_fitness});
+            
+            remaining_candidates.erase(normalized_edge);
+            
+            set<pair<int,int>> current_edges = get_existing_edges(current_sol);
+            
+            auto it = remaining_candidates.begin();
+            while (it != remaining_candidates.end()) {
+                pair<int,int> edge = *it;
+                
+                bool forward_exists = (current_edges.find(edge) != current_edges.end());
+                bool backward_exists = (current_edges.find({edge.second, edge.first}) != current_edges.end());
+                
+                if (forward_exists || backward_exists) {
+                    cout << "   🎯 Edge (" << edge.first << ", " << edge.second 
+                         << ") was accidentally created - removing from candidates" << endl;
+                    it = remaining_candidates.erase(it);
+                } else {
+                    ++it;
+                }
+            }
         }
     }
     
@@ -1668,13 +1718,14 @@ Solution insertion_process(const Solution& best_sol, const LevelInfo& current_le
         cout << "   📝 Inserted edges:" << endl;
         for (const auto& edge : inserted_edges) {
             cout << "      Edge (" << get<0>(edge) << ", " << get<1>(edge) 
-                 << ") using method " << get<2>(edge) 
-                 << " | Distance: " << get<3>(edge) << endl;
+                 << ") using method " << get<2>(edge)                                                                                
+                 << " | Fitness: " << get<3>(edge) << endl;
         }
     }
     
     cout << "   Fitness: " << best_sol.fitness << " → " << current_sol.fitness 
          << " (" << (current_sol.fitness < best_sol.fitness ? "✅ improved" : "no change") << ")" << endl;
+    print_solution(current_sol);
     
     return current_sol;
 }
@@ -1708,8 +1759,7 @@ vector<tuple<double, int, int>> collect_merge_candidates(const LevelInfo& curren
         const Node& node_from = current_level.nodes[idx_from];
         const Node& node_to = current_level.nodes[idx_to];
         
-        bool same_type = (node_from.c1_or_c2 == 0 && node_to.c1_or_c2 == 0) || 
-                        (node_from.c1_or_c2 > 0 && node_to.c1_or_c2 > 0);
+        bool same_type = (node_from.c1_or_c2 == 0 && node_to.c1_or_c2 == 0) || (node_from.c1_or_c2 > 0 && node_to.c1_or_c2 > 0);
         
         if (same_type){
             double distance = distances[idx_from][idx_to];
@@ -2203,12 +2253,9 @@ Solution multilevel_tabu_search() {
     double prev_fitness = DBL_MAX;
 
     while (coarsening && L < max_levels) {
-        //cout << "\n--- LEVEL " << L << " ---" << endl;
-        auto level_start = chrono::high_resolution_clock::now();   
+        //cout << "\n--- LEVEL " << L << " ---" << endl;  
         update_node_index_cache(all_levels[L]);
         Solution s_current = tabu_search(s, &all_levels[L]);
-        auto level_end = chrono::high_resolution_clock::now();
-        double level_time = chrono::duration<double>(level_end - level_start).count();
         print_solution(s_current);
         if (L >= 3 && s_current.fitness == prev_fitness) {
             break;
@@ -2396,10 +2443,10 @@ int main(int argc, char* argv[]) {
         {0, 5, 7, 3, 8, 2, 0}
     };
 
-    Solution test_solution = create_test_solution_from_routes(test_routes);
+    //Solution test_solution = create_test_solution_from_routes(test_routes);
 
-    //Solution best_solution = multilevel_tabu_search();
-    //print_solution(best_solution);
+    Solution best_solution = multilevel_tabu_search();
+    print_solution(best_solution);
 
     return 0;
 }
