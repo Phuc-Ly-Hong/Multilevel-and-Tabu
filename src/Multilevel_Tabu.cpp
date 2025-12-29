@@ -2093,7 +2093,6 @@ Solution create_test_solution_from_routes(const vector<vector<int>>& test_routes
     cout << "Fitness: " << test_sol.fitness << endl;
     cout << "Is feasible: " << (test_sol.is_feasible ? "YES ✅" : "NO ❌") << endl;
     
-    // ✅ CHI TIẾT VI PHẠM (NẾU CÓ)
     if (!test_sol.is_feasible) {
         cout << "\n⚠️  VIOLATIONS DETECTED:" << endl;
         
@@ -2121,7 +2120,7 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\50.40.4.txt"; 
+        dataset_path = "D:\\New folder\\instances\\10.10.1.txt"; 
     }
     read_dataset(dataset_path);
     printf("MAX_ITER: %d\n", MAX_ITER);
