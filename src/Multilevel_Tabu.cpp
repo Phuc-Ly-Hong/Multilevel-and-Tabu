@@ -1434,9 +1434,10 @@ vector<tuple<double, int, int>> find_missing_shortest_edges(const LevelInfo& cur
             bool exists = (existing_edges.find(edge) != existing_edges.end() || existing_edges.find(edge_rev) != existing_edges.end());
             
             if (!exists) {
-                double dist = distances[i][j];
-                candidates.push_back(make_tuple(dist, node_a, node_b));
-                candidates.push_back(make_tuple(dist, node_b, node_a));
+                double dist_ab = current_level.distance_matrix[i][j];
+                double dist_ba = current_level.distance_matrix[j][i];
+                candidates.push_back(make_tuple(dist_ab, node_a, node_b));
+                candidates.push_back(make_tuple(dist_ab, node_b, node_a));
             }
         }
     }
@@ -1638,7 +1639,6 @@ Solution insertion_process(const Solution& best_sol, const LevelInfo& current_le
     for (const auto& candidate : candidates) {
         int node_a = get<1>(candidate);
         int node_b = get<2>(candidate);
-        // Chuẩn hóa cạnh (luôn lưu dạng min, max)
         remaining_candidates.insert({min(node_a, node_b), max(node_a, node_b)});
     }
     
@@ -2417,7 +2417,7 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\10.10.1.txt"; 
+        dataset_path = "D:\\New folder\\instances\\50.10.1.txt"; 
     }
     read_dataset(dataset_path);
     printf("MAX_ITER: %d\n", MAX_ITER);
