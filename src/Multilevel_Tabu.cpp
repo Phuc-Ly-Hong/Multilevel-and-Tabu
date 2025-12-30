@@ -2208,18 +2208,34 @@ Solution multilevel_tabu_search() {
     double prev_fitness = DBL_MAX;
 
     while (coarsening && L < max_levels) {
-        //cout << "\n--- LEVEL " << L << " ---" << endl;  
+        //cout << "\n--- LEVEL " << L << " ---" << endl;
+        auto level_start = chrono::high_resolution_clock::now();   
         update_node_index_cache(all_levels[L]);
         Solution s_current = tabu_search(s, &all_levels[L]);
+        auto level_end = chrono::high_resolution_clock::now();
+        double level_time = chrono::duration<double>(level_end - level_start).count();
         print_solution(s_current);
         if (L >= 3 && s_current.fitness == prev_fitness) {
             break;
         }
         prev_fitness = s_current.fitness;
         s = s_current;
+        auto insert_start = chrono::high_resolution_clock::now();
         s = insertion_process(s, all_levels[L]);
+        auto insert_end = chrono::high_resolution_clock::now();
+        double insert_time = chrono::duration<double>(insert_end - insert_start).count();
+        cout << "⏱️  Level " << all_levels[L].level_id << " Insertion Time: " 
+             << fixed << setprecision(10) << insert_time << "s" << endl;
+        auto merge_start = chrono::high_resolution_clock::now();
         LevelInfo next_level = merge_customers(all_levels[L], s, distances);
+        //cout << "Nodes in next_level: ";
+        //for (const auto& node : next_level.nodes) cout << node.id << " ";
+        //cout << endl;
+        auto merge_end = chrono::high_resolution_clock::now();
+        double merge_time = chrono::duration<double>(merge_end - merge_start).count();
         int reduction = all_levels[L].nodes.size() - next_level.nodes.size();
+        cout << "⏱️  Level " << all_levels[L].level_id << " Merging Time: " 
+             << fixed << setprecision(10) << merge_time << "s" << endl;
         if (reduction < 1) {
             cout << "Insufficient reduction, stopping coarsening" << endl;
             break;
@@ -2232,7 +2248,12 @@ Solution multilevel_tabu_search() {
         num_nodes = next_level.nodes.size();
         
         // Project solution
+        auto project_start = chrono::high_resolution_clock::now();
         s = project_solution_to_next_level(s, all_levels[L], next_level);
+        auto project_end = chrono::high_resolution_clock::now();
+        double project_time = chrono::duration<double>(project_end - project_start).count();
+        cout << "⏱️  Level " << all_levels[L].level_id << " Projection Time: " 
+             << fixed << setprecision(10) << project_time << "s" << endl;
         update_node_index_cache(next_level);
         for (size_t v = 0; v < s.route.size(); v++) {
             cout << "Vehicle " << v << ": ";
@@ -2247,14 +2268,24 @@ Solution multilevel_tabu_search() {
         cout << "Projected solution fitness: " << s.fitness << endl;
         
         L++;
+        
+        cout << "⏱️  Level " << all_levels[L-1].level_id << " Tabu Search Time: " 
+             << fixed << setprecision(10) << level_time << "s" << endl;
     }
     Solution best_overall = s;
     
     for (int i = 0; i < L; i++) {
         int current_level_id = L - i;
         int prev_level_id = L - i - 1;
-
+        
+        //cout << "\n=== REFINING FROM LEVEL " << current_level_id << " TO LEVEL " << prev_level_id << " ===" << endl; 
+        // Unmerge solution
+        auto unmerge_start = chrono::high_resolution_clock::now();
         s = unmerge_solution_to_previous_level(s, all_levels[current_level_id], all_levels[prev_level_id]);
+        auto unmerge_end = chrono::high_resolution_clock::now();
+        double unmerge_time = chrono::duration<double>(unmerge_end - unmerge_start).count();
+        cout << "⏱️  Unmerging from level " << current_level_id << " to " << prev_level_id 
+             << " Time: " << fixed << setprecision(10) << unmerge_time << "s" << endl;
         distances = all_levels[prev_level_id].distance_matrix;
 
         C1 = all_levels[prev_level_id].C1_level;
@@ -2268,24 +2299,31 @@ Solution multilevel_tabu_search() {
              << (distances.empty() ? 0 : distances[0].size()) << endl;*/
 
         update_node_index_cache(all_levels[prev_level_id]);
-        // CASE 1: LEVEL 0 - DÙNG EVALUATE VÀ TABU KHÔNG CÓ LEVEL
         if (prev_level_id == 0) {
+            cout << "\n🎯 FINAL REFINEMENT AT LEVEL 0 (No merged nodes)" << endl;
             merged_nodes_info.clear();
             internal_distance_cache.clear();
             
             evaluate_solution(s, nullptr);
             print_solution(s);
+            
+            auto refine_start = chrono::high_resolution_clock::now();
+            
             s = tabu_search(s, nullptr);
             
             evaluate_solution(s, nullptr);
-
+            
+            auto refine_end = chrono::high_resolution_clock::now();
+            double refine_time = chrono::duration<double>(refine_end - refine_start).count();
+            cout << "⏱️  Final Refining at level 0 Time: " 
+                << fixed << setprecision(10) << refine_time << "s" << endl;
             cout << "After tabu: " << endl;
             print_solution(s);
             best_overall = s;
         }
-        // CASE 2: LEVEL 1, 2, 3... - VẪN DÙNG MULTILEVEL
         else {
-            // CLEAR MERGED INFO CỦA LEVEL CAO HƠN
+            cout << "\n🔧 Refining at level " << prev_level_id << " (with merged nodes)" << endl;
+            
             auto it = merged_nodes_info.begin();
             while (it != merged_nodes_info.end()) {
                 if (it->second.level_id > prev_level_id) {
@@ -2294,13 +2332,20 @@ Solution multilevel_tabu_search() {
                     ++it;
                 }
             }
+            cout << "🧹 Cleaned merged_nodes_info: kept " << merged_nodes_info.size() 
+                << " nodes for level " << prev_level_id << endl;
             
             evaluate_solution(s, &all_levels[prev_level_id]);
             print_solution(s);
-
+            
+            auto refine_start = chrono::high_resolution_clock::now();            
             s = tabu_search(s, &all_levels[prev_level_id]);
             evaluate_solution(s, &all_levels[prev_level_id]);
-
+            
+            auto refine_end = chrono::high_resolution_clock::now();
+            double refine_time = chrono::duration<double>(refine_end - refine_start).count();
+            cout << "⏱️  Refining at level " << prev_level_id << " Time: " 
+                << fixed << setprecision(10) << refine_time << "s" << endl;
             cout << "After tabu: " << endl;
             print_solution(s);
             best_overall = s;
@@ -2372,7 +2417,7 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\50.10.1.txt"; 
+        dataset_path = "D:\\New folder\\instances\\50.40.1.txt"; 
     }
     read_dataset(dataset_path);
     printf("MAX_ITER: %d\n", MAX_ITER);
