@@ -1445,12 +1445,6 @@ vector<tuple<double, int, int>> find_missing_shortest_edges(const LevelInfo& cur
     sort(candidates.begin(), candidates.end(), [](const tuple<double, int, int>& a, const tuple<double, int, int>& b) {
         return get<0>(a) < get<0>(b);
     });
-    
-    cout << "🔍 All missing edge candidates:" << endl;
-    for (size_t k = 0; k < candidates.size(); k++) {
-        cout << "   Candidate " << (k+1) << ": Distance=" << get<0>(candidates[k])
-             << " (" << get<1>(candidates[k]) << " → " << get<2>(candidates[k]) << ")" << endl;
-    }
 
     vector<tuple<double, int, int>> filtered;
     set<int> used_start_nodes;
@@ -1478,12 +1472,6 @@ vector<tuple<double, int, int>> find_missing_shortest_edges(const LevelInfo& cur
         selected_edges.insert(edge_rev);
         used_start_nodes.insert(node_a);
         used_end_nodes.insert(node_b);
-    }
-
-    cout << "\n🔍 Missing edges (filtered - no duplicate start/end):" << endl;
-    for (size_t k = 0; k < filtered.size(); k++) {
-        cout << "   Edge " << (k+1) << ": Distance=" << get<0>(filtered[k])
-             << " (" << get<1>(filtered[k]) << " → " << get<2>(filtered[k]) << ")" << endl;
     }
 
     return filtered;
@@ -1625,107 +1613,74 @@ Solution insertion_process(const Solution& best_sol, const LevelInfo& current_le
         return best_sol;
     }
     
-    // h = 10% số đỉnh
-    int num_to_insert = max(1, (int)(current_level.nodes.size() * 0.1));
-    cout << "insert: " << num_to_insert << endl;
+    // Chỉ lấy 10% shortest edges
+    int num_to_insert = max(1, (int)(candidates.size() * 0.1));
     candidates.resize(min((int)candidates.size(), num_to_insert));
+    
+    cout << "insert: " << num_to_insert << endl;
     cout << "   Found " << candidates.size() << " candidate edges to insert" << endl;
     
     Solution current_sol = best_sol;
     int successful_insertions = 0;
-    vector<tuple<int, int, int, double>> inserted_edges; 
+    vector<tuple<int, int, int, double>> inserted_edges;
     
-    set<pair<int,int>> remaining_candidates;
-    for (const auto& candidate : candidates) {
-        int node_a = get<1>(candidate);
-        int node_b = get<2>(candidate);
-        remaining_candidates.insert({min(node_a, node_b), max(node_a, node_b)});
-    }
+    set<pair<int,int>> old_edges = get_existing_edges(best_sol);
     
     for (const auto& candidate : candidates) {
         double dist = get<0>(candidate);
         int node_a = get<1>(candidate);
         int node_b = get<2>(candidate);
         
-        pair<int,int> normalized_edge = {min(node_a, node_b), max(node_a, node_b)};
-        if (remaining_candidates.find(normalized_edge) == remaining_candidates.end()) {
-            cout << "   ⏭️  Skip edge (" << node_a << ", " << node_b 
-                 << ") - already exists (created accidentally)" << endl;
-            continue;
-        }
-        
-        auto [veh_a, pos_a] = find_node_position(current_sol, node_a);
-        auto [veh_b, pos_b] = find_node_position(current_sol, node_b);
-        
-        if (veh_a == -1 || veh_b == -1) continue;
-        
-        bool same_vehicle = (veh_a == veh_b);
-        int start_method = 1;
-        int end_method = same_vehicle ? 8 : 12;
-        
-        double best_fitness = DBL_MAX;
         int best_method = -1;
         Solution best_new_sol = current_sol;
+        double best_method_fitness = DBL_MAX;
+        int best_direction = 0; 
         
-        set<pair<int,int>> old_edges = get_existing_edges(current_sol);
-        
-        for (int method = start_method; method <= end_method; method++) {
-            Solution test_sol = apply_insertion_method(current_sol, method, node_a, node_b, veh_a, pos_a, veh_b, pos_b, &current_level);
+        for (int direction = 0; direction < 2; direction++) {
+            int node_x = (direction == 0) ? node_a : node_b;
+            int node_y = (direction == 0) ? node_b : node_a;
             
-            set<pair<int,int>> new_edges = get_existing_edges(test_sol);
-            pair<int,int> target = {min(node_a, node_b), max(node_a, node_b)};
+            auto [veh_x, pos_x] = find_node_position(current_sol, node_x);
+            auto [veh_y, pos_y] = find_node_position(current_sol, node_y);
             
-            bool edge_created = (new_edges.find(target) != new_edges.end()) && (old_edges.find(target) == old_edges.end());
+            if (veh_x == -1 || veh_y == -1) continue;
             
-            if (edge_created && test_sol.fitness < best_fitness - EPSILON) {
-                best_fitness = test_sol.fitness;
-                best_method = method;
-                best_new_sol = test_sol;
+            bool same_vehicle = (veh_x == veh_y);
+            int start_method = same_vehicle ? 1 : 9;
+            int end_method = same_vehicle ? 8 : 12;
+            
+            for (int method = start_method; method <= end_method; method++) {
+                Solution test_sol = apply_insertion_method(
+                    current_sol, method,
+                    node_x, node_y,
+                    veh_x, pos_x,
+                    veh_y, pos_y,
+                    &current_level
+                );
+                
+                set<pair<int,int>> new_edges = get_existing_edges(test_sol);
+                
+                pair<int,int> target = {node_x, node_y};
+                
+                bool edge_created = (new_edges.find(target) != new_edges.end()) && (old_edges.find(target) == old_edges.end());
+                
+                if (edge_created && test_sol.fitness < best_method_fitness - EPSILON) {
+                    best_method = method;
+                    best_new_sol = test_sol;
+                    best_method_fitness = test_sol.fitness;
+                    best_direction = direction;
+                }
             }
         }
         
         if (best_method != -1) {
             current_sol = best_new_sol;
             successful_insertions++;
-            inserted_edges.push_back({node_a, node_b, best_method, best_fitness});
-            
-            remaining_candidates.erase(normalized_edge);
-            
-            set<pair<int,int>> current_edges = get_existing_edges(current_sol);
-            
-            auto it = remaining_candidates.begin();
-            while (it != remaining_candidates.end()) {
-                pair<int,int> edge = *it;
-                
-                bool forward_exists = (current_edges.find(edge) != current_edges.end());
-                bool backward_exists = (current_edges.find({edge.second, edge.first}) != current_edges.end());
-                
-                if (forward_exists || backward_exists) {
-                    cout << "   🎯 Edge (" << edge.first << ", " << edge.second 
-                         << ") was accidentally created - removing from candidates" << endl;
-                    it = remaining_candidates.erase(it);
-                } else {
-                    ++it;
-                }
-            }
+            int inserted_from = (best_direction == 0) ? node_a : node_b;
+            int inserted_to = (best_direction == 0) ? node_b : node_a;
+            inserted_edges.push_back({inserted_from, inserted_to, best_method, current_sol.fitness});
         }
     }
-    
-    cout << "   Inserted " << successful_insertions << "/" << candidates.size() 
-         << " edges successfully" << endl;
-    
-    if (successful_insertions > 0) {
-        cout << "   📝 Inserted edges:" << endl;
-        for (const auto& edge : inserted_edges) {
-            cout << "      Edge (" << get<0>(edge) << ", " << get<1>(edge) 
-                 << ") using method " << get<2>(edge)                                                                                
-                 << " | Fitness: " << get<3>(edge) << endl;
-        }
-    }
-    
-    cout << "   Fitness: " << best_sol.fitness << " → " << current_sol.fitness 
-         << " (" << (current_sol.fitness < best_sol.fitness ? "✅ improved" : "no change") << ")" << endl;
-    print_solution(current_sol);
     
     return current_sol;
 }
