@@ -2,9 +2,9 @@ name: Run Tabu Search
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, Scenario_B_D ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main, master, Scenario_B_D ]
   workflow_dispatch:
 
 permissions:
@@ -24,10 +24,27 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y g++ bc
     
+    - name: Verify source file exists
+      run: |
+        if [ ! -f "src/Tabu.cpp" ]; then
+          echo "❌ Error: src/Tabu.cpp not found!"
+          exit 1
+        fi
+        echo "✅ Source file found"
+    
     - name: Compile executable
       run: |
         g++ -O3 -std=c++17 -march=native -o tabu src/Tabu.cpp
+        if [ ! -f "tabu" ]; then
+          echo "❌ Compilation failed!"
+          exit 1
+        fi
         chmod +x tabu
+        echo "✅ Compilation successful"
+    
+    - name: Test executable
+      run: |
+        ./tabu --help 2>&1 || echo "Executable created"
     
     - name: Upload executable
       uses: actions/upload-artifact@v4
@@ -40,7 +57,7 @@ jobs:
     name: Small ${{ matrix.instance }}
     needs: compile
     runs-on: ubuntu-latest
-    timeout-minutes: 100
+    timeout-minutes: 15
     
     strategy:
       fail-fast: false
@@ -70,15 +87,44 @@ jobs:
       with:
         name: tabu-executable
     
+    - name: Verify instance file exists
+      run: |
+        INSTANCE_FILE="instances/${{ matrix.instance }}.txt"
+        if [ ! -f "$INSTANCE_FILE" ]; then
+          echo "❌ Error: $INSTANCE_FILE not found!"
+          ls -la instances/ || echo "instances/ directory not found"
+          exit 1
+        fi
+        echo "✅ Instance file found: $INSTANCE_FILE"
+        echo "File size: $(wc -l < $INSTANCE_FILE) lines"
+    
     - name: Run algorithm 5 times
       run: |
         chmod +x tabu
         
         for run in {1..5}; do
+          echo "=== Run $run/5 for ${{ matrix.instance }} ==="
           START_TIME=$(date +%s.%N)
-          timeout 8m ./tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1 || echo "TIMEOUT" >> output_run${run}.txt
+          
+          # Run với error handling
+          timeout 8m ./tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
+          EXIT_CODE=$?
+          
           END_TIME=$(date +%s.%N)
-          echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
+          RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
+          echo "$RUNTIME" > runtime_run${run}.txt
+          
+          # Check exit code
+          if [ $EXIT_CODE -eq 124 ]; then
+            echo "TIMEOUT" >> output_run${run}.txt
+            echo "⏱️ Run $run: TIMEOUT after 8 minutes"
+          elif [ $EXIT_CODE -ne 0 ]; then
+            echo "ERROR: Exit code $EXIT_CODE" >> output_run${run}.txt
+            echo "❌ Run $run: Failed with exit code $EXIT_CODE"
+            cat output_run${run}.txt | tail -20
+          else
+            echo "✅ Run $run: Completed in ${RUNTIME}s"
+          fi
         done
     
     - name: Parse results
@@ -98,42 +144,66 @@ jobs:
         
         def parse_output(output_file, runtime_file):
             try:
+                # Read output
+                if not os.path.exists(output_file):
+                    print(f"⚠️  Warning: {output_file} not found")
+                    return {"runtime": 0, "makespan": 0, "drone_violation": 0,
+                            "waiting_violation": 0, "fitness": float('inf'), "feasible": "ERROR"}
+                
                 with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
                 
-                if "TIMEOUT" in content or not content or "Fitness:" not in content:
-                    runtime = 480.0
-                    if os.path.exists(runtime_file):
-                        with open(runtime_file, "r") as f:
-                            runtime = float(f.read().strip())
-                    return {
-                        "runtime": round(runtime, 3), "makespan": 0.0,
-                        "drone_violation": 0.0, "waiting_violation": 0.0,
-                        "fitness": float('inf'), "feasible": "TIMEOUT"
-                    }
-                
-                runtime = 0.0
+                # Read runtime
+                runtime = 480.0  # default timeout
                 if os.path.exists(runtime_file):
                     with open(runtime_file, "r") as f:
-                        runtime = float(f.read().strip())
+                        try:
+                            runtime = float(f.read().strip())
+                        except:
+                            pass
                 
+                # Check for timeout/error
+                if "TIMEOUT" in content:
+                    print(f"⏱️ {output_file}: TIMEOUT")
+                    return {"runtime": round(runtime, 3), "makespan": 0.0,
+                            "drone_violation": 0.0, "waiting_violation": 0.0,
+                            "fitness": float('inf'), "feasible": "TIMEOUT"}
+                
+                if "ERROR" in content or not content:
+                    print(f"❌ {output_file}: ERROR or empty")
+                    return {"runtime": round(runtime, 3), "makespan": 0.0,
+                            "drone_violation": 0.0, "waiting_violation": 0.0,
+                            "fitness": float('inf'), "feasible": "ERROR"}
+                
+                # Parse metrics
                 makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
                 drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
                 waiting_viol = find_metric_last(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
                 fitness = find_metric_last(r'Fitness:\s*([0-9.+\-eE]+)', content)
+                
+                # Check if all metrics found
+                if makespan == 0.0 and fitness == 0.0:
+                    print(f"⚠️  {output_file}: No metrics found")
+                    print(f"Content preview: {content[:200]}")
+                    return {"runtime": round(runtime, 3), "makespan": 0.0,
+                            "drone_violation": 0.0, "waiting_violation": 0.0,
+                            "fitness": float('inf'), "feasible": "NO_OUTPUT"}
+                
                 feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
                 
+                print(f"✅ {output_file}: makespan={makespan}, fitness={fitness}")
                 return {
-                    "runtime": round(runtime, 3), "makespan": round(makespan, 4),
-                    "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
-                    "fitness": round(fitness, 4), "feasible": feasible
+                    "runtime": round(runtime, 3), 
+                    "makespan": round(makespan, 4),
+                    "drone_violation": round(drone_viol, 4), 
+                    "waiting_violation": round(waiting_viol, 4),
+                    "fitness": round(fitness, 4), 
+                    "feasible": feasible
                 }
             except Exception as e:
-                print(f"Error: {e}")
-                return {
-                    "runtime": 0, "makespan": 0, "drone_violation": 0,
-                    "waiting_violation": 0, "fitness": float('inf'), "feasible": "ERROR"
-                }
+                print(f"❌ Error parsing {output_file}: {e}")
+                return {"runtime": 0, "makespan": 0, "drone_violation": 0,
+                        "waiting_violation": 0, "fitness": float('inf'), "feasible": "ERROR"}
         
         runs = []
         for run in range(1, 6):
@@ -143,6 +213,10 @@ jobs:
         
         with open("results.json", "w") as f:
             json.dump({"instance": instance, "runs": runs}, f, indent=2)
+        
+        print(f"\n📊 Summary for {instance}:")
+        for r in runs:
+            print(f"  Run {r['run']}: {r['feasible']} - fitness={r['fitness']}")
         EOF
     
     - name: Upload results
@@ -151,12 +225,22 @@ jobs:
         name: tabu-result-${{ matrix.instance }}
         path: results.json
         retention-days: 30
+    
+    - name: Upload debug logs (on failure)
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: debug-logs-${{ matrix.instance }}
+        path: |
+          output_run*.txt
+          runtime_run*.txt
+        retention-days: 7
 
   run-medium:
     name: Medium ${{ matrix.instance }}
     needs: compile
     runs-on: ubuntu-latest
-    timeout-minutes: 200
+    timeout-minutes: 30
     
     strategy:
       fail-fast: false
@@ -178,15 +262,29 @@ jobs:
       with:
         name: tabu-executable
     
+    - name: Verify instance file
+      run: |
+        INSTANCE_FILE="instances/${{ matrix.instance }}.txt"
+        if [ ! -f "$INSTANCE_FILE" ]; then
+          echo "❌ Error: $INSTANCE_FILE not found!"
+          exit 1
+        fi
+        echo "✅ Instance file found"
+    
     - name: Run algorithm 5 times
       run: |
         chmod +x tabu
         
         for run in {1..5}; do
+          echo "=== Run $run/5 ==="
           START_TIME=$(date +%s.%N)
-          timeout 18m ./tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1 || echo "TIMEOUT" >> output_run${run}.txt
+          timeout 18m ./tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
+          EXIT_CODE=$?
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
+          
+          [ $EXIT_CODE -eq 124 ] && echo "TIMEOUT" >> output_run${run}.txt
+          [ $EXIT_CODE -ne 0 ] && [ $EXIT_CODE -ne 124 ] && echo "ERROR: Exit code $EXIT_CODE" >> output_run${run}.txt
         done
     
     - name: Parse results
@@ -204,21 +302,16 @@ jobs:
                 with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
                 
-                if "TIMEOUT" in content or not content or "Fitness:" not in content:
-                    runtime = 1080.0
-                    if os.path.exists(runtime_file):
-                        with open(runtime_file, "r") as f:
-                            runtime = float(f.read().strip())
-                    return {
-                        "runtime": round(runtime, 3), "makespan": 0.0,
-                        "drone_violation": 0.0, "waiting_violation": 0.0,
-                        "fitness": float('inf'), "feasible": "TIMEOUT"
-                    }
-                
-                runtime = 0.0
+                runtime = 1080.0
                 if os.path.exists(runtime_file):
                     with open(runtime_file, "r") as f:
                         runtime = float(f.read().strip())
+                
+                if "TIMEOUT" in content or "ERROR" in content or not content or "Fitness:" not in content:
+                    status = "TIMEOUT" if "TIMEOUT" in content else ("ERROR" if "ERROR" in content else "NO_OUTPUT")
+                    return {"runtime": round(runtime, 3), "makespan": 0.0,
+                            "drone_violation": 0.0, "waiting_violation": 0.0,
+                            "fitness": float('inf'), "feasible": status}
                 
                 makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
                 drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
@@ -229,7 +322,8 @@ jobs:
                 return {"runtime": round(runtime, 3), "makespan": round(makespan, 4),
                         "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
                         "fitness": round(fitness, 4), "feasible": feasible}
-            except:
+            except Exception as e:
+                print(f"Error: {e}")
                 return {"runtime": 0, "makespan": 0, "drone_violation": 0, "waiting_violation": 0,
                         "fitness": float('inf'), "feasible": "ERROR"}
         
@@ -249,7 +343,7 @@ jobs:
     name: Large ${{ matrix.instance }}
     needs: compile
     runs-on: ubuntu-latest
-    timeout-minutes: 400
+    timeout-minutes: 60
     
     strategy:
       fail-fast: false
@@ -271,15 +365,29 @@ jobs:
       with:
         name: tabu-executable
     
+    - name: Verify instance file
+      run: |
+        INSTANCE_FILE="instances/${{ matrix.instance }}.txt"
+        if [ ! -f "$INSTANCE_FILE" ]; then
+          echo "❌ Error: $INSTANCE_FILE not found!"
+          exit 1
+        fi
+        echo "✅ Instance file found"
+    
     - name: Run algorithm 5 times
       run: |
         chmod +x tabu
         
         for run in {1..5}; do
+          echo "=== Run $run/5 ==="
           START_TIME=$(date +%s.%N)
-          timeout 35m ./tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1 || echo "TIMEOUT" >> output_run${run}.txt
+          timeout 35m ./tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
+          EXIT_CODE=$?
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
+          
+          [ $EXIT_CODE -eq 124 ] && echo "TIMEOUT" >> output_run${run}.txt
+          [ $EXIT_CODE -ne 0 ] && [ $EXIT_CODE -ne 124 ] && echo "ERROR: Exit code $EXIT_CODE" >> output_run${run}.txt
         done
     
     - name: Parse results
@@ -297,21 +405,16 @@ jobs:
                 with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
                 
-                if "TIMEOUT" in content or not content or "Fitness:" not in content:
-                    runtime = 2100.0
-                    if os.path.exists(runtime_file):
-                        with open(runtime_file, "r") as f:
-                            runtime = float(f.read().strip())
-                    return {
-                        "runtime": round(runtime, 3), "makespan": 0.0,
-                        "drone_violation": 0.0, "waiting_violation": 0.0,
-                        "fitness": float('inf'), "feasible": "TIMEOUT"
-                    }
-                
-                runtime = 0.0
+                runtime = 2100.0
                 if os.path.exists(runtime_file):
                     with open(runtime_file, "r") as f:
                         runtime = float(f.read().strip())
+                
+                if "TIMEOUT" in content or "ERROR" in content or not content or "Fitness:" not in content:
+                    status = "TIMEOUT" if "TIMEOUT" in content else ("ERROR" if "ERROR" in content else "NO_OUTPUT")
+                    return {"runtime": round(runtime, 3), "makespan": 0.0,
+                            "drone_violation": 0.0, "waiting_violation": 0.0,
+                            "fitness": float('inf'), "feasible": status}
                 
                 makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
                 drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
@@ -322,7 +425,8 @@ jobs:
                 return {"runtime": round(runtime, 3), "makespan": round(makespan, 4),
                         "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
                         "fitness": round(fitness, 4), "feasible": feasible}
-            except:
+            except Exception as e:
+                print(f"Error: {e}")
                 return {"runtime": 0, "makespan": 0, "drone_violation": 0, "waiting_violation": 0,
                         "fitness": float('inf'), "feasible": "ERROR"}
         
@@ -353,7 +457,7 @@ jobs:
     - name: Create summary CSV
       run: |
         python3 <<'EOF'
-        import json, glob, csv, os, statistics
+        import json, glob, csv, os
         
         all_data = []
         for result_dir in glob.glob("tabu-result-*"):
@@ -386,6 +490,13 @@ jobs:
                     })
         
         print(f"✅ CSV created: {len(all_data)} instances × 5 runs = {len(all_data)*5} rows")
+        
+        # Statistics
+        timeouts = sum(1 for d in all_data for r in d["runs"] if r["feasible"] == "TIMEOUT")
+        errors = sum(1 for d in all_data for r in d["runs"] if r["feasible"] in ["ERROR", "NO_OUTPUT"])
+        success = sum(1 for d in all_data for r in d["runs"] if r["feasible"] in ["YES", "NO"])
+        
+        print(f"📊 Results: {success} successful, {timeouts} timeouts, {errors} errors")
         EOF
     
     - name: Upload CSV
