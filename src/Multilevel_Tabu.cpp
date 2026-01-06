@@ -1738,7 +1738,7 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
     vector<tuple<double,int,int>> candidates = collect_merge_candidates(current_level, best_solution);
     
     // Tính 30% số CẠNH, không phải nodes
-    int num_to_merge = max(1, (int)(candidates.size() * 0.2));
+    int num_to_merge = max(1, (int)(candidates.size() * 0.3));
     
     //cout << "\n=== MERGING " << num_to_merge << " / " << candidates.size() << " EDGES (20%) ===" << endl;
     
