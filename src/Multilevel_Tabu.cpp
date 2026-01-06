@@ -2312,7 +2312,6 @@ Solution multilevel_tabu_search() {
             s = tabu_search(s, nullptr);
             
             evaluate_solution(s, nullptr);
-            
             auto refine_end = chrono::high_resolution_clock::now();
             double refine_time = chrono::duration<double>(refine_end - refine_start).count();
             cout << "⏱️  Final Refining at level 0 Time: " 
