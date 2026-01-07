@@ -515,6 +515,23 @@ Solution init_greedy_solution() {
     return sol;
 }
 
+map<pair<int,int>, int> edge_frequency;
+
+void update_edge_frequency(const Solution& best_solution) {
+    for (size_t v = 0; v < best_solution.route.size(); v++) {
+        const vector<int>& route = best_solution.route[v];
+        for (size_t i = 0; i < route.size() - 1; i++) {
+            int from_node = route[i];
+            int to_node = route[i + 1];
+            if (from_node != depot_id && to_node != depot_id) {
+                pair<int,int> edge = make_pair(from_node, to_node);
+                edge_frequency[edge]++;
+                //cout << "Edge (" << from_node << ", " << to_node << ") frequency: " << edge_frequency[edge] << endl;
+            }
+        }
+    }
+}
+
 bool is_merged_node(int node_id, const LevelInfo& level) {
     if (node_id == depot_id) return false;
     auto it = level.node_mapping.find(node_id);
@@ -851,7 +868,7 @@ int count_customers_in_vehicle(const Solution& sol, size_t vehicle_idx) {
     return count;
 }
 
-Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
+Solution tabu_search(Solution initial_sol, const LevelInfo *current_level, bool track_edge = true){
     if (current_level != nullptr) update_node_index_cache(*current_level);
 
     Solution best_sol = initial_sol;
@@ -1307,7 +1324,9 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                 no_improve_count = 0;
                 scorePi[move_type_idx] += delta1;
                 segment_improved = true;
-
+                if (track_edge) {
+                    update_edge_frequency(best_sol);
+                }
             } else if (current_sol.fitness < current_fitness - EPSILON) {
                 scorePi[move_type_idx] += delta2;
                 no_improve_count++;
@@ -1400,75 +1419,78 @@ void classify_customers(LevelInfo& level){
     level.num_customers = level.C1_level.size() + level.C2_level.size();
 }
 
-// các cạnh đã tồn tại trong lời giải
-set<pair<int, int>> get_existing_edges(const Solution& sol) {
-    set<pair<int, int>> edges;
-    for (const auto& route : sol.route) {
+// cạnh đã có trong lời giải tốt nhất
+set<pair<int,int>> get_existing_edges(const  Solution& best_solution) {
+    set<pair<int,int>> edges;
+    for (const auto& route : best_solution.route) {
         for (size_t i = 0; i < route.size() - 1; i++) {
-            int from = route[i];
-            int to = route[i+1];
-            if (from != depot_id && to != depot_id) {
-                edges.insert({min(from,to), max(from,to)});
+            int from_node = route[i];
+            int to_node = route[i + 1];
+            if (from_node != depot_id && to_node != depot_id) {
+                edges.insert(make_pair(from_node, to_node));
             }
         }
     }
     return edges;
 }
 
-// Tìm các cạnh ngắn nhất chưa có trong lời giải tốt nhất
 vector<tuple<double, int, int>> find_missing_shortest_edges(const LevelInfo& current_level, const Solution& best_solution){
-    set<pair<int,int>> existing = get_existing_edges(best_solution);
+    set<pair<int, int>> existing_edges = get_existing_edges(best_solution);
     vector<tuple<double, int, int>> candidates;
-    
+
     for (size_t i = 0; i < current_level.nodes.size(); i++) {
         for (size_t j = i+1; j < current_level.nodes.size(); j++) {
             int node_a = current_level.nodes[i].id;
             int node_b = current_level.nodes[j].id;
-
             if (node_a == depot_id || node_b == depot_id) continue;
-
             bool both_c1 = (current_level.nodes[i].c1_or_c2 == 0 && current_level.nodes[j].c1_or_c2 == 0);
             bool both_c2 = (current_level.nodes[i].c1_or_c2 > 0 && current_level.nodes[j].c1_or_c2 > 0);
-            
             if (!both_c1 && !both_c2) continue;
-
-            pair<int, int> edge = {min(node_a, node_b), max(node_a, node_b)};
-
-            if (existing.find(edge) == existing.end()) {
-                double dist = current_level.distance_matrix[i][j];
-                candidates.push_back({dist, node_a, node_b});
+            
+            pair<int, int> edge = make_pair(node_a, node_b);
+            pair<int, int> edge_rev = make_pair(node_b, node_a);
+            
+            bool exists = (existing_edges.find(edge) != existing_edges.end() || existing_edges.find(edge_rev) != existing_edges.end());
+            
+            if (!exists) {
+                double dist_ab = current_level.distance_matrix[i][j];
+                double dist_ba = current_level.distance_matrix[j][i];
+                candidates.push_back(make_tuple(dist_ab, node_a, node_b));
+                candidates.push_back(make_tuple(dist_ab, node_b, node_a));
             }
         }
     }
 
-    sort(candidates.begin(), candidates.end());
-    for (size_t k = 0; k < candidates.size(); k++) {
-        cout << "Missing edge candidate: Distance=" << get<0>(candidates[k])
-             << " (" << get<1>(candidates[k]) << ", " << get<2>(candidates[k]) << ")" << endl;
-    }
+    sort(candidates.begin(), candidates.end(), [](const tuple<double, int, int>& a, const tuple<double, int, int>& b) {
+        return get<0>(a) < get<0>(b);
+    });
 
     vector<tuple<double, int, int>> filtered;
-    set<int> used_nodes;
+    set<int> used_start_nodes;
+    set<int> used_end_nodes;
+    set<pair<int,int>> selected_edges; // để tránh cạnh đảo ngược 
 
     for (const auto& candidate : candidates) {
         double dist = get<0>(candidate);
         int node_a = get<1>(candidate);
         int node_b = get<2>(candidate);
 
-        if (used_nodes.find(node_a) != used_nodes.end() ||
-            used_nodes.find(node_b) != used_nodes.end()) {
+        pair<int, int> edge = make_pair(node_a, node_b);
+        pair<int, int> edge_rev = make_pair(node_b, node_a);
+
+        if (selected_edges.find(edge_rev) != selected_edges.end()) {
+            continue; // Bỏ qua cạnh đảo ngược đã được chọn
+        }
+        
+        if (used_start_nodes.find(node_a) != used_start_nodes.end() || used_end_nodes.find(node_b) != used_end_nodes.end()) {
             continue;
         }
-
+        
         filtered.push_back(candidate);
-        used_nodes.insert(node_a);
-        used_nodes.insert(node_b);
-    }
-
-    cout << "🔍 Missing edges (sorted by distance, filtered):" << endl;
-    for (size_t k = 0; k < filtered.size(); k++) {
-        cout << "   Edge " << (k+1) << ": Distance=" << get<0>(filtered[k])
-             << " (" << get<1>(filtered[k]) << ", " << get<2>(filtered[k]) << ")" << endl;
+        selected_edges.insert(edge);
+        selected_edges.insert(edge_rev);
+        used_start_nodes.insert(node_a);
+        used_end_nodes.insert(node_b);
     }
 
     return filtered;
@@ -1610,74 +1632,135 @@ Solution insertion_process(const Solution& best_sol, const LevelInfo& current_le
         return best_sol;
     }
     
-    // h = 10% số đỉnh
-    int num_to_insert = max(1, (int)(current_level.nodes.size() * 0.1));
-    cout << "insert: " << num_to_insert << endl;
+    // Chỉ lấy 10% shortest edges
+    int num_to_insert = max(1, (int)(candidates.size() * 0.1));
     candidates.resize(min((int)candidates.size(), num_to_insert));
+    
+    cout << "insert: " << num_to_insert << endl;
     cout << "   Found " << candidates.size() << " candidate edges to insert" << endl;
     
     Solution current_sol = best_sol;
     int successful_insertions = 0;
-    vector<tuple<int, int, int, double>> inserted_edges; // cạnh đã insert thành công
+    vector<tuple<int, int, int, double>> inserted_edges;
+    
+    set<pair<int,int>> old_edges = get_existing_edges(best_sol);
     
     for (const auto& candidate : candidates) {
         double dist = get<0>(candidate);
         int node_a = get<1>(candidate);
         int node_b = get<2>(candidate);
         
-        auto [veh_a, pos_a] = find_node_position(current_sol, node_a);
-        auto [veh_b, pos_b] = find_node_position(current_sol, node_b);
-        
-        if (veh_a == -1 || veh_b == -1) continue;
-        
-        bool same_vehicle = (veh_a == veh_b);
-        int start_method = 1;
-        int end_method = same_vehicle ? 8 : 12;
-        
-        double best_fitness = DBL_MAX;
         int best_method = -1;
         Solution best_new_sol = current_sol;
+        double best_method_fitness = DBL_MAX;
+        int best_direction = 0; 
         
-        set<pair<int,int>> old_edges = get_existing_edges(current_sol);
-        
-        for (int method = start_method; method <= end_method; method++) {
-            Solution test_sol = apply_insertion_method(current_sol, method, node_a, node_b, veh_a, pos_a, veh_b, pos_b, &current_level);
+        for (int direction = 0; direction < 2; direction++) {
+            int node_x = (direction == 0) ? node_a : node_b;
+            int node_y = (direction == 0) ? node_b : node_a;
             
-            set<pair<int,int>> new_edges = get_existing_edges(test_sol);
-            pair<int,int> target = {min(node_a, node_b), max(node_a, node_b)};
+            auto [veh_x, pos_x] = find_node_position(current_sol, node_x);
+            auto [veh_y, pos_y] = find_node_position(current_sol, node_y);
             
-            bool edge_created = (new_edges.find(target) != new_edges.end()) && (old_edges.find(target) == old_edges.end());
+            if (veh_x == -1 || veh_y == -1) continue;
             
-            if (edge_created && test_sol.fitness < best_fitness - EPSILON) {
-                best_fitness = test_sol.fitness;
-                best_method = method;
-                best_new_sol = test_sol;
+            bool same_vehicle = (veh_x == veh_y);
+            int start_method = same_vehicle ? 1 : 9;
+            int end_method = same_vehicle ? 8 : 12;
+            
+            for (int method = start_method; method <= end_method; method++) {
+                Solution test_sol = apply_insertion_method(
+                    current_sol, method,
+                    node_x, node_y,
+                    veh_x, pos_x,
+                    veh_y, pos_y,
+                    &current_level
+                );
+                
+                set<pair<int,int>> new_edges = get_existing_edges(test_sol);
+                
+                pair<int,int> target = {node_x, node_y};
+                
+                bool edge_created = (new_edges.find(target) != new_edges.end()) && (old_edges.find(target) == old_edges.end());
+                
+                if (edge_created && test_sol.fitness < best_method_fitness - EPSILON) {
+                    best_method = method;
+                    best_new_sol = test_sol;
+                    best_method_fitness = test_sol.fitness;
+                    best_direction = direction;
+                }
             }
         }
         
         if (best_method != -1) {
             current_sol = best_new_sol;
             successful_insertions++;
-            inserted_edges.push_back({node_a, node_b, best_method, best_fitness});
+            int inserted_from = (best_direction == 0) ? node_a : node_b;
+            int inserted_to = (best_direction == 0) ? node_b : node_a;
+            inserted_edges.push_back({inserted_from, inserted_to, best_method, current_sol.fitness});
         }
     }
-    
-    cout << "   Inserted " << successful_insertions << "/" << candidates.size() 
-         << " edges successfully" << endl;
-    
-    if (successful_insertions > 0) {
-        cout << "   📝 Inserted edges:" << endl;
-        for (const auto& edge : inserted_edges) {
-            cout << "      Edge (" << get<0>(edge) << ", " << get<1>(edge) 
-                 << ") using method " << get<2>(edge) 
-                 << " | Distance: " << get<3>(edge) << endl;
-        }
-    }
-    
-    cout << "   Fitness: " << best_sol.fitness << " → " << current_sol.fitness 
-         << " (" << (current_sol.fitness < best_sol.fitness ? "✅ improved" : "no change") << ")" << endl;
     
     return current_sol;
+}
+
+vector<tuple<int, int, int>> collect_merge_candidates(const LevelInfo& current_level, const Solution& best_solution){
+    vector<tuple<int, int, int>> candidates;
+    map<pair<int,int>, int> solution_edges;
+    
+    for (size_t v = 0; v < best_solution.route.size(); v++) {
+        
+        const vector<int>& route = best_solution.route[v];
+        for (size_t i = 0; i < route.size() - 1; i++) {
+            int from_node = route[i];
+            int to_node = route[i + 1];
+            
+            if (from_node == depot_id || to_node == depot_id) continue;
+            
+            pair<int,int> edge = make_pair(from_node, to_node);
+            solution_edges[edge]++;
+        }
+    }
+
+    for (const auto& edge_pair : solution_edges){
+        int from_node = edge_pair.first.first;
+        int to_node = edge_pair.first.second;
+
+        if (from_node == depot_id || to_node == depot_id) continue;
+
+        int count = edge_pair.second; 
+        
+        int frequency = 0;
+        auto it = edge_frequency.find(edge_pair.first);
+        if (it != edge_frequency.end()) {
+            frequency = it->second;
+        }
+        
+        int idx_from = find_node_index_fast(from_node);
+        int idx_to = find_node_index_fast(to_node);
+        if (idx_from == -1 || idx_to == -1) {
+            continue;
+        }
+
+        const Node& node_from = current_level.nodes[idx_from];
+        const Node& node_to = current_level.nodes[idx_to];
+        
+        bool same_type = (node_from.c1_or_c2 == 0 && node_to.c1_or_c2 == 0) || 
+                        (node_from.c1_or_c2 > 0 && node_to.c1_or_c2 > 0);
+        
+        if (same_type){
+            candidates.emplace_back(make_tuple(frequency, from_node, to_node));
+            /*cout << "Candidate edge: (" << from_node << ", " << to_node 
+                 << ") frequency=" << frequency  << endl;*/
+        }
+    }
+
+    sort(candidates.begin(), candidates.end(), 
+         [](const tuple<int, int, int>& a, const tuple<int, int, int>& b) {
+        return get<0>(a) > get<0>(b);
+    });
+    
+    return candidates;
 }
 
 LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_solution, const vector<vector<double>>& curr_distances) {
@@ -1685,10 +1768,10 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
     next_level.level_id = current_level.level_id + 1;
     update_node_index_cache(current_level);
     
-    vector<tuple<double,int,int>> candidates = find_missing_shortest_edges(current_level, best_solution);
+    vector<tuple<int,int,int>> candidates = collect_merge_candidates(current_level, best_solution);
     
     // Tính 20% số CẠNH, không phải nodes
-    int num_to_merge = max(1, (int)(candidates.size() * 0.3));
+    int num_to_merge = max(1, (int)(candidates.size() * 0.2));
     
     //cout << "\n=== MERGING " << num_to_merge << " / " << candidates.size() << " EDGES (20%) ===" << endl;
     
@@ -1696,7 +1779,7 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
     vector<vector<int>> merged_groups;
     
     for (int i = 0; i < num_to_merge && i < candidates.size(); i++) {
-        double distance = get<0>(candidates[i]);
+        int frequency = get<0>(candidates[i]);
         int node_a = get<1>(candidates[i]);
         int node_b = get<2>(candidates[i]);
 
@@ -1717,7 +1800,7 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
         if (already_merged_together) {
             continue;
         }
-     
+        
         // Tìm hoặc tạo group chứa node_a và node_b
         int group_idx_a = -1, group_idx_b = -1;
         
@@ -2161,7 +2244,8 @@ Solution multilevel_tabu_search() {
         //cout << "\n--- LEVEL " << L << " ---" << endl;
         auto level_start = chrono::high_resolution_clock::now();   
         update_node_index_cache(all_levels[L]);
-        Solution s_current = tabu_search(s, &all_levels[L]);
+        Solution s_current = tabu_search(s, &all_levels[L], true);
+        update_edge_frequency(s);
         auto level_end = chrono::high_resolution_clock::now();
         double level_time = chrono::duration<double>(level_end - level_start).count();
         print_solution(s_current);
@@ -2170,13 +2254,12 @@ Solution multilevel_tabu_search() {
         }
         prev_fitness = s_current.fitness;
         s = s_current;
-        auto insertion_start = chrono::high_resolution_clock::now();
+        auto insert_start = chrono::high_resolution_clock::now();
         s = insertion_process(s, all_levels[L]);
-        print_solution(s);
-        auto insertion_end = chrono::high_resolution_clock::now();
-        double insertion_time = chrono::duration<double>(insertion_end - insertion_start).count();
+        auto insert_end = chrono::high_resolution_clock::now();
+        double insert_time = chrono::duration<double>(insert_end - insert_start).count();
         cout << "⏱️  Level " << all_levels[L].level_id << " Insertion Time: " 
-             << fixed << setprecision(10) << insertion_time << "s" << endl;
+             << fixed << setprecision(10) << insert_time << "s" << endl;
         auto merge_start = chrono::high_resolution_clock::now();
         LevelInfo next_level = merge_customers(all_levels[L], s, distances);
         //cout << "Nodes in next_level: ";
@@ -2219,6 +2302,7 @@ Solution multilevel_tabu_search() {
         cout << "Projected solution fitness: " << s.fitness << endl;
         
         L++;
+        edge_frequency.clear();
         
         cout << "⏱️  Level " << all_levels[L-1].level_id << " Tabu Search Time: " 
              << fixed << setprecision(10) << level_time << "s" << endl;
@@ -2259,8 +2343,9 @@ Solution multilevel_tabu_search() {
             print_solution(s);
             
             auto refine_start = chrono::high_resolution_clock::now();
+            edge_frequency.clear();
             
-            s = tabu_search(s, nullptr);
+            s = tabu_search(s, nullptr, false);
             
             evaluate_solution(s, nullptr);
             
@@ -2290,8 +2375,9 @@ Solution multilevel_tabu_search() {
             print_solution(s);
             
             auto refine_start = chrono::high_resolution_clock::now();
+            edge_frequency.clear();
             
-            s = tabu_search(s, &all_levels[prev_level_id]);
+            s = tabu_search(s, &all_levels[prev_level_id], false);
             evaluate_solution(s, &all_levels[prev_level_id]);
             
             auto refine_end = chrono::high_resolution_clock::now();
