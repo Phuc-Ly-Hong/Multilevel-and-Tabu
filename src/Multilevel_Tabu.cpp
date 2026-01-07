@@ -1835,7 +1835,7 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
             merged_nodes.insert(node_b);
             /*cout << "Edge " << (i+1) << ": (" << node_a << " → " << node_b 
                  << ") freq=" << frequency << " → ADD TO GROUP " << group_idx_a << endl;*/
-        }
+        } 
         // Case 3: node_b đã có group, node_a chưa -> Thêm node_a vào group của node_b
         else if (group_idx_a == -1 && group_idx_b != -1) {
             if (merged_groups[group_idx_b].front() == node_b){
