@@ -104,7 +104,6 @@ jobs:
           echo "=== Run $run/5 for ${{ matrix.instance }} ==="
           START_TIME=$(date +%s.%N)
           
-          # Run with timeout, capture exit code
           timeout 2m ./tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
           EXIT_CODE=$?
           
@@ -112,14 +111,12 @@ jobs:
           RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
           echo "$RUNTIME" > runtime_run${run}.txt
           
-          # Check exit status
           if [ $EXIT_CODE -eq 124 ]; then
             echo "TIMEOUT" >> output_run${run}.txt
             echo "⏱️  Run $run: TIMEOUT after ${RUNTIME}s"
           elif [ $EXIT_CODE -ne 0 ]; then
             echo "ERROR_EXIT_CODE_$EXIT_CODE" >> output_run${run}.txt
             echo "❌ Run $run: ERROR (exit code $EXIT_CODE) after ${RUNTIME}s"
-            # Print first 50 lines of output for debugging
             head -50 output_run${run}.txt
           else
             echo "✅ Run $run: SUCCESS in ${RUNTIME}s"
@@ -143,7 +140,6 @@ jobs:
         
         def parse_output(output_file, runtime_file):
             try:
-                # Read output file
                 if not os.path.exists(output_file):
                     return {"runtime": 0, "makespan": 0, "drone_violation": 0,
                             "waiting_violation": 0, "fitness": float('inf'), "feasible": "NO_OUTPUT"}
@@ -151,8 +147,7 @@ jobs:
                 with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
                 
-                # Read runtime
-                runtime = 120.0  # Default timeout value
+                runtime = 120.0
                 if os.path.exists(runtime_file):
                     with open(runtime_file, "r") as f:
                         try:
@@ -160,7 +155,6 @@ jobs:
                         except:
                             pass
                 
-                # Check for errors
                 if "TIMEOUT" in content:
                     return {"runtime": round(runtime, 3), "makespan": 0.0,
                             "drone_violation": 0.0, "waiting_violation": 0.0,
@@ -171,9 +165,7 @@ jobs:
                             "drone_violation": 0.0, "waiting_violation": 0.0,
                             "fitness": float('inf'), "feasible": "CRASH"}
                 
-                # Check if output has required data
                 if not content or "Fitness:" not in content:
-                    # If runtime is very short and no output, it's likely a crash
                     if runtime < 1.0:
                         return {"runtime": round(runtime, 3), "makespan": 0.0,
                                 "drone_violation": 0.0, "waiting_violation": 0.0,
@@ -183,19 +175,16 @@ jobs:
                                 "drone_violation": 0.0, "waiting_violation": 0.0,
                                 "fitness": float('inf'), "feasible": "NO_OUTPUT"}
                 
-                # Parse metrics
                 makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
                 drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
                 waiting_viol = find_metric_last(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
                 fitness = find_metric_last(r'Fitness:\s*([0-9.+\-eE]+)', content)
                 
-                # Check if all metrics are zero (invalid solution)
                 if makespan == 0.0 and fitness == 0.0:
                     return {"runtime": round(runtime, 3), "makespan": 0.0,
                             "drone_violation": 0.0, "waiting_violation": 0.0,
                             "fitness": float('inf'), "feasible": "INVALID"}
                 
-                # Determine feasibility
                 feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
                 
                 return {
@@ -214,11 +203,9 @@ jobs:
             result["run"] = run
             runs.append(result)
         
-        # Save results
         with open("results.json", "w") as f:
             json.dump({"instance": instance, "runs": runs}, f, indent=2)
         
-        # Print summary
         print(f"\n📊 Summary for {instance}:")
         for r in runs:
             status_icon = "✅" if r['feasible'] == "YES" else ("⏱️" if r['feasible'] == "TIMEOUT" else "❌")
@@ -515,7 +502,6 @@ jobs:
         
         print(f"✅ CSV created: {len(all_data)} instances")
         
-        # Print statistics
         total = len(all_data) * 5
         crash_count = sum(1 for d in all_data for r in d["runs"] if r["feasible"] == "CRASH")
         timeout_count = sum(1 for d in all_data for r in d["runs"] if r["feasible"] == "TIMEOUT")
