@@ -516,6 +516,7 @@ Solution init_greedy_solution() {
 }
 
 map<pair<int,int>, int> edge_frequency;
+map<pair<int, int>, int> current_update_edges;
 
 void update_edge_frequency(const Solution& best_solution) {
     for (size_t v = 0; v < best_solution.route.size(); v++) {
@@ -527,6 +528,20 @@ void update_edge_frequency(const Solution& best_solution) {
                 pair<int,int> edge = make_pair(from_node, to_node);
                 edge_frequency[edge]++;
                 //cout << "Edge (" << from_node << ", " << to_node << ") frequency: " << edge_frequency[edge] << endl;
+            }
+        }
+    }
+}
+
+void update_current_solution_edges(const Solution& current_sol) {
+    for (size_t v = 0; v < current_sol.route.size(); v++) {
+        const vector<int>& route = current_sol.route[v];
+        for (size_t i = 0; i < route.size() - 1; i++) {
+            int from_node = route[i];
+            int to_node = route[i + 1];
+            if (from_node != depot_id && to_node != depot_id) {
+                pair<int,int> edge = make_pair(from_node, to_node);
+                current_update_edges[edge]++;
             }
         }
     }
@@ -879,6 +894,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level, bool 
     int last_depot_opt_iter = 0;
     int no_improve_segment_length = 0;
     const int max_no_improve_segment = 8;
+    int current_level_id = (current_level != nullptr) ? current_level->level_id : 0;
 
     vector<string> move_types = {"1-0", "1-1", "2-0", "2-1", "2-2", "2-opt"};
     
@@ -1250,6 +1266,11 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level, bool 
         if (should_apply_move) {
             current_sol = best_Neighbor_sol;
             evaluate_solution(current_sol, current_level);
+            if (track_edge){
+                if (current_level_id != 0){
+                    update_current_solution_edges(current_sol);
+                }
+            }
 
             /*cout << "Iter: " << iter << " Move: " << move_type 
                  << " current makespan: " << current_sol.makespan 
@@ -1325,7 +1346,9 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level, bool 
                 scorePi[move_type_idx] += delta1;
                 segment_improved = true;
                 if (track_edge) {
-                    update_edge_frequency(best_sol);
+                    if (current_level_id == 0) {
+                        update_edge_frequency(best_sol);
+                    }
                 }
             } else if (current_sol.fitness < current_fitness - EPSILON) {
                 scorePi[move_type_idx] += delta2;
@@ -1707,58 +1730,147 @@ Solution insertion_process(const Solution& best_sol, const LevelInfo& current_le
 vector<tuple<int, int, int>> collect_merge_candidates(const LevelInfo& current_level, const Solution& best_solution){
     vector<tuple<int, int, int>> candidates;
     map<pair<int,int>, int> solution_edges;
+    int current_level_id = current_level.level_id;
     
-    for (size_t v = 0; v < best_solution.route.size(); v++) {
-        
-        const vector<int>& route = best_solution.route[v];
-        for (size_t i = 0; i < route.size() - 1; i++) {
-            int from_node = route[i];
-            int to_node = route[i + 1];
-            
+    if (current_level_id == 0){
+        for (size_t v = 0; v < best_solution.route.size(); v++) {
+            const vector<int>& route = best_solution.route[v];
+            for (size_t i = 0; i < route.size() - 1; i++) {
+                int from_node = route[i];
+                int to_node = route[i + 1];
+                
+                if (from_node == depot_id || to_node == depot_id) continue;
+                
+                pair<int,int> edge = make_pair(from_node, to_node);
+                solution_edges[edge]++;
+            }
+        }
+
+        for (const auto& edge_pair : solution_edges){
+            int from_node = edge_pair.first.first;
+            int to_node = edge_pair.first.second;
+
             if (from_node == depot_id || to_node == depot_id) continue;
             
-            pair<int,int> edge = make_pair(from_node, to_node);
-            solution_edges[edge]++;
+            int frequency = 0;
+            auto it = edge_frequency.find(edge_pair.first);
+            if (it != edge_frequency.end()) {
+                frequency = it->second;
+            }
+            
+            int idx_from = find_node_index_fast(from_node);
+            int idx_to = find_node_index_fast(to_node);
+            if (idx_from == -1 || idx_to == -1) {
+                continue;
+            }
+
+            const Node& node_from = current_level.nodes[idx_from];
+            const Node& node_to = current_level.nodes[idx_to];
+            
+            bool same_type = (node_from.c1_or_c2 == 0 && node_to.c1_or_c2 == 0) || 
+                            (node_from.c1_or_c2 > 0 && node_to.c1_or_c2 > 0);
+            
+            if (same_type){
+                candidates.emplace_back(make_tuple(frequency, from_node, to_node));
+            }
         }
+
+        // Sort theo Matrix X giảm dần
+        sort(candidates.begin(), candidates.end(), 
+            [](const tuple<int, int, int>& a, const tuple<int, int, int>& b) {
+            return get<0>(a) > get<0>(b);
+        });
+    } 
+    else {    
+        for (size_t v = 0; v < best_solution.route.size(); v++) {
+            const vector<int>& route = best_solution.route[v];
+            for (size_t i = 0; i < route.size() - 1; i++) {
+                int from_node = route[i];
+                int to_node = route[i + 1];
+                
+                if (from_node == depot_id || to_node == depot_id) continue;
+                
+                pair<int,int> edge = make_pair(from_node, to_node);
+                solution_edges[edge]++;
+            }
+        }
+        
+        //Tính score từ CẢ 2 matrix
+        vector<tuple<int, int, int, int>> scored_edges; // (score_X, score_Y, from, to)
+        
+        for (const auto& edge_pair : solution_edges){
+            int from_node = edge_pair.first.first;
+            int to_node = edge_pair.first.second;
+
+            if (from_node == depot_id || to_node == depot_id) continue;
+
+            int idx_from = find_node_index_fast(from_node);
+            int idx_to = find_node_index_fast(to_node);
+            if (idx_from == -1 || idx_to == -1) continue;
+
+            const Node& node_from = current_level.nodes[idx_from];
+            const Node& node_to = current_level.nodes[idx_to];
+            
+            bool same_type = (node_from.c1_or_c2 == 0 && node_to.c1_or_c2 == 0) || (node_from.c1_or_c2 > 0 && node_to.c1_or_c2 > 0);
+            
+            if (!same_type) continue;
+
+            // Score từ Matrix X 
+            int score_X = 0;
+            auto it_X = edge_frequency.find(edge_pair.first);
+            if (it_X != edge_frequency.end()) {
+                score_X = it_X->second;
+            }
+            
+            // Score từ Matrix Y 
+            int score_Y = 0;
+            auto it_Y = current_update_edges.find(edge_pair.first);
+            if (it_Y != current_update_edges.end()) {
+                score_Y = it_Y->second;
+            }
+            
+            scored_edges.emplace_back(make_tuple(score_X, score_Y, from_node, to_node));
+        }
+
+        //Sort theo Matrix Y để tìm top k%
+        sort(scored_edges.begin(), scored_edges.end(), 
+             [](const tuple<int, int, int, int>& a, const tuple<int, int, int, int>& b) {
+            return get<1>(a) > get<1>(b); 
+        });
+        
+        //Lấy top k% edges từ Matrix Y để LOẠI BỎ
+        int total_edges = scored_edges.size();
+        int k_percent = (int)(total_edges * 0.2); // k = 20%
+        set<pair<int,int>> top_Y_edges;
+        for (int i = 0; i < k_percent && i < scored_edges.size(); i++) {
+            int from = get<2>(scored_edges[i]);
+            int to = get<3>(scored_edges[i]);
+            int score_Y = get<1>(scored_edges[i]);
+            
+            top_Y_edges.insert({from, to});
+        }
+        
+        //Sort lại theo Matrix X
+        sort(scored_edges.begin(), scored_edges.end(), 
+             [](const tuple<int, int, int, int>& a, const tuple<int, int, int, int>& b) {
+            return get<0>(a) > get<0>(b);
+        });
+        
+        for (const auto& edge_tuple : scored_edges) {
+            int score_X = get<0>(edge_tuple);
+            int score_Y = get<1>(edge_tuple);
+            int from_node = get<2>(edge_tuple);
+            int to_node = get<3>(edge_tuple);
+            
+            pair<int,int> edge = {from_node, to_node};
+            
+            if (top_Y_edges.find(edge) == top_Y_edges.end()) {
+                candidates.emplace_back(make_tuple(score_X, from_node, to_node));
+                
+            }
+        }
+        
     }
-
-    for (const auto& edge_pair : solution_edges){
-        int from_node = edge_pair.first.first;
-        int to_node = edge_pair.first.second;
-
-        if (from_node == depot_id || to_node == depot_id) continue;
-
-        int count = edge_pair.second; 
-        
-        int frequency = 0;
-        auto it = edge_frequency.find(edge_pair.first);
-        if (it != edge_frequency.end()) {
-            frequency = it->second;
-        }
-        
-        int idx_from = find_node_index_fast(from_node);
-        int idx_to = find_node_index_fast(to_node);
-        if (idx_from == -1 || idx_to == -1) {
-            continue;
-        }
-
-        const Node& node_from = current_level.nodes[idx_from];
-        const Node& node_to = current_level.nodes[idx_to];
-        
-        bool same_type = (node_from.c1_or_c2 == 0 && node_to.c1_or_c2 == 0) || 
-                        (node_from.c1_or_c2 > 0 && node_to.c1_or_c2 > 0);
-        
-        if (same_type){
-            candidates.emplace_back(make_tuple(frequency, from_node, to_node));
-            /*cout << "Candidate edge: (" << from_node << ", " << to_node 
-                 << ") frequency=" << frequency  << endl;*/
-        }
-    }
-
-    sort(candidates.begin(), candidates.end(), 
-         [](const tuple<int, int, int>& a, const tuple<int, int, int>& b) {
-        return get<0>(a) > get<0>(b);
-    });
     
     return candidates;
 }
@@ -2245,7 +2357,8 @@ Solution multilevel_tabu_search() {
         auto level_start = chrono::high_resolution_clock::now();   
         update_node_index_cache(all_levels[L]);
         Solution s_current = tabu_search(s, &all_levels[L], true);
-        update_edge_frequency(s);
+        if (L == 0) {update_edge_frequency(s_current);}
+        else {update_current_solution_edges(s_current);}
         auto level_end = chrono::high_resolution_clock::now();
         double level_time = chrono::duration<double>(level_end - level_start).count();
         print_solution(s_current);
@@ -2303,6 +2416,7 @@ Solution multilevel_tabu_search() {
         
         L++;
         edge_frequency.clear();
+        current_update_edges.clear();
         
         cout << "⏱️  Level " << all_levels[L-1].level_id << " Tabu Search Time: " 
              << fixed << setprecision(10) << level_time << "s" << endl;
@@ -2458,7 +2572,7 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\10.10.1.txt"; 
+        dataset_path = "D:\\New folder\\instances\\50.40.1.txt"; 
     }
     read_dataset(dataset_path);
     printf("MAX_ITER: %d\n", MAX_ITER);
