@@ -301,14 +301,12 @@ void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) 
                                 }
                             }
                         } else {
-                            // Non-merged node
                             double wait_time = arrival_depot - time_arrived_at_node;
                             if (!C2.empty() && wait_time > C2[0].limit_wait) {
                                 sol.waiting_violation += (wait_time - C2[0].limit_wait);
                             }
                         }
                     } else {
-                        // Original evaluation (no level)
                         double wait_time = arrival_depot - time_arrived_at_node;
                         if (!C2.empty() && wait_time > C2[0].limit_wait) {
                             sol.waiting_violation += (wait_time - C2[0].limit_wait);

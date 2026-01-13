@@ -224,8 +224,8 @@ void evaluate_solution(Solution &sol) {
                     double time_arrived_at_node = p.second;
                     
                     double wait_time = arrival_depot - time_arrived_at_node;
-                    if (!C2.empty() && wait_time > 60.0) {
-                        sol.waiting_violation += (wait_time - 60.0);
+                    if (!C2.empty() && wait_time > C2[0].limit_wait) {
+                        sol.waiting_violation += (wait_time - C2[0].limit_wait);
                     }
                 }
                 
