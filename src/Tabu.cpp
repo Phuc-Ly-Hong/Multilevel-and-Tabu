@@ -383,7 +383,6 @@ bool is_tabu(const vector<TabuMove> &tabu_list, const TabuMove &move){
                         return true;
                     }
             } else if (move.type == "2-2"){
-                // Kiểm tra đơn giản hơn: chỉ cần khách hàng và xe giống nhau
                 if (tabu_move.customer_id1 == move.customer_id1 && 
                     tabu_move.customer_id2 == move.customer_id2 &&
                     tabu_move.customer_id3 == move.customer_id3 &&
@@ -392,7 +391,6 @@ bool is_tabu(const vector<TabuMove> &tabu_list, const TabuMove &move){
                     tabu_move.vehicle2 == move.vehicle2) {
                     return true;
                 }
-                // Kiểm tra move đảo ngược
                 if (tabu_move.customer_id1 == move.customer_id3 && 
                     tabu_move.customer_id2 == move.customer_id4 &&
                     tabu_move.customer_id3 == move.customer_id1 &&
