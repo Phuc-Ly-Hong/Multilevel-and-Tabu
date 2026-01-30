@@ -2,9 +2,9 @@ name: Run Multilevel Tabu Search
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, Scenario_B_C_D ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main, master, Scenario_B_C_D ]
   workflow_dispatch:
 
 permissions:
@@ -47,9 +47,6 @@ jobs:
       max-parallel: 12
       matrix:
         instance: [
-          "6.5.1", "6.5.2", "6.5.3", "6.5.4",
-          "6.10.1", "6.10.2", "6.10.3", "6.10.4",
-          "6.20.1", "6.20.2", "6.20.3", "6.20.4",
           "10.5.1", "10.5.2", "10.5.3", "10.5.4",
           "10.10.1", "10.10.2", "10.10.3", "10.10.4",
           "10.20.1", "10.20.2", "10.20.3", "10.20.4",

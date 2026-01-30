@@ -340,8 +340,15 @@ Solution init_greedy_solution() {
     return sol;
 }
 
+bool contains_depot_in_range(const vector<int>& route, size_t start, size_t end) {
+    for (size_t i = start; i <= end && i < route.size(); i++) {
+        if (route[i] == depot_id) return true;
+    }
+    return false;
+}
+
 int get_type(int nid) {
-    //for (const auto& n : C1) if (n.id == nid) return 1;
+    for (const auto& n : C1) if (n.id == nid) return 1;
     for (const auto& n : C2) if (n.id == nid) return 2;
     return -1;
 }
@@ -376,7 +383,6 @@ bool is_tabu(const vector<TabuMove> &tabu_list, const TabuMove &move){
                         return true;
                     }
             } else if (move.type == "2-2"){
-                // Kiểm tra đơn giản hơn: chỉ cần khách hàng và xe giống nhau
                 if (tabu_move.customer_id1 == move.customer_id1 && 
                     tabu_move.customer_id2 == move.customer_id2 &&
                     tabu_move.customer_id3 == move.customer_id3 &&
@@ -385,7 +391,6 @@ bool is_tabu(const vector<TabuMove> &tabu_list, const TabuMove &move){
                     tabu_move.vehicle2 == move.vehicle2) {
                     return true;
                 }
-                // Kiểm tra move đảo ngược
                 if (tabu_move.customer_id1 == move.customer_id3 && 
                     tabu_move.customer_id2 == move.customer_id4 &&
                     tabu_move.customer_id3 == move.customer_id1 &&
@@ -412,56 +417,46 @@ bool is_tabu(const vector<TabuMove> &tabu_list, const TabuMove &move){
 Solution move_1_0(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_t pos2){
     Solution new_sol = current_sol;
     int cid = new_sol.route[v1][pos1];
-    if (cid == depot_id) return current_sol;
-    
-    // Kiểm tra không được di chuyển từ vị trí đầu hoặc cuối (depot)
+
+    if (cid == depot_id) return current_sol; // không di chuyển depot
+
     if (pos1 == 0 || pos1 == new_sol.route[v1].size() - 1) {
         return current_sol;
     }
-    
-    // ✅ CASE 1: THÊM TRIP MỚI CHO DRONE
+
     if (pos2 == new_sol.route[v2].size() && vehicles[v2].is_drone){
-        if (get_type(cid) == 1) return current_sol; // C1 không đi drone
-        
-        // ✅ BỎ ĐIỀU KIỆN NÀY - CHO PHÉP CÙNG XE!
-        // if (v1 == v2) return current_sol;
-        
-        // ✅ KIỂM TRA XE NGUỒN CÒN ÍT NHẤT 1 CUSTOMER
+        if (get_type(cid) == 1) return current_sol; 
         int customer_count = 0;
         for (int node : new_sol.route[v1]) {
             if (node != depot_id) customer_count++;
         }
         if (customer_count <= 1 && v1 == v2) {
-            // Nếu cùng xe và chỉ còn 1 customer thì không tạo trip
             return current_sol;
         }
-
-        // Xóa khách hàng khỏi route cũ
         new_sol.route[v1].erase(new_sol.route[v1].begin() + pos1);
         new_sol.route[v2].push_back(cid);
-        new_sol.route[v2].push_back(depot_id);
-    } 
-    // ✅ CASE 2: CHÈN VÀO TRIP HIỆN TẠI
-    else {
+        if (!new_sol.route[v2].empty() && new_sol.route[v2].back() != depot_id) {
+            new_sol.route[v2].push_back(depot_id);
+        }
+    } else {
         if (v1 == v2) return current_sol;
         if (pos2 == 0 || pos2 >= new_sol.route[v2].size()) return current_sol;
-        
-        // C1 không đi drone
         if (get_type(cid) == 1 && vehicles[v2].is_drone) {
             return current_sol;
         }
-        
         new_sol.route[v1].erase(new_sol.route[v1].begin() + pos1);
         new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2, cid);
-        
     }
-
+    
     evaluate_solution(new_sol);
     return new_sol;
 }
 
 Solution move_1_1(Solution current_sol, size_t v1, size_t node1, size_t v2, size_t node2){
     Solution new_sol = current_sol;
+    int cid1 = new_sol.route[v1][node1];
+    int cid2 = new_sol.route[v2][node2];
+    if (cid1 == depot_id || cid2 == depot_id) return current_sol; // không di chuyển depot
     swap(new_sol.route[v1][node1], new_sol.route[v2][node2]);
     evaluate_solution(new_sol);
     return new_sol;
@@ -469,12 +464,37 @@ Solution move_1_1(Solution current_sol, size_t v1, size_t node1, size_t v2, size
 
 Solution move_2_0(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_t pos2){
     Solution new_sol = current_sol;
+    int customer_count = 0;
+    for (int node : new_sol.route[v1]) {
+        if (node != depot_id) customer_count++;
+    }
+    
+    if (customer_count <= 2) {
+        // Xe chỉ còn 2 khách - không được di chuyển cả 2
+        return current_sol;
+    }
     int cid1 = new_sol.route[v1][pos1];
     int cid2 = new_sol.route[v1][pos1+1];
-    new_sol.route[v1].erase(new_sol.route[v1].begin() + pos1 + 1);
-    new_sol.route[v1].erase(new_sol.route[v1].begin() + pos1);
-    new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2, cid1);
-    new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2 + 1, cid2);
+
+    if (pos2 == new_sol.route[v2].size() && vehicles[v2].is_drone){
+        if (get_type(cid1) == 1 || get_type(cid2) == 1){
+            return current_sol;
+        }
+        new_sol.route[v1].erase(new_sol.route[v1].begin() + pos1 + 1);
+        new_sol.route[v1].erase(new_sol.route[v1].begin() + pos1);
+        new_sol.route[v2].push_back(cid1);
+        new_sol.route[v2].push_back(cid2);
+        new_sol.route[v2].push_back(depot_id);
+    } else {
+        if ((get_type(cid1) == 1 || get_type(cid2) == 1) && vehicles[v2].is_drone){
+            return current_sol;
+        }
+        new_sol.route[v1].erase(new_sol.route[v1].begin() + pos1 + 1);
+        new_sol.route[v1].erase(new_sol.route[v1].begin() + pos1);
+        new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2, cid1);
+        new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2 + 1, cid2);
+    }
+
     evaluate_solution(new_sol);
     return new_sol;
 }
@@ -493,6 +513,25 @@ Solution move_2_1(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
     if (pos1 + 1 >= new_sol.route[v1].size() - 1) {
         return current_sol;
     }
+    int customer_count_v1 = 0;
+    for (int node : new_sol.route[v1]) {
+        if (node != depot_id) customer_count_v1++;
+    }
+    
+    if (customer_count_v1 <= 2) {
+        // Xe chỉ còn 2 khách - swap sẽ tạo xe trống
+        return current_sol;
+    }
+    
+    int customer_count_v2 = 0;
+    for (int node : new_sol.route[v2]) {
+        if (node != depot_id) customer_count_v2++;
+    }
+    
+    if (customer_count_v2 <= 1) {
+        // Xe chỉ còn 1 khách - swap sẽ tạo xe trống
+        return current_sol;
+    }
     
     int cid1 = new_sol.route[v1][pos1];
     int cid2 = new_sol.route[v1][pos1+1];
@@ -508,7 +547,7 @@ Solution move_2_1(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
     new_sol.route[v1].insert(new_sol.route[v1].begin() + pos1, cid3);
     new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2, cid1);
     new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2 + 1, cid2);
-    
+
     evaluate_solution(new_sol);
     return new_sol;
 }
@@ -525,6 +564,21 @@ Solution move_2_2(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
     }
     
     if (pos1 + 1 >= new_sol.route[v1].size() - 1 || pos2 + 1 >= new_sol.route[v2].size() - 1) {
+        return current_sol;
+    }
+
+    int customer_count_v1 = 0;
+    for (int node : new_sol.route[v1]) {
+        if (node != depot_id) customer_count_v1++;
+    }
+    
+    int customer_count_v2 = 0;
+    for (int node : new_sol.route[v2]) {
+        if (node != depot_id) customer_count_v2++;
+    }
+    
+    if (customer_count_v1 <= 2 || customer_count_v2 <= 2) {
+        // Swap 2-2 sẽ tạo xe trống
         return current_sol;
     }
     
@@ -545,16 +599,18 @@ Solution move_2_2(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
     new_sol.route[v1].insert(new_sol.route[v1].begin() + pos1 + 1, cid4);
     new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2, cid1);
     new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2 + 1, cid2);
-    
+
     evaluate_solution(new_sol);
     return new_sol;
 }
 
 Solution move_2opt(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_t pos2){
     Solution new_sol = current_sol;
-    
-    // same trip
+    //  SAME TRIP
     if (v1 == v2) {
+        if (contains_depot_in_range(new_sol.route[v1], pos1, pos2)) {
+            return current_sol;
+        }
         if (pos1 >= new_sol.route[v1].size() || pos2 >= new_sol.route[v1].size()) {
             return current_sol;
         }
@@ -569,8 +625,15 @@ Solution move_2opt(Solution current_sol, size_t v1, size_t pos1, size_t v2, size
         
         reverse(new_sol.route[v1].begin() + pos1, new_sol.route[v1].begin() + pos2 + 1);
     } 
-    // different trip
+    //  DIFFERENT TRIP
     else {
+        if (contains_depot_in_range(new_sol.route[v1], pos1, new_sol.route[v1].size() - 2)) {
+            return current_sol;
+        }
+        
+        if (contains_depot_in_range(new_sol.route[v2], pos2, new_sol.route[v2].size() - 2)) {
+            return current_sol;
+        }
         if (pos1 >= new_sol.route[v1].size() - 1 || pos2 >= new_sol.route[v2].size() - 1) return current_sol;
         if (pos1 == 0 || pos2 == 0) return current_sol;
 
@@ -586,24 +649,41 @@ Solution move_2opt(Solution current_sol, size_t v1, size_t pos1, size_t v2, size
         
         new_sol.route[v1].insert(new_sol.route[v1].end() - 1, tail_v2.begin(), tail_v2.end());
         new_sol.route[v2].insert(new_sol.route[v2].end() - 1, tail_v1.begin(), tail_v1.end());
+        
     }
-    
+
     evaluate_solution(new_sol);
     return new_sol;
 }
 
+bool would_create_empty_vehicle(const Solution& sol, size_t vehicle_idx) {
+    if (sol.route[vehicle_idx].size() <= 2) {
+        for (int node : sol.route[vehicle_idx]) {
+            if (node != depot_id) return false;
+        }
+        return true; // Xe trống
+    }
+    return false;
+}
+
+int count_customers_in_vehicle(const Solution& sol, size_t vehicle_idx) {
+    int count = 0;
+    for (int node : sol.route[vehicle_idx]) {
+        if (node != depot_id) count++;
+    }
+    return count;
+}
+
 Solution tabu_search(){
     Solution initial_sol = init_greedy_solution();
-
     Solution best_sol = initial_sol;
     Solution current_sol = initial_sol;
 
     vector<TabuMove> tabu_list; // danh sách các move bị tabu
     int no_improve_count = 0;
     int last_depot_opt_iter = 0;
-
     int no_improve_segment_length = 0;
-    const int max_no_improve_segment = 8;
+    const int max_no_improve_segment = 8; 
 
     vector<string> move_types = {"1-0", "1-1", "2-0", "2-1", "2-2", "2-opt"};
     
@@ -628,6 +708,8 @@ Solution tabu_search(){
                 for (size_t pos1 = 1; pos1 < current_sol.route[v1].size()-1; pos1++) {
                     int n1 = current_sol.route[v1][pos1];
                     if (n1 == depot_id) continue;
+                    int customer_count_v1 = count_customers_in_vehicle(current_sol, v1);
+                    if (customer_count_v1 <= 1) continue; 
 
                     for (size_t v2 = 0; v2 < current_sol.route.size(); v2++) {
                         if (v1 == v2) continue;
@@ -635,13 +717,12 @@ Solution tabu_search(){
                             if (pos2 == current_sol.route[v2].size()){
                                 if (!vehicles[v2].is_drone) continue;
                                 if (get_type(n1) == 1) continue;
+                                if (v1 == v2) continue;
                             } else {
                                 if (v1 == v2) continue;
-                                if (pos2 == current_sol.route[v2].size() - 1){
-                                    continue;
-                                }
+                                if (pos2 == current_sol.route[v2].size() - 1) continue;
                                 if (get_type(n1) == 1 && vehicles[v2].is_drone) continue;
-                            } 
+                            }
 
                             Solution new_sol = move_1_0(current_sol, v1, pos1, v2, pos2);
                             TabuMove move = {"1-0", n1, -1, -1, -1, (int)v1, (int)v2, (int)pos1, -1, (int)pos2, -1, TABU_TENURE};
@@ -723,7 +804,10 @@ Solution tabu_search(){
                     for (size_t v2 = 0; v2 < vehicles.size(); v2++){
                         if (v1 == v2) continue;
                         if ((get_type(n1) == 1 || get_type(n2) == 1) && vehicles[v2].is_drone) continue;
-                        for (size_t pos2 = 1; pos2 < current_sol.route[v2].size()-1; pos2++){
+                        for (size_t pos2 = 1; pos2 <= current_sol.route[v2].size(); pos2++){
+                            if (pos2 == current_sol.route[v2].size() && !vehicles[v2].is_drone) {
+                                continue;
+                            }
 
                             Solution new_sol = move_2_0(current_sol, v1, pos1, v2, pos2);
                             TabuMove move = {"2-0", n1, n2, -1, -1, (int)v1, (int)v2, (int)pos1, (int)pos1+1, (int)pos2, (int)pos2+1, TABU_TENURE};
@@ -854,7 +938,7 @@ Solution tabu_search(){
 
                         int customer_at_pos1 = current_sol.route[v1][pos1];
                         int customer_at_pos2 = current_sol.route[v1][pos2];
-                        
+
                         Solution new_sol = move_2opt(current_sol, v1, pos1, v1, pos2); // Cùng xe v1
                         TabuMove move = {"2-opt", customer_at_pos1, -1, customer_at_pos2, -1, (int)v1, (int)v1, (int)pos1, -1, (int)pos2, -1, TABU_TENURE};
                         bool tabu = is_tabu(tabu_list, move);
@@ -917,7 +1001,7 @@ Solution tabu_search(){
                             int customer_at_pos1 = current_sol.route[v1][pos1];
                             int customer_at_pos2 = current_sol.route[v2][pos2];
                             
-                            Solution new_sol = move_2opt(current_sol, v1, pos1, v2, pos2); 
+                            Solution new_sol = move_2opt(current_sol, v1, pos1, v2, pos2); // Khác xe v1 và v2
                             TabuMove move = {"2-opt", customer_at_pos1, -1, customer_at_pos2, -1, (int)v1, (int)v2, (int)pos1, -1, (int)pos2, -1, TABU_TENURE};
                             bool tabu = is_tabu(tabu_list, move);
                             
@@ -1061,14 +1145,14 @@ Solution tabu_search(){
             } else {
                 no_improve_segment_length++;
             }
-            cout << "SEGMENT " << (iter + 1)/SEGMENT_LENGTH << " COMPLETE" << endl;
+            /*cout << "SEGMENT " << (iter + 1)/SEGMENT_LENGTH << " COMPLETE" << endl;
             cout << "No improve segments: " << no_improve_segment_length <<"/"<< max_no_improve_segment << endl;
             cout << "Updated weights: ";
             for (size_t i = 0; i < MOVE_SET.size(); i++) {
                 cout << MOVE_SET[i] << "=" << weights[i] << " ";
             }
             cout << endl;
-            cout << "Current best fitness: " << best_sol.fitness << endl;
+            cout << "Current best fitness: " << best_sol.fitness << endl;*/
         }
     }
     return best_sol;
@@ -1079,7 +1163,7 @@ int main(int argc, char* argv[]){
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\50.10.1.txt"; 
+        dataset_path = "D:\\New folder\\instances\\10.5.2.txt"; 
     }
     read_dataset(dataset_path);
     printf(" %d\n", MAX_ITER);
