@@ -1831,7 +1831,7 @@ vector<tuple<double, int, int>> collect_merge_candidates(const LevelInfo& curren
         
         sort(filtered_by_distance.begin(), filtered_by_distance.end(), 
              [](const tuple<double, int, int>& a, const tuple<double, int, int>& b) {
-            return get<0>(a) < get<0>(b); // Distance ascending - shortest first
+            return get<0>(a) < get<0>(b); 
         });
         
         candidates = filtered_by_distance;  
@@ -1845,7 +1845,7 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
     next_level.level_id = current_level.level_id + 1;
     update_node_index_cache(current_level);
     
-    vector<tuple<int,int,int>> candidates = collect_merge_candidates(current_level, best_solution);
+    vector<tuple<double,int,int>> candidates = collect_merge_candidates(current_level, best_solution);
     
     // Tính 30% số CẠNH, không phải nodes
     int num_to_merge = max(1, (int)(candidates.size() * 0.3));
@@ -1856,7 +1856,7 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
     vector<vector<int>> merged_groups;
     
     for (int i = 0; i < num_to_merge && i < candidates.size(); i++) {
-        int frequency = get<0>(candidates[i]);
+        double edge_score = get<0>(candidates[i]);
         int node_a = get<1>(candidates[i]);
         int node_b = get<2>(candidates[i]);
 
@@ -2322,8 +2322,7 @@ Solution multilevel_tabu_search() {
         auto level_start = chrono::high_resolution_clock::now();   
         update_node_index_cache(all_levels[L]);
         Solution s_current = tabu_search(s, &all_levels[L], true);
-        if (L == 0) {update_edge_frequency(s_current);}
-        else {update_current_solution_edges(s_current);}
+        if (L != 0) {update_current_solution_edges(s_current);}
         auto level_end = chrono::high_resolution_clock::now();
         double level_time = chrono::duration<double>(level_end - level_start).count();
         print_solution(s_current);
@@ -2380,7 +2379,6 @@ Solution multilevel_tabu_search() {
         cout << "Projected solution fitness: " << s.fitness << endl;
         
         L++;
-        edge_frequency.clear();
         current_update_edges.clear();
         
         cout << "⏱️  Level " << all_levels[L-1].level_id << " Tabu Search Time: " 
@@ -2422,7 +2420,6 @@ Solution multilevel_tabu_search() {
             print_solution(s);
             
             auto refine_start = chrono::high_resolution_clock::now();
-            edge_frequency.clear();
             
             s = tabu_search(s, nullptr, false);
             
@@ -2454,7 +2451,6 @@ Solution multilevel_tabu_search() {
             print_solution(s);
             
             auto refine_start = chrono::high_resolution_clock::now();
-            edge_frequency.clear();
             
             s = tabu_search(s, &all_levels[prev_level_id], false);
             evaluate_solution(s, &all_levels[prev_level_id]);
@@ -2537,7 +2533,7 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\10.5.2.txt"; 
+        dataset_path = "D:\\New folder\\instances\\10.10.1.txt"; 
     }
     read_dataset(dataset_path);
     printf("MAX_ITER: %d\n", MAX_ITER);
