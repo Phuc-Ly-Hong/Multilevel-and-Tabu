@@ -235,7 +235,6 @@ void normalize_route(vector<int> &route) {
 
 map<int, double> internal_distance_cache;
 
-// THAY THẾ TOÀN BỘ HÀM evaluate_solution
 void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) {
     for (auto &route : sol.route) normalize_route(route);
 
@@ -459,15 +458,12 @@ Solution init_greedy_solution() {
         int best_vehicle = -1;
         int best_cid_idx = -1;
 
-        // Tìm customer gần nhất cho từng xe (chưa đủ quota)
         for (size_t v = 0; v < vehicles.size(); v++) {
-            // Bỏ qua nếu đã đủ quota
             if (assigned_count[v] >= vehicle_quota[v]) continue;
 
             for (size_t i = 0; i < unserved_C2.size(); i++) {
                 int cid = unserved_C2[i];
                 
-                // Drone không được gán C1
                 if (vehicles[v].is_drone && get_type(cid, nullptr) == 1) {
                     continue;
                 }
@@ -575,7 +571,6 @@ bool is_tabu(const vector<TabuMove> &tabu_list, const TabuMove &move){
                         return true;
                     }
             } else if (move.type == "2-2"){
-                // Kiểm tra đơn giản hơn: chỉ cần khách hàng và xe giống nhau
                 if (tabu_move.customer_id1 == move.customer_id1 && 
                     tabu_move.customer_id2 == move.customer_id2 &&
                     tabu_move.customer_id3 == move.customer_id3 &&
@@ -584,7 +579,6 @@ bool is_tabu(const vector<TabuMove> &tabu_list, const TabuMove &move){
                     tabu_move.vehicle2 == move.vehicle2) {
                     return true;
                 }
-                // Kiểm tra move đảo ngược
                 if (tabu_move.customer_id1 == move.customer_id3 && 
                     tabu_move.customer_id2 == move.customer_id4 &&
                     tabu_move.customer_id3 == move.customer_id1 &&
@@ -2401,7 +2395,6 @@ Solution multilevel_tabu_search() {
     cout << "🧪 TESTING WITH PREDEFINED ROUTES" << endl;
     cout << string(70, '=') << "\n" << endl;
     
-    // ✅ HIỂN THỊ ROUTES
     for (size_t v = 0; v < test_routes.size(); v++) {
         cout << "Vehicle " << v << " (" 
              << (vehicles[v].is_drone ? "🚁 Drone" : "🚚 Technician") 
@@ -2417,10 +2410,8 @@ Solution multilevel_tabu_search() {
         cout << endl;
     }
     
-    // ✅ GỌI HÀM EVALUATE - NÓ ĐÃ TÍNH TẤT CẢ
     evaluate_solution(test_sol, nullptr);
     
-    // ✅ HIỂN THỊ KẾT QUẢ
     cout << "\n" << string(70, '=') << endl;
     cout << "📋 TEST RESULTS" << endl;
     cout << string(70, '=') << "\n" << endl;
@@ -2431,7 +2422,6 @@ Solution multilevel_tabu_search() {
     cout << "Fitness: " << test_sol.fitness << endl;
     cout << "Is feasible: " << (test_sol.is_feasible ? "YES ✅" : "NO ❌") << endl;
     
-    // ✅ CHI TIẾT VI PHẠM (NẾU CÓ)
     if (!test_sol.is_feasible) {
         cout << "\n⚠️  VIOLATIONS DETECTED:" << endl;
         
