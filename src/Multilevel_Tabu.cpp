@@ -2134,7 +2134,7 @@ Solution multilevel_tabu_search() {
     cout << "Waiting violation: " << test_sol.waiting_violation << " min" << endl;
     cout << "Fitness: " << test_sol.fitness << endl;
     cout << "Is feasible: " << (test_sol.is_feasible ? "YES ✅" : "NO ❌") << endl;
-    
+     
     if (!test_sol.is_feasible) {
         cout << "\n⚠️  VIOLATIONS DETECTED:" << endl;
         
