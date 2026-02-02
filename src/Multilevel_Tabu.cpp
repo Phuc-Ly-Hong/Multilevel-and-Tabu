@@ -235,7 +235,6 @@ void normalize_route(vector<int> &route) {
 
 map<int, double> internal_distance_cache;
 
-// THAY THẾ TOÀN BỘ HÀM evaluate_solution
 void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) {
     for (auto &route : sol.route) normalize_route(route);
 
@@ -390,7 +389,7 @@ Solution init_greedy_solution() {
     for (size_t v = 0; v < vehicles.size(); ++v)
         sol.route[v].push_back(depot_id);
 
-    // 1. GÁN C1 CHO TECHNICIAN (GIỮ NGUYÊN LOGIC CŨ)
+    // 1. GÁN C1 CHO TECHNICIAN 
     vector<int> unserved_C1;
     for (const auto& n : C1) unserved_C1.push_back(n.id);
 
@@ -424,7 +423,6 @@ Solution init_greedy_solution() {
         unserved_C1.erase(unserved_C1.begin() + best_idx);
     }
 
-    // 2. ✅ PHÂN BỔ ĐỀU C2 CHO TẤT CẢ XE
     vector<int> unserved_C2;
     for (const auto& n : C2) unserved_C2.push_back(n.id);
 
@@ -432,7 +430,6 @@ Solution init_greedy_solution() {
     int customers_per_vehicle = unserved_C2.size() / total_vehicles;
     int extra_customers = unserved_C2.size() % total_vehicles;
 
-    // ✅ TÍNH QUOTA CHO TỪNG XE
     vector<int> vehicle_quota(total_vehicles);
     for (int v = 0; v < total_vehicles; v++) {
         vehicle_quota[v] = customers_per_vehicle;
@@ -446,7 +443,6 @@ Solution init_greedy_solution() {
              << "): " << vehicle_quota[v] << " customers" << endl;
     }
 
-    // ✅ KHỞI TẠO VỊ TRÍ HIỆN TẠI
     vector<int> current_pos(vehicles.size());
     vector<int> assigned_count(vehicles.size(), 0);
 
@@ -463,7 +459,7 @@ Solution init_greedy_solution() {
         int best_vehicle = -1;
         int best_cid_idx = -1;
 
-        // Tìm customer gần nhất cho từng xe (chưa đủ quota)
+        // Tìm customer gần nhất cho từng xe 
         for (size_t v = 0; v < vehicles.size(); v++) {
             // Bỏ qua nếu đã đủ quota
             if (assigned_count[v] >= vehicle_quota[v]) continue;
@@ -502,7 +498,6 @@ Solution init_greedy_solution() {
         }
     }
 
-    // ✅ THÊM DEPOT VÀO CUỐI
     for (size_t v = 0; v < vehicles.size(); v++) {
         if (sol.route[v].back() != depot_id) {
             sol.route[v].push_back(depot_id);
@@ -580,7 +575,6 @@ bool is_tabu(const vector<TabuMove> &tabu_list, const TabuMove &move){
                         return true;
                     }
             } else if (move.type == "2-2"){
-                // Kiểm tra đơn giản hơn: chỉ cần khách hàng và xe giống nhau
                 if (tabu_move.customer_id1 == move.customer_id1 && 
                     tabu_move.customer_id2 == move.customer_id2 &&
                     tabu_move.customer_id3 == move.customer_id3 &&
@@ -1496,7 +1490,7 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
     
     vector<tuple<int,int,int>> candidates = collect_merge_candidates(current_level, best_solution);
     
-    // Tính 20% số CẠNH, không phải nodes
+    // Tính 20% số CẠNH
     int num_to_merge = max(1, (int)(candidates.size() * 0.3));
     
     //cout << "\n=== MERGING " << num_to_merge << " / " << candidates.size() << " EDGES (20%) ===" << endl;
@@ -2054,13 +2048,13 @@ Solution multilevel_tabu_search() {
              << (distances.empty() ? 0 : distances[0].size()) << endl;*/
 
         update_node_index_cache(all_levels[prev_level_id]);
-        // ✅ CASE 1: LEVEL 0 - DÙNG EVALUATE VÀ TABU KHÔNG CÓ LEVEL
+        // CASE 1: LEVEL 0 - DÙNG EVALUATE VÀ TABU KHÔNG CÓ LEVEL
         if (prev_level_id == 0) {
             cout << "\n🎯 FINAL REFINEMENT AT LEVEL 0 (No merged nodes)" << endl;
             merged_nodes_info.clear();
             internal_distance_cache.clear();
             
-            // ✅ EVALUATE KHÔNG CÓ LEVEL (nullptr)
+            // EVALUATE KHÔNG CÓ LEVEL (nullptr)
             evaluate_solution(s, nullptr);
             print_solution(s);
             
@@ -2069,7 +2063,6 @@ Solution multilevel_tabu_search() {
             
             s = tabu_search(s, nullptr, false);
             
-            // ✅ EVALUATE SAU TABU (nullptr)
             evaluate_solution(s, nullptr);
             
             auto refine_end = chrono::high_resolution_clock::now();
@@ -2080,11 +2073,10 @@ Solution multilevel_tabu_search() {
             print_solution(s);
             best_overall = s;
         }
-        // ✅ CASE 2: LEVEL 1, 2, 3... - VẪN DÙNG MULTILEVEL
+        // CASE 2: LEVEL 1, 2, 3...
         else {
             cout << "\n🔧 Refining at level " << prev_level_id << " (with merged nodes)" << endl;
             
-            // ✅ CLEAR MERGED INFO CỦA LEVEL CAO HƠN
             auto it = merged_nodes_info.begin();
             while (it != merged_nodes_info.end()) {
                 if (it->second.level_id > prev_level_id) {
@@ -2096,14 +2088,12 @@ Solution multilevel_tabu_search() {
             cout << "🧹 Cleaned merged_nodes_info: kept " << merged_nodes_info.size() 
                 << " nodes for level " << prev_level_id << endl;
             
-            // ✅ EVALUATE VỚI LEVEL
             evaluate_solution(s, &all_levels[prev_level_id]);
             print_solution(s);
             
             auto refine_start = chrono::high_resolution_clock::now();
             edge_frequency.clear();
             
-            // ✅ TABU SEARCH VỚI LEVEL
             s = tabu_search(s, &all_levels[prev_level_id], false);
             evaluate_solution(s, &all_levels[prev_level_id]);
             
@@ -2128,7 +2118,6 @@ Solution multilevel_tabu_search() {
     cout << "🧪 TESTING WITH PREDEFINED ROUTES" << endl;
     cout << string(70, '=') << "\n" << endl;
     
-    // ✅ HIỂN THỊ ROUTES
     for (size_t v = 0; v < test_routes.size(); v++) {
         cout << "Vehicle " << v << " (" 
              << (vehicles[v].is_drone ? "🚁 Drone" : "🚚 Technician") 
@@ -2144,10 +2133,8 @@ Solution multilevel_tabu_search() {
         cout << endl;
     }
     
-    // ✅ GỌI HÀM EVALUATE - NÓ ĐÃ TÍNH TẤT CẢ
     evaluate_solution(test_sol, nullptr);
     
-    // ✅ HIỂN THỊ KẾT QUẢ
     cout << "\n" << string(70, '=') << endl;
     cout << "📋 TEST RESULTS" << endl;
     cout << string(70, '=') << "\n" << endl;
@@ -2158,7 +2145,6 @@ Solution multilevel_tabu_search() {
     cout << "Fitness: " << test_sol.fitness << endl;
     cout << "Is feasible: " << (test_sol.is_feasible ? "YES ✅" : "NO ❌") << endl;
     
-    // ✅ CHI TIẾT VI PHẠM (NẾU CÓ)
     if (!test_sol.is_feasible) {
         cout << "\n⚠️  VIOLATIONS DETECTED:" << endl;
         
