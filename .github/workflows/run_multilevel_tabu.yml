@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  actions : read
 
 jobs:
   compile:
@@ -347,7 +348,7 @@ jobs:
         name: multilevel-result-${{ matrix.instance }}
         path: results.json
         retention-days: 30
-        
+
   run-very-large:
     name: Very Large ${{ matrix.instance }}
     needs: compile
