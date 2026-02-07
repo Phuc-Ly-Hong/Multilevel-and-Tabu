@@ -375,17 +375,14 @@ jobs:
       with:
         name: multilevel-tabu-executable
     
-    - name: Run algorithm 3 times  # ✅ ĐỔI TÊN
+    - name: Run algorithm 1 time only
       run: |
         chmod +x multilevel_tabu
         
-        # ✅ ĐỔI {1..5} THÀNH {1..3}
-        for run in {1..3}; do
-          START_TIME=$(date +%s.%N)
-          timeout 120m ./multilevel_tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1 || echo "TIMEOUT" >> output_run${run}.txt
-          END_TIME=$(date +%s.%N)
-          echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
-        done
+        START_TIME=$(date +%s.%N)
+        timeout 120m ./multilevel_tabu instances/${{ matrix.instance }}.txt > output_run1.txt 2>&1 || echo "TIMEOUT" >> output_run1.txt
+        END_TIME=$(date +%s.%N)
+        echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run1.txt
     
     - name: Parse results
       run: |
@@ -431,11 +428,11 @@ jobs:
                 return {"runtime": 0, "makespan": 0, "drone_violation": 0, "waiting_violation": 0,
                         "fitness": float('inf'), "feasible": "ERROR"}
         
-        # ✅ CHỈ PARSE 3 RUNS
-        runs = [parse_output(f"output_run{i}.txt", f"runtime_run{i}.txt") | {"run": i} for i in range(1, 4)]
+        result = parse_output("output_run1.txt", "runtime_run1.txt")
+        result["run"] = 1
+        runs = [result]
         
-        # ✅ THÊM 2 RUNS PLACEHOLDER ĐỂ GIỮ FORMAT 5 RUNS
-        for i in range(4, 6):
+        for i in range(2, 6):
             runs.append({"run": i, "runtime": 0, "makespan": 0, "drone_violation": 0,
                         "waiting_violation": 0, "fitness": float('inf'), "feasible": "NOT_RUN"})
         
@@ -552,6 +549,7 @@ jobs:
   aggregate:
     name: Create Multilevel Summary
     needs: [run-small, run-medium, run-large, run-very-large, run-extreme]
+    if: always()  # Chạy dù một số job fail/cancel
     runs-on: ubuntu-latest
     
     steps:

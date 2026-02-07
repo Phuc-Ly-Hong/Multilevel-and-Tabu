@@ -479,23 +479,21 @@ jobs:
       with:
         name: tabu-executable
     
-    - name: Run algorithm 5 times
+    - name: Run algorithm 1 time only
       run: |
         chmod +x tabu
         
-        for run in {1..5}; do
-          START_TIME=$(date +%s.%N)
-          timeout 30m ./tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
-          EXIT_CODE=$?
-          END_TIME=$(date +%s.%N)
-          echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
-          
-          if [ $EXIT_CODE -eq 124 ]; then
-            echo "TIMEOUT" >> output_run${run}.txt
-          elif [ $EXIT_CODE -ne 0 ]; then
-            echo "ERROR_EXIT_CODE_$EXIT_CODE" >> output_run${run}.txt
-          fi
-        done
+        START_TIME=$(date +%s.%N)
+        timeout 30m ./tabu instances/${{ matrix.instance }}.txt > output_run1.txt 2>&1
+        EXIT_CODE=$?
+        END_TIME=$(date +%s.%N)
+        echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run1.txt
+        
+        if [ $EXIT_CODE -eq 124 ]; then
+          echo "TIMEOUT" >> output_run1.txt
+        elif [ $EXIT_CODE -ne 0 ]; then
+          echo "ERROR_EXIT_CODE_$EXIT_CODE" >> output_run1.txt
+        fi
     
     - name: Parse results
       run: |
@@ -544,9 +542,19 @@ jobs:
                 return {"runtime": 0, "makespan": 0, "drone_violation": 0,
                         "waiting_violation": 0, "fitness": float('inf'), "feasible": "PARSE_ERROR"}
         
-        runs = [parse_output(f"output_run{i}.txt", f"runtime_run{i}.txt") | {"run": i} for i in range(1, 6)]
+        result = parse_output("output_run1.txt", "runtime_run1.txt")
+        result["run"] = 1
+        runs = [result]
+        
+        for i in range(2, 6):
+            runs.append({"run": i, "runtime": 0, "makespan": 0, "drone_violation": 0,
+                        "waiting_violation": 0, "fitness": float('inf'), "feasible": "NOT_RUN"})
+        
         with open("results.json", "w") as f:
             json.dump({"instance": instance, "runs": runs}, f, indent=2)
+        
+        print(f"\n📊 Summary for {instance}:")
+        print(f"  Run 1: fitness={result['fitness']}, runtime={result['runtime']}s, feasible={result['feasible']}")
         EOF
     
     - name: Upload results
@@ -664,7 +672,8 @@ jobs:
 
   aggregate:
     name: Create Summary
-    needs: [run-small, run-medium, run-large, run-very-large, run-extreme] 
+    needs: [run-small, run-medium, run-large, run-very-large, run-extreme]
+    if: always()  # Chạy dù một số job fail/cancel
     runs-on: ubuntu-latest
     
     steps:
