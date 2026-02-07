@@ -555,6 +555,7 @@ jobs:
     steps:
     - name: Download all results
       uses: actions/download-artifact@v4
+      continue-on-error: true  # Không fail nếu một số artifact không tồn tại
       with:
         pattern: multilevel-result-*
         merge-multiple: false
@@ -570,6 +571,10 @@ jobs:
             if os.path.exists(json_file):
                 with open(json_file) as f:
                     all_data.append(json.load(f))
+        
+        if not all_data:
+            print("⚠️  No results found. All jobs may have failed or been cancelled.")
+            print("Creating empty CSV file.")
         
         all_data.sort(key=lambda x: tuple(map(int, x["instance"].split("."))))
         
@@ -594,7 +599,10 @@ jobs:
                         "Fitness": run_data["fitness"], "Feasible": run_data["feasible"]
                     })
         
-        print(f"✅ CSV created: {len(all_data)} instances × 5 runs = {len(all_data)*5} rows")
+        if all_data:
+            print(f"✅ CSV created: {len(all_data)} instances × 5 runs = {len(all_data)*5} rows")
+        else:
+            print("✅ Empty CSV created (no successful runs)")
         EOF
     
     - name: Upload CSV

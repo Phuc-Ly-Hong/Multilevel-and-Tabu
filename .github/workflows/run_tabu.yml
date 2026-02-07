@@ -679,6 +679,7 @@ jobs:
     steps:
     - name: Download all results
       uses: actions/download-artifact@v4
+      continue-on-error: true  # Không fail nếu một số artifact không tồn tại
       with:
         pattern: tabu-result-*
         merge-multiple: false
@@ -694,6 +695,10 @@ jobs:
             if os.path.exists(json_file):
                 with open(json_file) as f:
                     all_data.append(json.load(f))
+        
+        if not all_data:
+            print("⚠️  No results found. All jobs may have failed or been cancelled.")
+            print("Creating empty CSV file.")
         
         all_data.sort(key=lambda x: tuple(map(int, x["instance"].split("."))))
         
@@ -718,18 +723,20 @@ jobs:
                         "Fitness": run_data["fitness"], "Feasible": run_data["feasible"]
                     })
         
-        print(f"✅ CSV created: {len(all_data)} instances")
-        
-        total = len(all_data) * 5
-        crash_count = sum(1 for d in all_data for r in d["runs"] if r["feasible"] == "CRASH")
-        timeout_count = sum(1 for d in all_data for r in d["runs"] if r["feasible"] == "TIMEOUT")
-        success_count = sum(1 for d in all_data for r in d["runs"] if r["feasible"] in ["YES", "NO"])
-        
-        print(f"\n📊 Statistics:")
-        print(f"  Total runs: {total}")
-        print(f"  ✅ Success: {success_count} ({success_count/total*100:.1f}%)")
-        print(f"  ⏱️  Timeout: {timeout_count} ({timeout_count/total*100:.1f}%)")
-        print(f"  ❌ Crash: {crash_count} ({crash_count/total*100:.1f}%)")
+        if all_data:
+            total = len(all_data) * 5
+            crash_count = sum(1 for d in all_data for r in d["runs"] if r["feasible"] == "CRASH")
+            timeout_count = sum(1 for d in all_data for r in d["runs"] if r["feasible"] == "TIMEOUT")
+            success_count = sum(1 for d in all_data for r in d["runs"] if r["feasible"] in ["YES", "NO"])
+            
+            print(f"✅ CSV created: {len(all_data)} instances")
+            print(f"\n📊 Statistics:")
+            print(f"  Total runs: {total}")
+            print(f"  ✅ Success: {success_count} ({success_count/total*100:.1f}%)")
+            print(f"  ⏱️  Timeout: {timeout_count} ({timeout_count/total*100:.1f}%)")
+            print(f"  ❌ Crash: {crash_count} ({crash_count/total*100:.1f}%)")
+        else:
+            print("✅ Empty CSV created (no successful runs)")
         EOF
     
     - name: Upload CSV
