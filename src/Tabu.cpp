@@ -54,7 +54,7 @@ double Beta = 0.5; // tham số điều chỉnh hệ số hàm phạt
 
 int MAX_ITER;
 int TABU_TENURE;
-int MAX_NO_IMPROVE = 70000;
+int MAX_NO_IMPROVE = 700000;
 double EPSILON = 1e-6;
 
 // Adaptive parameters
@@ -117,43 +117,37 @@ void read_dataset(const string &filename){
         // Bộ rất lớn (> 1000)
         MAX_ITER = 50000;
         SEGMENT_LENGTH = 5000;
-        MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 1000) {
         // Bộ 1000 (501-1000)
-        MAX_ITER = 30000;
-        SEGMENT_LENGTH = 3000;
-        MAX_NO_IMPROVE = 500000;
+        MAX_ITER = 200000;
+        SEGMENT_LENGTH = 2500;
     }
     else if (nodes.size() >= 500) {
         // Bộ 500 (201-500)
-        MAX_ITER = 15000;
-        SEGMENT_LENGTH = 1500;
-        MAX_NO_IMPROVE = 500000;
+        MAX_ITER = 100000;
+        SEGMENT_LENGTH = 1250;
     }
     else if (nodes.size() >= 200) {
         // Bộ 200 (101-200)
-        MAX_ITER = 6000;
+        MAX_ITER = 48000;
         SEGMENT_LENGTH = 600;
         MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 100) {
         // Bộ 100 (100)
-        MAX_ITER = 3000;
+        MAX_ITER = 24000;
         SEGMENT_LENGTH = 300;
-        MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 50) {
         // Bộ 50 (50-99)
-        MAX_ITER = 2000;
+        MAX_ITER = 16000;
         SEGMENT_LENGTH = 200;
-        MAX_NO_IMPROVE = 500000;
     }
     else {
         // Bộ nhỏ (6-49)
-        MAX_ITER = 500;
+        MAX_ITER = 4000;
         SEGMENT_LENGTH = 50;
-        MAX_NO_IMPROVE = 500000;
     }
     for (const auto& node : nodes) {
         if (node.id == depot_id) {
