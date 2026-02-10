@@ -1,0 +1,534 @@
+name: Run Tabu Search - Size 200
+
+on:
+  push:
+    branches: [ main, master, Scenario_A_C_D ]
+  pull_request:
+    branches: [ main, master, Scenario_A_C_D ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    name: Compile Tabu
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y g++ bc
+    
+    - name: Compile executable
+      run: |
+        g++ -O3 -std=c++17 -march=native -flto -o tabu src/Tabu.cpp
+        chmod +x tabu
+    
+    - name: Upload executable
+      uses: actions/upload-artifact@v4
+      with:
+        name: tabu-200-executable
+        path: tabu
+        retention-days: 7
+
+  run-200-batch1:
+    name: Tabu-200-B1 ${{ matrix.instance }}
+    needs: compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        instance: [
+          "200.10.1",
+          "200.10.2",
+          "200.10.3",
+          "200.10.4"
+        ]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Download executable
+      uses: actions/download-artifact@v4
+      with:
+        name: tabu-200-executable
+    
+    - name: Run algorithm 3 times
+      run: |
+        chmod +x tabu
+        
+        for run in {1..3}; do
+          echo "=== Run $run/3 for ${{ matrix.instance }} ==="
+          START_TIME=$(date +%s.%N)
+          
+          timeout 30m ./tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
+          EXIT_CODE=$?
+          
+          END_TIME=$(date +%s.%N)
+          RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
+          echo "$RUNTIME" > runtime_run${run}.txt
+          
+          if [ $EXIT_CODE -eq 124 ]; then
+            echo "TIMEOUT" >> output_run${run}.txt
+            echo "⏱️  Run $run: TIMEOUT"
+          elif [ $EXIT_CODE -ne 0 ]; then
+            echo "ERROR_EXIT_CODE_$EXIT_CODE" >> output_run${run}.txt
+            echo "❌ Run $run: ERROR (exit code $EXIT_CODE)"
+          else
+            echo "✅ Run $run: SUCCESS in ${RUNTIME}s"
+          fi
+        done
+    
+    - name: Parse results
+      run: |
+        python3 <<'EOF'
+        import re, json, os
+        instance = "${{ matrix.instance }}"
+        
+        def find_metric_last(pattern, content):
+            matches = re.findall(pattern, content)
+            return float(matches[-1]) if matches else 0.0
+        
+        def parse_output(output_file, runtime_file):
+            try:
+                with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+                
+                runtime = 1800.0  # 30 phút
+                if os.path.exists(runtime_file):
+                    with open(runtime_file, "r") as f:
+                        runtime = float(f.read().strip())
+                
+                if "TIMEOUT" in content:
+                    status = "TIMEOUT"
+                elif "ERROR_EXIT_CODE" in content:
+                    status = "CRASH"
+                elif not content or "Fitness:" not in content:
+                    status = "CRASH" if runtime < 1.0 else "NO_OUTPUT"
+                else:
+                    makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
+                    drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
+                    waiting_viol = find_metric_last(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
+                    fitness = find_metric_last(r'Fitness:\s*([0-9.+\-eE]+)', content)
+                    
+                    if makespan == 0.0 and fitness == 0.0:
+                        status = "INVALID"
+                    else:
+                        feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
+                        return {"runtime": round(runtime, 3), "makespan": round(makespan, 4),
+                                "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
+                                "fitness": round(fitness, 4), "feasible": feasible}
+                
+                return {"runtime": round(runtime, 3), "makespan": 0.0,
+                        "drone_violation": 0.0, "waiting_violation": 0.0,
+                        "fitness": float('inf'), "feasible": status}
+            except:
+                return {"runtime": 0, "makespan": 0, "drone_violation": 0,
+                        "waiting_violation": 0, "fitness": float('inf'), "feasible": "PARSE_ERROR"}
+        
+        runs = []
+        for run in range(1, 4):
+            result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
+            result["run"] = run
+            runs.append(result)
+        
+        # Thêm run 4-5 với NOT_RUN
+        for run in range(4, 6):
+            runs.append({"run": run, "runtime": 0, "makespan": 0, "drone_violation": 0,
+                        "waiting_violation": 0, "fitness": float('inf'), "feasible": "NOT_RUN"})
+        
+        with open("results.json", "w") as f:
+            json.dump({"instance": instance, "runs": runs}, f, indent=2)
+        
+        print(f"\n📊 Summary for {instance}:")
+        for r in runs[:3]:
+            status_icon = "✅" if r['feasible'] == "YES" else ("⏱️" if r['feasible'] == "TIMEOUT" else "❌")
+            print(f"  Run {r['run']}: {status_icon} {r['feasible']} - fitness={r['fitness']}, runtime={r['runtime']}s")
+        EOF
+    
+    - name: Upload results
+      uses: actions/upload-artifact@v4
+      with:
+        name: tabu-200-result-${{ matrix.instance }}
+        path: results.json
+        retention-days: 30
+
+  run-200-batch2:
+    name: Tabu-200-B2 ${{ matrix.instance }}
+    needs: compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        instance: [
+          "200.20.1",
+          "200.20.2",
+          "200.20.3",
+          "200.20.4"
+        ]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Download executable
+      uses: actions/download-artifact@v4
+      with:
+        name: tabu-200-executable
+    
+    - name: Run algorithm 3 times
+      run: |
+        chmod +x tabu
+        
+        for run in {1..3}; do
+          START_TIME=$(date +%s.%N)
+          timeout 30m ./tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
+          EXIT_CODE=$?
+          END_TIME=$(date +%s.%N)
+          echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
+          
+          if [ $EXIT_CODE -eq 124 ]; then
+            echo "TIMEOUT" >> output_run${run}.txt
+          elif [ $EXIT_CODE -ne 0 ]; then
+            echo "ERROR_EXIT_CODE_$EXIT_CODE" >> output_run${run}.txt
+          fi
+        done
+    
+    - name: Parse results
+      run: |
+        python3 <<'EOF'
+        import re, json, os
+        instance = "${{ matrix.instance }}"
+        
+        def find_metric_last(pattern, content):
+            matches = re.findall(pattern, content)
+            return float(matches[-1]) if matches else 0.0
+        
+        def parse_output(output_file, runtime_file):
+            try:
+                with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+                
+                runtime = 1800.0
+                if os.path.exists(runtime_file):
+                    with open(runtime_file, "r") as f:
+                        runtime = float(f.read().strip())
+                
+                if "TIMEOUT" in content:
+                    status = "TIMEOUT"
+                elif "ERROR_EXIT_CODE" in content:
+                    status = "CRASH"
+                elif not content or "Fitness:" not in content:
+                    status = "NO_OUTPUT"
+                else:
+                    makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
+                    drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
+                    waiting_viol = find_metric_last(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
+                    fitness = find_metric_last(r'Fitness:\s*([0-9.+\-eE]+)', content)
+                    
+                    feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
+                    return {"runtime": round(runtime, 3), "makespan": round(makespan, 4),
+                            "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
+                            "fitness": round(fitness, 4), "feasible": feasible}
+                
+                return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
+                        "waiting_violation": 0.0, "fitness": float('inf'), "feasible": status}
+            except:
+                return {"runtime": 0, "makespan": 0, "drone_violation": 0, "waiting_violation": 0,
+                        "fitness": float('inf'), "feasible": "PARSE_ERROR"}
+        
+        runs = [parse_output(f"output_run{i}.txt", f"runtime_run{i}.txt") | {"run": i} for i in range(1, 4)]
+        for i in range(4, 6):
+            runs.append({"run": i, "runtime": 0, "makespan": 0, "drone_violation": 0,
+                        "waiting_violation": 0, "fitness": float('inf'), "feasible": "NOT_RUN"})
+        
+        with open("results.json", "w") as f:
+            json.dump({"instance": instance, "runs": runs}, f, indent=2)
+        EOF
+    
+    - name: Upload results
+      uses: actions/upload-artifact@v4
+      with:
+        name: tabu-200-result-${{ matrix.instance }}
+        path: results.json
+        retention-days: 30
+
+  run-200-batch3:
+    name: Tabu-200-B3 ${{ matrix.instance }}
+    needs: compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        instance: [
+          "200.30.1",
+          "200.30.2",
+          "200.30.3",
+          "200.30.4"
+        ]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Download executable
+      uses: actions/download-artifact@v4
+      with:
+        name: tabu-200-executable
+    
+    - name: Run algorithm 3 times
+      run: |
+        chmod +x tabu
+        
+        for run in {1..3}; do
+          START_TIME=$(date +%s.%N)
+          timeout 30m ./tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
+          EXIT_CODE=$?
+          END_TIME=$(date +%s.%N)
+          echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
+          
+          if [ $EXIT_CODE -eq 124 ]; then
+            echo "TIMEOUT" >> output_run${run}.txt
+          elif [ $EXIT_CODE -ne 0 ]; then
+            echo "ERROR_EXIT_CODE_$EXIT_CODE" >> output_run${run}.txt
+          fi
+        done
+    
+    - name: Parse results
+      run: |
+        python3 <<'EOF'
+        import re, json, os
+        instance = "${{ matrix.instance }}"
+        
+        def find_metric_last(pattern, content):
+            matches = re.findall(pattern, content)
+            return float(matches[-1]) if matches else 0.0
+        
+        def parse_output(output_file, runtime_file):
+            try:
+                with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+                
+                runtime = 1800.0
+                if os.path.exists(runtime_file):
+                    with open(runtime_file, "r") as f:
+                        runtime = float(f.read().strip())
+                
+                if "TIMEOUT" in content:
+                    status = "TIMEOUT"
+                elif "ERROR_EXIT_CODE" in content:
+                    status = "CRASH"
+                elif not content or "Fitness:" not in content:
+                    status = "NO_OUTPUT"
+                else:
+                    makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
+                    drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
+                    waiting_viol = find_metric_last(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
+                    fitness = find_metric_last(r'Fitness:\s*([0-9.+\-eE]+)', content)
+                    
+                    feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
+                    return {"runtime": round(runtime, 3), "makespan": round(makespan, 4),
+                            "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
+                            "fitness": round(fitness, 4), "feasible": feasible}
+                
+                return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
+                        "waiting_violation": 0.0, "fitness": float('inf'), "feasible": status}
+            except:
+                return {"runtime": 0, "makespan": 0, "drone_violation": 0, "waiting_violation": 0,
+                        "fitness": float('inf'), "feasible": "PARSE_ERROR"}
+        
+        runs = [parse_output(f"output_run{i}.txt", f"runtime_run{i}.txt") | {"run": i} for i in range(1, 4)]
+        for i in range(4, 6):
+            runs.append({"run": i, "runtime": 0, "makespan": 0, "drone_violation": 0,
+                        "waiting_violation": 0, "fitness": float('inf'), "feasible": "NOT_RUN"})
+        
+        with open("results.json", "w") as f:
+            json.dump({"instance": instance, "runs": runs}, f, indent=2)
+        EOF
+    
+    - name: Upload results
+      uses: actions/upload-artifact@v4
+      with:
+        name: tabu-200-result-${{ matrix.instance }}
+        path: results.json
+        retention-days: 30
+
+  run-200-batch4:
+    name: Tabu-200-B4 ${{ matrix.instance }}
+    needs: compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        instance: [
+          "200.40.1",
+          "200.40.2",
+          "200.40.3",
+          "200.40.4"
+        ]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Download executable
+      uses: actions/download-artifact@v4
+      with:
+        name: tabu-200-executable
+    
+    - name: Run algorithm 3 times
+      run: |
+        chmod +x tabu
+        
+        for run in {1..3}; do
+          START_TIME=$(date +%s.%N)
+          timeout 30m ./tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
+          EXIT_CODE=$?
+          END_TIME=$(date +%s.%N)
+          echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
+          
+          if [ $EXIT_CODE -eq 124 ]; then
+            echo "TIMEOUT" >> output_run${run}.txt
+          elif [ $EXIT_CODE -ne 0 ]; then
+            echo "ERROR_EXIT_CODE_$EXIT_CODE" >> output_run${run}.txt
+          fi
+        done
+    
+    - name: Parse results
+      run: |
+        python3 <<'EOF'
+        import re, json, os
+        instance = "${{ matrix.instance }}"
+        
+        def find_metric_last(pattern, content):
+            matches = re.findall(pattern, content)
+            return float(matches[-1]) if matches else 0.0
+        
+        def parse_output(output_file, runtime_file):
+            try:
+                with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+                
+                runtime = 1800.0
+                if os.path.exists(runtime_file):
+                    with open(runtime_file, "r") as f:
+                        runtime = float(f.read().strip())
+                
+                if "TIMEOUT" in content:
+                    status = "TIMEOUT"
+                elif "ERROR_EXIT_CODE" in content:
+                    status = "CRASH"
+                elif not content or "Fitness:" not in content:
+                    status = "NO_OUTPUT"
+                else:
+                    makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
+                    drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
+                    waiting_viol = find_metric_last(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
+                    fitness = find_metric_last(r'Fitness:\s*([0-9.+\-eE]+)', content)
+                    
+                    feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
+                    return {"runtime": round(runtime, 3), "makespan": round(makespan, 4),
+                            "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
+                            "fitness": round(fitness, 4), "feasible": feasible}
+                
+                return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
+                        "waiting_violation": 0.0, "fitness": float('inf'), "feasible": status}
+            except:
+                return {"runtime": 0, "makespan": 0, "drone_violation": 0, "waiting_violation": 0,
+                        "fitness": float('inf'), "feasible": "PARSE_ERROR"}
+        
+        runs = [parse_output(f"output_run{i}.txt", f"runtime_run{i}.txt") | {"run": i} for i in range(1, 4)]
+        for i in range(4, 6):
+            runs.append({"run": i, "runtime": 0, "makespan": 0, "drone_violation": 0,
+                        "waiting_violation": 0, "fitness": float('inf'), "feasible": "NOT_RUN"})
+        
+        with open("results.json", "w") as f:
+            json.dump({"instance": instance, "runs": runs}, f, indent=2)
+        EOF
+    
+    - name: Upload results
+      uses: actions/upload-artifact@v4
+      with:
+        name: tabu-200-result-${{ matrix.instance }}
+        path: results.json
+        retention-days: 30
+
+  aggregate:
+    name: Create Tabu-200 Summary
+    needs: [run-200-batch1, run-200-batch2, run-200-batch3, run-200-batch4]
+    if: always()
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Download all 200 results
+      uses: actions/download-artifact@v4
+      continue-on-error: true
+      with:
+        pattern: tabu-200-result-*
+        merge-multiple: false
+    
+    - name: Create summary CSV
+      run: |
+        python3 <<'EOF'
+        import json, glob, csv, os
+        
+        all_data = []
+        for result_dir in glob.glob("tabu-200-result-*"):
+            json_file = os.path.join(result_dir, "results.json")
+            if os.path.exists(json_file):
+                with open(json_file) as f:
+                    all_data.append(json.load(f))
+        
+        if not all_data:
+            print("⚠️  No results found for Tabu size 200")
+        
+        all_data.sort(key=lambda x: tuple(map(int, x["instance"].split("."))))
+        
+        with open("TABU_200_RESULTS.csv", "w", newline="") as f:
+            cols = ["Instance", "Size", "Replica", "Run", "Runtime_s", "Makespan",
+                    "Drone_Violation", "Waiting_Violation", "Fitness", "Feasible"]
+            
+            writer = csv.DictWriter(f, fieldnames=cols)
+            writer.writeheader()
+            
+            for data in all_data:
+                parts = data["instance"].split(".")
+                instance, size, replica = data["instance"], int(parts[0]), int(parts[2])
+                
+                for run_data in data["runs"]:
+                    writer.writerow({
+                        "Instance": instance, "Size": size, "Replica": replica,
+                        "Run": run_data["run"], "Runtime_s": run_data["runtime"],
+                        "Makespan": run_data["makespan"],
+                        "Drone_Violation": run_data["drone_violation"],
+                        "Waiting_Violation": run_data["waiting_violation"],
+                        "Fitness": run_data["fitness"], "Feasible": run_data["feasible"]
+                    })
+        
+        print(f"✅ CSV created for Tabu size 200: {len(all_data)} instances × 5 runs (3 actual + 2 placeholder)")
+        EOF
+    
+    - name: Upload CSV
+      uses: actions/upload-artifact@v4
+      with:
+        name: tabu-200-results
+        path: TABU_200_RESULTS.csv
+        retention-days: 90
