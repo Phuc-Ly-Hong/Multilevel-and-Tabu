@@ -140,18 +140,47 @@ void read_dataset(const string &filename){
     file.close();
 
     cout << "Read " << nodes.size() << " nodes (including depot)." << endl;
-    if (nodes.size() >= 100) {
+    if (nodes.size() > 1000) {
+        // Bộ rất lớn (> 1000)
+        MAX_ITER = 50000;
+        SEGMENT_LENGTH = 5000;
+        MAX_NO_IMPROVE = 500000;
+    }
+    else if (nodes.size() >= 1000) {
+        // Bộ 1000 (501-1000)
+        MAX_ITER = 25000;
+        SEGMENT_LENGTH = 2500;
+        MAX_NO_IMPROVE = 500000;
+    }
+    else if (nodes.size() >= 500) {
+        // Bộ 500 (201-500)
+        MAX_ITER = 12500;
+        SEGMENT_LENGTH = 12500;
+        MAX_NO_IMPROVE = 500000;
+    }
+    else if (nodes.size() >= 200) {
+        // Bộ 200 (101-200)
+        MAX_ITER = 6000;
+        SEGMENT_LENGTH = 600;
+        MAX_NO_IMPROVE = 500000;
+    }
+    else if (nodes.size() >= 100) {
+        // Bộ 100 (100)
         MAX_ITER = 3000;
         SEGMENT_LENGTH = 300;
-        MAX_NO_IMPROVE = 50000;
-    } else if (nodes.size() >= 50){
+        MAX_NO_IMPROVE = 500000;
+    }
+    else if (nodes.size() >= 50) {
+        // Bộ 50 (50-99)
         MAX_ITER = 2000;
         SEGMENT_LENGTH = 200;
-        MAX_NO_IMPROVE = 50000;
-    } else {
+        MAX_NO_IMPROVE = 500000;
+    }
+    else {
+        // Bộ nhỏ (6-49)
         MAX_ITER = 500;
         SEGMENT_LENGTH = 50;
-        MAX_NO_IMPROVE = 50000;
+        MAX_NO_IMPROVE = 500000;
     }
     for (const auto& node : nodes) {
         if (node.id == depot_id) {
@@ -2181,16 +2210,41 @@ int main(int argc, char* argv[]) {
     // Khởi tạo danh sách xe 
     vehicles.clear();
     int customers = num_nodes-1;
-    int pairs = 0;
-    if (customers >= 6 && customers <= 12) pairs = 1;
-    else if (customers <= 20) pairs = 2;
-    else if (customers <= 50) pairs = 3;
-    else if (customers <= 100) pairs = 4;
-    for (int i = 0; i < pairs; ++i) {
+    int num_techs = 0, num_drones = 0;
+    if (customers >= 6 && customers <= 12) {
+        num_techs = 1;
+        num_drones = 1;
+    }
+    else if (customers <= 20) {
+        num_techs = 2;
+        num_drones = 2;
+    }
+    else if (customers <= 50) {
+        num_techs = 3;
+        num_drones = 3;
+    }
+    else if (customers <= 100) {
+        num_techs = 4;
+        num_drones = 4;
+    }
+    else if (customers <= 200) {
+        num_techs = 10;
+        num_drones = 4;
+    }
+    else if (customers <= 500) {
+        num_techs = 10;
+        num_drones = 10;
+    }
+    else if (customers <= 1000) {
+        num_techs = 15;
+        num_drones = 15;
+    }
+
+    for (int i = 0; i < num_techs; ++i) {
         vehicles.push_back({ i+1, 0.58f, false, 0.0f }); // technician
     }
-    for (int i = 0; i < pairs; ++i) {
-        vehicles.push_back({ pairs + i + 1, 0.83f, true, 120.0f }); // drone
+    for (int i = 0; i < num_drones; ++i) {
+        vehicles.push_back({ num_techs + i + 1, 0.83f, true, 120.0f }); // drone
     }
 
     /*vector<vector<int>> test_routes = {
