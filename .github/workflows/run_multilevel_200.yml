@@ -27,7 +27,7 @@ jobs:
     
     - name: Compile executable
       run: |
-        g++ -O3 -std=c++17 -march=native -o multilevel_tabu src/Multilevel_Tabu.cpp
+        g++ -O3 -std=c++17 -o multilevel_tabu src/Multilevel_Tabu.cpp
         chmod +x multilevel_tabu
     
     - name: Upload executable

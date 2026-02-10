@@ -27,7 +27,7 @@ jobs:
     
     - name: Compile executable
       run: |
-        g++ -O3 -std=c++17 -march=native -o multilevel_tabu src/Multilevel_Tabu.cpp
+        g++ -O3 -std=c++17 -o multilevel_tabu src/Multilevel_Tabu.cpp
         chmod +x multilevel_tabu
     
     - name: Upload executable
@@ -35,7 +35,7 @@ jobs:
       with:
         name: multilevel-tabu-executable
         path: multilevel_tabu
-        retention-days: 1
+        retention-days: 7
 
   run-small:
     name: Small ${{ matrix.instance }}

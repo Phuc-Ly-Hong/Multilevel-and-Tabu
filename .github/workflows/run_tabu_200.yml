@@ -26,7 +26,7 @@ jobs:
     
     - name: Compile executable
       run: |
-        g++ -O3 -std=c++17 -march=native -flto -o tabu src/Tabu.cpp
+        g++ -O3 -std=c++17 -o tabu src/Tabu.cpp
         chmod +x tabu
     
     - name: Upload executable
