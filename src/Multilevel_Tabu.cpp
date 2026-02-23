@@ -1277,7 +1277,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level, bool 
             current_sol = best_Neighbor_sol;
             evaluate_solution(current_sol, current_level);
             if (track_edge) {
-                update_edge_frequency(best_sol);
+                update_edge_frequency(current_sol);
             }
 
             /*cout << "Iter: " << iter << " Move: " << move_type 
