@@ -351,7 +351,7 @@ jobs:
 
   aggregate:
     name: Create Multilevel Summary
-    needs: [run-small, run-medium, run-large, run-extreme]
+    needs: [run-small, run-medium, run-large]
     if: always()  # Chạy dù một số job fail/cancel
     runs-on: ubuntu-latest
     
