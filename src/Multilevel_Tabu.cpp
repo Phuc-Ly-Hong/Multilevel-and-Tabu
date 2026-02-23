@@ -160,20 +160,20 @@ void read_dataset(const string &filename){
     }
     else if (nodes.size() >= 200) {
         // Bộ 200 (101-200)
-        MAX_ITER = 6000;
-        SEGMENT_LENGTH = 600;
+        MAX_ITER = 2000;
+        SEGMENT_LENGTH = 200;
         MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 100) {
         // Bộ 100 (100)
-        MAX_ITER = 3000;
-        SEGMENT_LENGTH = 300;
+        MAX_ITER = 1000;
+        SEGMENT_LENGTH = 100;
         MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 50) {
         // Bộ 50 (50-99)
-        MAX_ITER = 2000;
-        SEGMENT_LENGTH = 200;
+        MAX_ITER = 500;
+        SEGMENT_LENGTH = 50;
         MAX_NO_IMPROVE = 500000;
     }
     else {
@@ -1793,8 +1793,8 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
     
     vector<tuple<int,int,int>> candidates = collect_merge_candidates(current_level, best_solution);
     
-    // Tính 30% số CẠNH, không phải nodes
-    int num_to_merge = max(1, (int)(candidates.size() * 0.3));
+    // Tính 10% số CẠNH, không phải nodes
+    int num_to_merge = max(1, (int)(candidates.size() * 0.1));
     
     //cout << "\n=== MERGING " << num_to_merge << " / " << candidates.size() << " EDGES (20%) ===" << endl;
     
