@@ -1671,7 +1671,7 @@ Solution insertion_process(const Solution& best_sol, const LevelInfo& current_le
     for (const auto& candidate : candidates) {
         double dist = get<0>(candidate);
         int node_a = get<1>(candidate);
-        int node_b = get<2>(candidate);
+        int node_b = get<2>(candidate); 
         
         int best_method = -1;
         Solution best_new_sol = current_sol;
