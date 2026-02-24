@@ -1685,7 +1685,7 @@ Solution insertion_process(const Solution& best_sol, const LevelInfo& current_le
             auto [veh_x, pos_x] = find_node_position(current_sol, node_x);
             auto [veh_y, pos_y] = find_node_position(current_sol, node_y);
             
-            if (veh_x == -1 || veh_y == -1) continue;
+            if (veh_x == -1 || veh_y == -1) continue; 
             
             bool same_vehicle = (veh_x == veh_y);
             int start_method = same_vehicle ? 1 : 9;
