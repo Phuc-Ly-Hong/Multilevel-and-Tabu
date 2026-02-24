@@ -2,9 +2,9 @@ name: Run Tabu Search - Size 200
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, Scenario_A_D ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main, master, Scenario_A_D ]
   workflow_dispatch:
 
 permissions:
@@ -40,7 +40,7 @@ jobs:
     name: Tabu-200-B1 ${{ matrix.instance }}
     needs: compile
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 240
     
     strategy:
       fail-fast: false
@@ -166,7 +166,7 @@ jobs:
     name: Tabu-200-B2 ${{ matrix.instance }}
     needs: compile
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 240
     
     strategy:
       fail-fast: false
@@ -269,7 +269,7 @@ jobs:
     name: Tabu-200-B3 ${{ matrix.instance }}
     needs: compile
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 240
     
     strategy:
       fail-fast: false
@@ -372,7 +372,7 @@ jobs:
     name: Tabu-200-B4 ${{ matrix.instance }}
     needs: compile
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 240
     
     strategy:
       fail-fast: false
