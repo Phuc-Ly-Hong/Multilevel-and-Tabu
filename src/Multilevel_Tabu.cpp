@@ -1663,7 +1663,7 @@ Solution insertion_process(const Solution& best_sol, const LevelInfo& current_le
     cout << "   Found " << candidates.size() << " candidate edges to insert" << endl;
     
     Solution current_sol = best_sol;
-    int successful_insertions = 0;
+    int successful_insertions = 0; 
     vector<tuple<int, int, int, double>> inserted_edges;
     
     set<pair<int,int>> old_edges = get_existing_edges(best_sol);
