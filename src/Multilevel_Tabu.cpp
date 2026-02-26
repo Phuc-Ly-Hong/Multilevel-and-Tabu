@@ -1641,7 +1641,7 @@ Solution insertion_process(const Solution& best_sol, const LevelInfo& current_le
     }
     
     // Chỉ lấy 15% shortest edges
-    int num_to_insert = max(1, (int)(candidates.size() * 0.15));
+    int num_to_insert = max(1, (int)(candidates.size() * 0.0));
     candidates.resize(min((int)candidates.size(), num_to_insert));
     
     cout << "insert: " << num_to_insert << endl;
@@ -1765,7 +1765,7 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
     vector<tuple<double,int,int>> candidates = collect_merge_candidates(current_level, best_solution);
     
     // Tính 30% số CẠNH, không phải nodes
-    int num_to_merge = max(1, (int)(candidates.size() * 0.1));
+    int num_to_merge = max(1, (int)(candidates.size() * 0.2));
     
     //cout << "\n=== MERGING " << num_to_merge << " / " << candidates.size() << " EDGES (20%) ===" << endl;
     
