@@ -2,9 +2,9 @@ name: Run Multilevel Tabu Search
 
 on:
   push:
-    branches: [ main, master, Scenario_B_D ]
+    branches: [ main, master, Scenario_B_ ]
   pull_request:
-    branches: [ main, master, Scenario_B_D ]
+    branches: [ main, master, Scenario_B_ ]
   workflow_dispatch:
 
 permissions:
