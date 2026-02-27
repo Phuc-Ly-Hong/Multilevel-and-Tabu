@@ -1660,7 +1660,7 @@ Solution insertion_process(const Solution& best_sol, const LevelInfo& current_le
     }
     
     // Chỉ lấy 5% shortest edges 
-    int num_to_insert = max(1, (int)(candidates.size() * 0.05));
+    int num_to_insert = max(1, (int)(candidates.size() * 0.0));
     candidates.resize(min((int)candidates.size(), num_to_insert));
      
     cout << "insert: " << num_to_insert << endl;
