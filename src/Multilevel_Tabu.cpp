@@ -160,20 +160,20 @@ void read_dataset(const string &filename){
     }
     else if (nodes.size() >= 200) {
         // Bộ 200 (101-200)
-        MAX_ITER = 6000;
-        SEGMENT_LENGTH = 600;
+        MAX_ITER = 2000;
+        SEGMENT_LENGTH = 200;
         MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 100) {
         // Bộ 100 (100)
-        MAX_ITER = 3000;
-        SEGMENT_LENGTH = 300;
+        MAX_ITER = 1000;
+        SEGMENT_LENGTH = 100;
         MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 50) {
         // Bộ 50 (50-99)
-        MAX_ITER = 2000;
-        SEGMENT_LENGTH = 200;
+        MAX_ITER = 50;
+        SEGMENT_LENGTH = 50;
         MAX_NO_IMPROVE = 500000;
     }
     else {
