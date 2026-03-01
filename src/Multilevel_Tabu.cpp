@@ -172,7 +172,7 @@ void read_dataset(const string &filename){
     }
     else if (nodes.size() >= 50) {
         // Bộ 50 (50-99)
-        MAX_ITER = 50;
+        MAX_ITER = 500;
         SEGMENT_LENGTH = 50;
         MAX_NO_IMPROVE = 500000;
     }
