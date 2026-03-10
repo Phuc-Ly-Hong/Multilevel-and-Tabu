@@ -2,9 +2,9 @@ name: Run Multilevel Tabu - Size 200
 
 on:
   push:
-    branches: [ main, master, method_A ]
+    branches: [ main, master ]
   pull_request:
-    branches: [ main, master, method_A ]
+    branches: [ main, master ]
   workflow_dispatch:
 
 permissions:
