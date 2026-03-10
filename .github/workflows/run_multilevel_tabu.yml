@@ -37,11 +37,11 @@ jobs:
         path: multilevel_tabu
         retention-days: 7
 
-  run-small:
-    name: Small ${{ matrix.instance }}_S${{ matrix.segments }}_L${{ matrix.levels }}
+  run-50:
+    name: 50 ${{ matrix.instance }}_S${{ matrix.segments_per_level }}_L${{ matrix.num_levels }}
     needs: compile
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     
     strategy:
       fail-fast: false
@@ -50,131 +50,10 @@ jobs:
         segments_per_level: [5, 10, 15]
         num_levels: [3, 4, 5, 6, 7, 8]
         instance: [
-          "6.5.1", "6.10.1", "6.20.1",
-          "10.5.1", "10.10.1", "10.20.1",
-          "12.5.1", "12.10.1", "12.20.1",
-          "20.5.1", "20.10.1", "20.20.1"
-        ]
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Download executable
-      uses: actions/download-artifact@v4
-      with:
-        name: multilevel-tabu-executable
-    
-    - name: Run algorithm 5 times
-      run: |
-        chmod +x multilevel_tabu
-        
-        for run in {1..5}; do
-          START_TIME=$(date +%s.%N)
-          timeout 10m ./multilevel_tabu instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 300 ${{ matrix.segments_per_level }} > output_run${run}.txt 2>&1 || echo "TIMEOUT" >> output_run${run}.txt
-          END_TIME=$(date +%s.%N)
-          echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
-        done
-    
-    - name: Parse results
-      run: |
-        python3 <<'EOF'
-        import re, json, os
-        instance = "${{ matrix.instance }}"
-        segments = ${{ matrix.segments_per_level }}
-        levels = ${{ matrix.num_levels }}
-        
-        def find_metric_last(pattern, content):
-            matches = re.findall(pattern, content)
-            if not matches:
-                return 0.0
-            try:
-                return float(matches[-1])
-            except:
-                return 0.0
-        
-        def parse_output(output_file, runtime_file):
-            try:
-                with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
-                    content = f.read()
-                
-                if "TIMEOUT" in content or not content or "Fitness:" not in content:
-                    runtime = 600.0
-                    if os.path.exists(runtime_file):
-                        with open(runtime_file, "r") as f:
-                            runtime = float(f.read().strip())
-                    return {
-                        "runtime": round(runtime, 3),
-                        "makespan": 0.0,
-                        "drone_violation": 0.0,
-                        "waiting_violation": 0.0,
-                        "fitness": float('inf'),
-                        "feasible": "TIMEOUT",
-                        "segments_per_level": segments,
-                        "num_levels": levels
-                    }
-                
-                runtime = 0.0
-                if os.path.exists(runtime_file):
-                    with open(runtime_file, "r") as f:
-                        runtime = float(f.read().strip())
-                
-                makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
-                drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
-                waiting_viol = find_metric_last(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
-                fitness = find_metric_last(r'Fitness:\s*([0-9.+\-eE]+)', content)
-                
-                feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
-                
-                return {
-                    "runtime": round(runtime, 3),
-                    "makespan": round(makespan, 4),
-                    "drone_violation": round(drone_viol, 4),
-                    "waiting_violation": round(waiting_viol, 4),
-                    "fitness": round(fitness, 4),
-                    "feasible": feasible,
-                    "segments_per_level": segments,
-                    "num_levels": levels
-                }
-            except Exception as e:
-                print(f"Error parsing {output_file}: {e}")
-                return {
-                    "runtime": 0, "makespan": 0, "drone_violation": 0,
-                    "waiting_violation": 0, "fitness": float('inf'), "feasible": "ERROR",
-                    "segments_per_level": segments, "num_levels": levels
-                }
-        
-        runs = []
-        for run in range(1, 6):
-            result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
-            result["run"] = run
-            runs.append(result)
-        
-        with open("results.json", "w") as f:
-            json.dump({"instance": instance, "segments_per_level": segments, "num_levels": levels, "runs": runs}, f, indent=2)
-        EOF
-    
-    - name: Upload results
-      uses: actions/upload-artifact@v4
-      with:
-        name: multilevel-result-${{ matrix.instance }}-S${{ matrix.segments_per_level }}-L${{ matrix.num_levels }}
-        path: results.json
-        retention-days: 30
-
-  run-medium:
-    name: Medium ${{ matrix.instance }}_S${{ matrix.segments }}_L${{ matrix.levels }}
-    needs: compile
-    runs-on: ubuntu-latest
-    timeout-minutes: 240
-    
-    strategy:
-      fail-fast: false
-      max-parallel: 15
-      matrix:
-        segments_per_level: [5, 10, 15]
-        num_levels: [3, 4, 5, 6, 7, 8]
-        instance: [
-          "50.10.1", "50.20.1", "50.30.1", "50.40.1"
+          "50.10.1", "50.10.2", "50.10.3", "50.10.4",
+          "50.20.1", "50.20.2", "50.20.3", "50.20.4",
+          "50.30.1", "50.30.2", "50.30.3", "50.30.4",
+          "50.40.1", "50.40.2", "50.40.3", "50.40.4"
         ]
     
     steps:
@@ -207,7 +86,12 @@ jobs:
         
         def find_metric_last(pattern, content):
             matches = re.findall(pattern, content)
-            return float(matches[-1]) if matches else 0.0
+            if not matches:
+                return 0.0
+            try:
+                return float(matches[-1])
+            except:
+                return 0.0
         
         def parse_output(output_file, runtime_file):
             try:
@@ -237,16 +121,26 @@ jobs:
                 fitness = find_metric_last(r'Fitness:\s*([0-9.+\-eE]+)', content)
                 feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
                 
-                return {"runtime": round(runtime, 3), "makespan": round(makespan, 4),
-                        "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
-                        "fitness": round(fitness, 4), "feasible": feasible,
-                        "segments_per_level": segments, "num_levels": levels}
-            except:
-                return {"runtime": 0, "makespan": 0, "drone_violation": 0, "waiting_violation": 0,
-                        "fitness": float('inf'), "feasible": "ERROR",
-                        "segments_per_level": segments, "num_levels": levels}
+                return {
+                    "runtime": round(runtime, 3), "makespan": round(makespan, 4),
+                    "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
+                    "fitness": round(fitness, 4), "feasible": feasible,
+                    "segments_per_level": segments, "num_levels": levels
+                }
+            except Exception as e:
+                print(f"Error parsing {output_file}: {e}")
+                return {
+                    "runtime": 0, "makespan": 0, "drone_violation": 0,
+                    "waiting_violation": 0, "fitness": float('inf'), "feasible": "ERROR",
+                    "segments_per_level": segments, "num_levels": levels
+                }
         
-        runs = [parse_output(f"output_run{i}.txt", f"runtime_run{i}.txt") | {"run": i} for i in range(1, 6)]
+        runs = []
+        for run in range(1, 6):
+            result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
+            result["run"] = run
+            runs.append(result)
+        
         with open("results.json", "w") as f:
             json.dump({"instance": instance, "segments_per_level": segments, "num_levels": levels, "runs": runs}, f, indent=2)
         EOF
@@ -258,20 +152,23 @@ jobs:
         path: results.json
         retention-days: 30
 
-  run-large:
-    name: Large ${{ matrix.instance }}_S${{ matrix.segments }}_L${{ matrix.levels }}
+  run-100:
+    name: 100 ${{ matrix.instance }}_S${{ matrix.segments_per_level }}_L${{ matrix.num_levels }}
     needs: compile
     runs-on: ubuntu-latest
-    timeout-minutes: 480
+    timeout-minutes: 300
     
     strategy:
       fail-fast: false
-      max-parallel: 10
+      max-parallel: 15
       matrix:
         segments_per_level: [5, 10, 15]
         num_levels: [3, 4, 5, 6, 7, 8]
         instance: [
-          "100.10.1", "100.20.1"
+          "100.10.1", "100.10.2", "100.10.3", "100.10.4",
+          "100.20.1", "100.20.2", "100.20.3", "100.20.4",
+          "100.30.1", "100.30.2", "100.30.3", "100.30.4",
+          "100.40.1", "100.40.2", "100.40.3", "100.40.4"
         ]
     
     steps:
@@ -334,14 +231,18 @@ jobs:
                 fitness = find_metric_last(r'Fitness:\s*([0-9.+\-eE]+)', content)
                 feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
                 
-                return {"runtime": round(runtime, 3), "makespan": round(makespan, 4),
-                        "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
-                        "fitness": round(fitness, 4), "feasible": feasible,
-                        "segments_per_level": segments, "num_levels": levels}
+                return {
+                    "runtime": round(runtime, 3), "makespan": round(makespan, 4),
+                    "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
+                    "fitness": round(fitness, 4), "feasible": feasible,
+                    "segments_per_level": segments, "num_levels": levels
+                }
             except:
-                return {"runtime": 0, "makespan": 0, "drone_violation": 0, "waiting_violation": 0,
-                        "fitness": float('inf'), "feasible": "ERROR",
-                        "segments_per_level": segments, "num_levels": levels}
+                return {
+                    "runtime": 0, "makespan": 0, "drone_violation": 0,
+                    "waiting_violation": 0, "fitness": float('inf'), "feasible": "ERROR",
+                    "segments_per_level": segments, "num_levels": levels
+                }
         
         runs = [parse_output(f"output_run{i}.txt", f"runtime_run{i}.txt") | {"run": i} for i in range(1, 6)]
         with open("results.json", "w") as f:
@@ -357,7 +258,7 @@ jobs:
 
   aggregate:
     name: Create Multilevel Summary
-    needs: [run-small, run-medium, run-large]
+    needs: [run-50, run-100]
     if: always()
     runs-on: ubuntu-latest
     
