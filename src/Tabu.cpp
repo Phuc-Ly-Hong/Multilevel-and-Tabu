@@ -279,6 +279,7 @@ void evaluate_solution(Solution &sol) {
 }
 
 Solution init_greedy_solution() {
+    auto start_time = chrono::high_resolution_clock::now();
     Solution sol;
     sol.route.resize(vehicles.size());
 
@@ -362,6 +363,9 @@ Solution init_greedy_solution() {
     }
 
     evaluate_solution(sol);
+    auto end_time = chrono::high_resolution_clock::now();
+    chrono::duration<double> elapsed = end_time - start_time;
+    cout << "\n⏱️  Initial solution generated in " << elapsed.count() << " seconds." << endl;
     return sol;
 }
 

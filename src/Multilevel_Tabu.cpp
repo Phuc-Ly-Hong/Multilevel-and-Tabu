@@ -532,12 +532,11 @@ Solution init_greedy_solution() {
 
 
     evaluate_solution(sol);
+    cout << "\n📊 INITIAL SOLUTION:" << endl;
+    print_solution(sol);
     auto end_time = chrono::high_resolution_clock::now();
     chrono::duration<double> elapsed = end_time - start_time;
     cout << "\n⏱️  Initial solution generated in " << elapsed.count() << " seconds." << endl;
-    cout << "\n📊 INITIAL SOLUTION:" << endl;
-    print_solution(sol);
-
     return sol;
 }
 
