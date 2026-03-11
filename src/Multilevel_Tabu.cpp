@@ -45,7 +45,8 @@ struct LevelInfo {
     vector<Node> nodes;
     vector<Node> C1_level, C2_level; // customers ở level này
     map<int, vector<int>> node_mapping; // ánh xạ từ node level này về node gốc
-    vector<vector<double>> distance_matrix; // ma trận khoảng cách ở level này
+    vector<vector<double>> truck_time_matrix; // ma trận thời gian cho technician
+    vector<vector<double>> drone_time_matrix; // ma trận thời gian cho drone
     int level_id;
     int num_customers;
 
@@ -56,22 +57,31 @@ struct MergedNodeInfo {
     int merged_node_id;
     vector<int> original_sequence;  // Thứ tự nodes trong group: [17, 13, 15]
     vector<int> current_sequence;   // Sequence ở level hiện tại
-    double internal_distance;       // Tổng distance bên trong
-    vector<double> cumulative_distances; 
+    double internal_truck_time;     // Tổng thời gian truck bên trong
+    double internal_drone_time;     // Tổng thời gian drone bên trong
+    vector<double> cumulative_truck_times;
+    vector<double> cumulative_drone_times;
     int entry_node_original;                 // Node đầu tiên (entry point)
     int exit_node_original;                  // Node cuối cùng (exit point)
     int entry_node;
     int exit_node;
     int level_id;
     
-    MergedNodeInfo() : merged_node_id(-1), internal_distance(0.0), entry_node_original(-1), exit_node_original(-1), entry_node(-1), exit_node(-1), level_id(-1) {}
+    MergedNodeInfo() : merged_node_id(-1), internal_truck_time(0.0), internal_drone_time(0.0), entry_node_original(-1), exit_node_original(-1), entry_node(-1), exit_node(-1), level_id(-1) {}
 };
 
-vector<vector<double>> distances;
+vector<vector<double>> base_distance_matrix;
+vector<vector<double>> truck_times;
+vector<vector<double>> drone_times;
 vector<Node> C1; // customers served only by technicians
 vector<Node> C2; // customers served by drones or technicians
 vector<VehicleFamily> vehicles;
 map<int, MergedNodeInfo> merged_nodes_info;
+unordered_map<int, double> base_limit_wait_by_node;
+unordered_map<int, int> base_type_by_node;
+
+constexpr double TRUCK_SPEED = 0.58;
+constexpr double DRONE_SPEED = 0.83;
 
 int depot_id = 0;
 int num_nodes = 0;
@@ -83,6 +93,12 @@ int MAX_ITER;
 int TABU_TENURE;
 int MAX_NO_IMPROVE;
 double EPSILON = 1e-6;
+
+int MAX_LEVELS = 4;
+int ITER_PER_SEGMENT = -1;
+int SEGMENTS_PER_LEVEL = -1;
+bool USE_MANUAL_SEGMENT_CONFIG = false;
+double MERGE_RATIO = 0.10;
 
 // Adaptive parameters
 int SEGMENT_LENGTH;
@@ -119,8 +135,28 @@ void update_weights(){
     }
 }
 
+void build_time_matrices_from_distance(const vector<vector<double>>& distance_matrix,
+                                       vector<vector<double>>& truck_time_matrix,
+                                       vector<vector<double>>& drone_time_matrix) {
+    const int n = static_cast<int>(distance_matrix.size());
+    truck_time_matrix.assign(n, vector<double>(n, 0.0));
+    drone_time_matrix.assign(n, vector<double>(n, 0.0));
+
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n; j++) {
+            if (i == j) continue;
+            truck_time_matrix[i][j] = distance_matrix[i][j] / TRUCK_SPEED;
+            drone_time_matrix[i][j] = distance_matrix[i][j] / DRONE_SPEED;
+        }
+    }
+}
+
 void read_dataset(const string &filename){
     vector<Node> nodes;
+    C1.clear();
+    C2.clear();
+    base_limit_wait_by_node.clear();
+    base_type_by_node.clear();
     ifstream file(filename);
     if (!file.is_open()){
         cerr << "Error opening file: " << filename <<endl;
@@ -166,14 +202,14 @@ void read_dataset(const string &filename){
     }
     else if (nodes.size() >= 100) {
         // Bộ 100 (100)
-        MAX_ITER = 3000;
-        SEGMENT_LENGTH = 300;
+        MAX_ITER = 1000;
+        SEGMENT_LENGTH = 100;
         MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 50) {
         // Bộ 50 (50-99)
-        MAX_ITER = 2000;
-        SEGMENT_LENGTH = 200;
+        MAX_ITER = 500;
+        SEGMENT_LENGTH = 50;
         MAX_NO_IMPROVE = 500000;
     }
     else {
@@ -181,6 +217,11 @@ void read_dataset(const string &filename){
         MAX_ITER = 500;
         SEGMENT_LENGTH = 50;
         MAX_NO_IMPROVE = 500000;
+    }
+
+    if (USE_MANUAL_SEGMENT_CONFIG) {
+        SEGMENT_LENGTH = ITER_PER_SEGMENT;
+        MAX_ITER = ITER_PER_SEGMENT * SEGMENTS_PER_LEVEL;
     }
     for (const auto& node : nodes) {
         if (node.id == depot_id) {
@@ -192,23 +233,27 @@ void read_dataset(const string &filename){
         }
     }
 
-    // Tính toán khoảng cách giữa các nút
-    distances.resize(nodes.size(), vector<double>(nodes.size(), 0));
+    // Tính ma trận khoảng cách hình học để suy ra ma trận thời gian.
+    base_distance_matrix.resize(nodes.size(), vector<double>(nodes.size(), 0));
     for (size_t i = 0; i < nodes.size(); ++i){
         for (size_t j = 0; j < nodes.size(); ++j){
             if (i != j){
-                distances[i][j] = sqrt(pow(nodes[i].x - nodes[j].x, 2) + pow(nodes[i].y - nodes[j].y, 2));
+                base_distance_matrix[i][j] = sqrt(pow(nodes[i].x - nodes[j].x, 2) + pow(nodes[i].y - nodes[j].y, 2));
             }
         }
     }
+    build_time_matrices_from_distance(base_distance_matrix, truck_times, drone_times);
 
     // Phân loại khách hàng
     for (const auto& node : nodes){
         if (node.id == depot_id) continue;
+        base_limit_wait_by_node[node.id] = node.limit_wait;
         if (node.c1_or_c2 > 0){
             C2.push_back(node);
+            base_type_by_node[node.id] = 2;
         } else if (node.c1_or_c2 == 0) {
             C1.push_back(node);
+            base_type_by_node[node.id] = 1;
         }
     }
     cout << "C1 size: " << C1.size() << ", C2 size: " << C2.size() << endl;
@@ -229,7 +274,7 @@ void print_solution(const Solution &sol){
     cout << "Fitness: " << sol.fitness << endl;
 }
 
-map <int, int> node_id_to_index_cache;
+unordered_map<int, int> node_id_to_index_cache;
 
 void update_node_index_cache(const LevelInfo& level) {
     node_id_to_index_cache.clear();
@@ -264,6 +309,22 @@ void normalize_route(vector<int> &route) {
 
 map<int, double> internal_distance_cache;
 
+double get_limit_wait_for_node(int node_id, const LevelInfo *current_level = nullptr) {
+    if (current_level != nullptr) {
+        int idx = find_node_index_fast(node_id);
+        if (idx != -1) {
+            return current_level->nodes[idx].limit_wait;
+        }
+    }
+
+    auto it = base_limit_wait_by_node.find(node_id);
+    if (it != base_limit_wait_by_node.end()) {
+        return it->second;
+    }
+
+    return 60.0;
+}
+
 void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) {
     for (auto &route : sol.route) normalize_route(route);
 
@@ -274,6 +335,12 @@ void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) 
     sol.is_feasible = true;
 
     for (size_t i = 0; i < sol.route.size(); i++){
+        const bool is_drone = vehicles[i].is_drone;
+        const vector<vector<double>>& active_time_matrix =
+            (current_level != nullptr)
+                ? (is_drone ? current_level->drone_time_matrix : current_level->truck_time_matrix)
+                : (is_drone ? drone_times : truck_times);
+
         int prev = depot_id;
         double current_time = 0;
         double depart_time = 0;
@@ -284,63 +351,60 @@ void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) 
             
             if (cid == depot_id){
                 if (prev != depot_id){
-                    double travel_distance = 0.0;
+                    double travel_time = 0.0;
                     
                     if (current_level != nullptr) {
                         int prev_idx = find_node_index_fast(prev);
                         int depot_idx = find_node_index_fast(depot_id);
                         if (prev_idx != -1 && depot_idx != -1) {
-                            travel_distance = distances[prev_idx][depot_idx];
+                            travel_time = active_time_matrix[prev_idx][depot_idx];
                         }
                     } else {
-                        travel_distance = distances[prev][depot_id];
+                        travel_time = active_time_matrix[prev][depot_id];
                     }
-                    current_time += travel_distance / vehicles[i].speed;
+                    current_time += travel_time;
                 }
                 
                 double arrival_depot = current_time;
                 double flight_time = arrival_depot - depart_time;
                 
-                if (vehicles[i].is_drone && flight_time > vehicles[i].limit_drone){
-                    sol.drone_violation += (flight_time - vehicles[i].limit_drone);
+                if (vehicles[i].is_drone){
+                    sol.drone_violation += max(0.0, flight_time - vehicles[i].limit_drone);
                 }
                 
                 for (auto &p : served_in_trip){
                     int served_node_id = p.first;
                     double time_arrived_at_node = p.second;
-                    
+
                     if (current_level != nullptr ) {
                         auto it = current_level->node_mapping.find(served_node_id);
                         bool is_merged = (it != current_level->node_mapping.end() && it->second.size() > 1);
-                        
+
                         if (is_merged) {
                             auto info_it = merged_nodes_info.find(served_node_id);
                             if (info_it != merged_nodes_info.end()) {
                                 const MergedNodeInfo& info = info_it->second;
-                                
+                                const vector<double>& cumulative_times =
+                                    is_drone ? info.cumulative_drone_times : info.cumulative_truck_times;
+
                                 for (size_t k = 0; k < info.current_sequence.size(); k++) {
-                                    double dist_to_this_node = info.cumulative_distances[k];
-                                    double time_served = time_arrived_at_node + (dist_to_this_node / vehicles[i].speed);
+                                    double time_to_this_node = cumulative_times[k];
+                                    double time_served = time_arrived_at_node + time_to_this_node;
                                     double wait_time = arrival_depot - time_served;
-                                    
-                                    if (!C2.empty() && wait_time > C2[0].limit_wait) {
-                                        sol.waiting_violation += (wait_time - C2[0].limit_wait);
-                                    }
+                                    int node_id_in_sequence = info.current_sequence[k];
+                                    double limit_wait = get_limit_wait_for_node(node_id_in_sequence, current_level);
+                                    sol.waiting_violation += max(0.0, wait_time - limit_wait);
                                 }
                             }
                         } else {
-                            // Non-merged node
                             double wait_time = arrival_depot - time_arrived_at_node;
-                            if (!C2.empty() && wait_time > C2[0].limit_wait) {
-                                sol.waiting_violation += (wait_time - C2[0].limit_wait);
-                            }
+                            double limit_wait = get_limit_wait_for_node(served_node_id, current_level);
+                            sol.waiting_violation += max(0.0, wait_time - limit_wait);
                         }
                     } else {
-                        // Original evaluation (no level)
                         double wait_time = arrival_depot - time_arrived_at_node;
-                        if (!C2.empty() && wait_time > C2[0].limit_wait) {
-                            sol.waiting_violation += (wait_time - C2[0].limit_wait);
-                        }
+                        double limit_wait = get_limit_wait_for_node(served_node_id, nullptr);
+                        sol.waiting_violation += max(0.0, wait_time - limit_wait);
                     }
                 }
                 
@@ -352,38 +416,31 @@ void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) 
                 served_in_trip.clear();
                 prev = depot_id;
             } else {
-                double travel_distance = 0.0;
+                double travel_time = 0.0;
+                double internal_time = 0.0;
                 
                 if (current_level != nullptr) {
                     int prev_idx = find_node_index_fast(prev);
                     int cid_idx = find_node_index_fast(cid);
 
                     if (prev_idx != -1 && cid_idx != -1) {
-                        travel_distance = distances[prev_idx][cid_idx];
+                        travel_time = active_time_matrix[prev_idx][cid_idx];
                         auto info_it = merged_nodes_info.find(cid);
                         if (info_it != merged_nodes_info.end()) {
-                            travel_distance += info_it->second.internal_distance;
+                            internal_time = is_drone ? info_it->second.internal_drone_time : info_it->second.internal_truck_time;
+                            travel_time += internal_time;
                         }
                     } 
                 } else {
-                    travel_distance = distances[prev][cid];
+                    travel_time = active_time_matrix[prev][cid];
                 }
-                
+
                 double entry_time;
-                if (current_level != nullptr) {
-                    auto info_it = merged_nodes_info.find(cid);
-                    if (info_it != merged_nodes_info.end()) {
-                        double external_dist = travel_distance - info_it->second.internal_distance;
-                        entry_time = current_time + (external_dist / vehicles[i].speed);
-                    } else {
-                        entry_time = current_time + (travel_distance / vehicles[i].speed);
-                    }
-                } else {
-                    entry_time = current_time + (travel_distance / vehicles[i].speed);
-                }
+                double external_time = travel_time - internal_time;
+                entry_time = current_time + external_time;
                 
                 served_in_trip.push_back({cid, entry_time});
-                current_time += travel_distance / vehicles[i].speed;
+                current_time += travel_time;
                 prev = cid;
             }
         }
@@ -391,7 +448,7 @@ void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) 
     }
 
     sol.fitness = sol.makespan + alpha1*sol.drone_violation + alpha2*sol.waiting_violation;
-}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            
+}
 
 int get_type(int nid, const LevelInfo *current_level = nullptr) {
     if (current_level != nullptr) {
@@ -403,9 +460,9 @@ int get_type(int nid, const LevelInfo *current_level = nullptr) {
             if (n.id == nid) return 1;
         }
     } else {
-        // Dùng global C1, C2
-        for (const auto& n : C2) if (n.id == nid) return 2;
-        for (const auto& n : C1) if (n.id == nid) return 1;
+        // Dùng cache từ dataset gốc
+        auto it = base_type_by_node.find(nid);
+        if (it != base_type_by_node.end()) return it->second;
     }
     return -1;
 }
@@ -418,6 +475,7 @@ Solution init_greedy_solution() {
     for (size_t v = 0; v < vehicles.size(); ++v)
         sol.route[v].push_back(depot_id);
 
+    // 1. GÁN C1 CHO TECHNICIAN 
     vector<int> unserved_C1;
     for (const auto& n : C1) unserved_C1.push_back(n.id);
 
@@ -431,14 +489,14 @@ Solution init_greedy_solution() {
     }
     
     while (!unserved_C1.empty()) {
-        double best_dist = DBL_MAX;
+        double best_time = DBL_MAX;
         int best_tech = -1, best_cid = -1, best_idx = -1;
         for (size_t t = 0; t < tech_indices.size(); t++) {
             for (size_t i = 0; i < unserved_C1.size(); i++) {
                 int cid = unserved_C1[i];
-                double d = distances[tech_pos[t]][cid];
-                if (d < best_dist) {
-                    best_dist = d;
+                double d = truck_times[tech_pos[t]][cid];
+                if (d < best_time) {
+                    best_time = d;
                     best_tech = t;
                     best_cid = cid;
                     best_idx = i;
@@ -483,30 +541,35 @@ Solution init_greedy_solution() {
     }
 
     while (!unserved_C2.empty()) {
-        double best_dist = DBL_MAX;
+        double best_time = DBL_MAX;
         int best_vehicle = -1;
         int best_cid_idx = -1;
 
+        // Tìm customer gần nhất cho từng xe 
         for (size_t v = 0; v < vehicles.size(); v++) {
+            // Bỏ qua nếu đã đủ quota
             if (assigned_count[v] >= vehicle_quota[v]) continue;
 
             for (size_t i = 0; i < unserved_C2.size(); i++) {
                 int cid = unserved_C2[i];
                 
+                // Drone không được gán C1
                 if (vehicles[v].is_drone && get_type(cid, nullptr) == 1) {
                     continue;
                 }
 
-                double dist = distances[current_pos[v]][cid];
+                const vector<vector<double>>& time_matrix = vehicles[v].is_drone ? drone_times : truck_times;
+                double dist = time_matrix[current_pos[v]][cid];
 
-                if (dist < best_dist) {
-                    best_dist = dist;
+                if (dist < best_time) {
+                    best_time = dist;
                     best_vehicle = v;
                     best_cid_idx = i;
                 }
             }
         }
 
+        // Gán customer cho xe
         if (best_vehicle != -1) {
             int best_cid = unserved_C2[best_cid_idx];
 
@@ -1462,7 +1525,7 @@ vector<tuple<double, int, int>> collect_merge_candidates(const LevelInfo& curren
                         (node_from.c1_or_c2 > 0 && node_to.c1_or_c2 > 0);
         
         if (same_type){
-            double distance = distances[idx_from][idx_to];
+            double distance = base_distance_matrix[idx_from][idx_to];
             candidates.emplace_back(make_tuple(distance, from_node, to_node));
             
         }
@@ -1475,15 +1538,18 @@ vector<tuple<double, int, int>> collect_merge_candidates(const LevelInfo& curren
     return candidates;
 }
 
-LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_solution, const vector<vector<double>>& curr_distances) {
+LevelInfo merge_customers(const LevelInfo& current_level,
+                         const Solution& best_solution,
+                         const vector<vector<double>>& curr_truck_times,
+                         const vector<vector<double>>& curr_drone_times) {
     LevelInfo next_level;
     next_level.level_id = current_level.level_id + 1;
     update_node_index_cache(current_level);
     
     vector<tuple<double,int,int>> candidates = collect_merge_candidates(current_level, best_solution);
     
-    // Tính 30% số CẠNH, không phải nodes
-    int num_to_merge = max(1, (int)(candidates.size() * 0.3));
+    // Số cạnh được chọn để merge theo tỉ lệ nén cấu hình
+    int num_to_merge = max(1, (int)(candidates.size() * MERGE_RATIO));
     
     //cout << "\n=== MERGING " << num_to_merge << " / " << candidates.size() << " EDGES (20%) ===" << endl;
     
@@ -1623,33 +1689,43 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
             info.current_sequence = group;
             info.entry_node = group.front();
             info.exit_node = group.back();
-            info.internal_distance = 0.0;
-            info.cumulative_distances.resize(group.size(), 0.0);
-            double cumulative = 0.0;
+            info.internal_truck_time = 0.0;
+            info.internal_drone_time = 0.0;
+            info.cumulative_truck_times.resize(group.size(), 0.0);
+            info.cumulative_drone_times.resize(group.size(), 0.0);
+            double cumulative_truck = 0.0;
+            double cumulative_drone = 0.0;
             
             for (size_t i = 0; i < group.size(); i++) {
-                info.cumulative_distances[i] = cumulative; 
+                info.cumulative_truck_times[i] = cumulative_truck;
+                info.cumulative_drone_times[i] = cumulative_drone;
                 if (i < group.size() - 1) {
                     int from = group[i];
                     int to = group[i + 1];
                     int idx_from = find_node_index_fast(from);
                     int idx_to = find_node_index_fast(to);
                     if (idx_from != -1 && idx_to != -1) {
-                        double d = curr_distances[idx_from][idx_to];
-                        cumulative += d;
-                        info.internal_distance += d;
+                        double truck_edge_time = curr_truck_times[idx_from][idx_to];
+                        double drone_edge_time = curr_drone_times[idx_from][idx_to];
+                        cumulative_truck += truck_edge_time;
+                        cumulative_drone += drone_edge_time;
+                        info.internal_truck_time += truck_edge_time;
+                        info.internal_drone_time += drone_edge_time;;
                     }
                     auto it_merge = merged_nodes_info.find(from);
                     if (it_merge != merged_nodes_info.end()) {
-                        cumulative += it_merge->second.internal_distance;
-                        info.internal_distance += it_merge->second.internal_distance;
+                        cumulative_truck += it_merge->second.internal_truck_time;
+                        cumulative_drone += it_merge->second.internal_drone_time;
+                        info.internal_truck_time += it_merge->second.internal_truck_time;
+                        info.internal_drone_time += it_merge->second.internal_drone_time;
                     }
                 }
             }
             int exit_node = group.back();
             auto it_exit = merged_nodes_info.find(exit_node);
             if (it_exit != merged_nodes_info.end()) {
-                info.internal_distance += it_exit->second.internal_distance;
+                info.internal_truck_time += it_exit->second.internal_truck_time;
+                info.internal_drone_time += it_exit->second.internal_drone_time;
             }
             //cout << "Internal distances for merged node " << merged_node.id << ": " << info.internal_distance << endl; 
             
@@ -1692,67 +1768,55 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
     classify_customers(next_level);
 
     int n = next_level.nodes.size();
-    next_level.distance_matrix.resize(n, vector<double>(n, 0.0));
+    next_level.truck_time_matrix.resize(n, vector<double>(n, 0.0));
+    next_level.drone_time_matrix.resize(n, vector<double>(n, 0.0));
     
+    auto lookup_transition_time = [&](int node_id_i, int node_id_j, const vector<vector<double>>& curr_matrix) {
+        int idx_i = find_node_index_fast(node_id_i);
+        int idx_j = find_node_index_fast(node_id_j);
+        if (idx_i != -1 && idx_j != -1) {
+            return curr_matrix[idx_i][idx_j];
+        }
+        if (idx_i != -1 && idx_j == -1) {
+            auto it_j = merged_nodes_info.find(node_id_j);
+            if (it_j != merged_nodes_info.end()) {
+                int idx_entry_j = find_node_index_fast(it_j->second.entry_node);
+                if (idx_entry_j != -1) return curr_matrix[idx_i][idx_entry_j];
+            }
+            return 0.0;
+        }
+        if (idx_i == -1 && idx_j != -1) {
+            auto it_i = merged_nodes_info.find(node_id_i);
+            if (it_i != merged_nodes_info.end()) {
+                int idx_exit_i = find_node_index_fast(it_i->second.exit_node);
+                if (idx_exit_i != -1) return curr_matrix[idx_exit_i][idx_j];
+            }
+            return 0.0;
+        }
+
+        auto it_i = merged_nodes_info.find(node_id_i);
+        auto it_j = merged_nodes_info.find(node_id_j);
+        if (it_i != merged_nodes_info.end() && it_j != merged_nodes_info.end()) {
+            int idx_exit_i = find_node_index_fast(it_i->second.exit_node);
+            int idx_entry_j = find_node_index_fast(it_j->second.entry_node);
+            if (idx_exit_i != -1 && idx_entry_j != -1) {
+                return curr_matrix[idx_exit_i][idx_entry_j];
+            }
+        }
+        return 0.0;
+    };
+
     for (int i = 0; i < n; i++) {
         for (int j = 0; j < n; j++) {
             if (i == j) {
-                next_level.distance_matrix[i][j] = 0.0;
+                next_level.truck_time_matrix[i][j] = 0.0;
+                next_level.drone_time_matrix[i][j] = 0.0;
                 continue;
             }
-            
             int node_id_i = next_level.nodes[i].id;
             int node_id_j = next_level.nodes[j].id;
-            
-            int idx_i = find_node_index_fast(node_id_i);
-            int idx_j = find_node_index_fast(node_id_j);
-
-            double distance = 0.0;
-            
-            if (idx_i != -1 && idx_j != -1) {
-                distance = curr_distances[idx_i][idx_j];
-                /*cout << "  d[" << node_id_i << "][" << node_id_j << "] = "
-                     << "curr_d[" << idx_i << "][" << idx_j << "] = "
-                     << distance << endl;*/
-            } else if (idx_i != -1 && idx_j == -1) {
-                // node_j là node merged
-                auto it_j = merged_nodes_info.find(node_id_j);
-                if (it_j != merged_nodes_info.end()){
-                    int entry_node_j = it_j->second.entry_node;
-                    int idx_entry_j = find_node_index_fast(entry_node_j);
-                    distance = curr_distances[idx_i][idx_entry_j];
-                    /*cout << "  d[" << node_id_i << "][" << node_id_j << "] = "
-                         << "curr_d[" << idx_i << "][" << idx_entry_j << "] = "
-                         << distance << endl;*/
-                }
-            } else if (idx_i == -1 && idx_j != -1) {
-                // node_i là node merged
-                auto it_i = merged_nodes_info.find(node_id_i);
-                if (it_i != merged_nodes_info.end()){
-                    int exit_node_i = it_i->second.exit_node;
-                    int idx_exit_i = find_node_index_fast(exit_node_i);
-                    distance = curr_distances[idx_exit_i][idx_j];
-                    /*cout << "  d[" << node_id_i << "][" << node_id_j << "] = "
-                         << "curr_d[" << idx_exit_i << "][" << idx_j << "] = "
-                         << distance << endl;*/
-                }
-            } else {
-                // cả 2 đều là node merged
-                auto it_i = merged_nodes_info.find(node_id_i);
-                auto it_j = merged_nodes_info.find(node_id_j);
-                if (it_i != merged_nodes_info.end() && it_j != merged_nodes_info.end()){
-                    int exit_node_i = it_i->second.exit_node;
-                    int entry_node_j = it_j->second.entry_node;
-                    int idx_exit_i = find_node_index_fast(exit_node_i);
-                    int idx_entry_j = find_node_index_fast(entry_node_j);
-                    distance = curr_distances[idx_exit_i][idx_entry_j];
-                    /*cout << "  d[" << node_id_i << "][" << node_id_j << "] = "
-                         << "curr_d[" << idx_exit_i << "][" << idx_entry_j << "] = "
-                         << distance << endl;*/
-                }
-            }
-            
-            next_level.distance_matrix[i][j] = distance;
+            next_level.truck_time_matrix[i][j] = lookup_transition_time(node_id_i, node_id_j, curr_truck_times);
+            next_level.drone_time_matrix[i][j] = lookup_transition_time(node_id_i, node_id_j, curr_drone_times);
         }
     }
     
@@ -1938,7 +2002,8 @@ Solution multilevel_tabu_search() {
         current_level.node_mapping[node.id] = {node.id};
     }
 
-    current_level.distance_matrix = distances;
+    current_level.truck_time_matrix = truck_times;
+    current_level.drone_time_matrix = drone_times;
 
     classify_customers(current_level);
     update_node_index_cache(current_level);
@@ -1966,7 +2031,7 @@ Solution multilevel_tabu_search() {
         prev_fitness = s_current.fitness;
         s = s_current;
         auto merge_start = chrono::high_resolution_clock::now();
-        LevelInfo next_level = merge_customers(all_levels[L], s, distances);
+        LevelInfo next_level = merge_customers(all_levels[L], s, truck_times, drone_times);
         //cout << "Nodes in next_level: ";
         //for (const auto& node : next_level.nodes) cout << node.id << " ";
         //cout << endl;
@@ -1981,7 +2046,8 @@ Solution multilevel_tabu_search() {
         }
         all_levels.push_back(next_level);
 
-        distances = next_level.distance_matrix;
+        truck_times = next_level.truck_time_matrix;
+        drone_times = next_level.drone_time_matrix;
         C1 = next_level.C1_level;
         C2 = next_level.C2_level;
         num_nodes = next_level.nodes.size();
@@ -2025,7 +2091,8 @@ Solution multilevel_tabu_search() {
         double unmerge_time = chrono::duration<double>(unmerge_end - unmerge_start).count();
         cout << "⏱️  Unmerging from level " << current_level_id << " to " << prev_level_id 
              << " Time: " << fixed << setprecision(10) << unmerge_time << "s" << endl;
-        distances = all_levels[prev_level_id].distance_matrix;
+        truck_times = all_levels[prev_level_id].truck_time_matrix;
+        drone_times = all_levels[prev_level_id].drone_time_matrix;
 
         C1 = all_levels[prev_level_id].C1_level;
         C2 = all_levels[prev_level_id].C2_level;
@@ -2034,8 +2101,8 @@ Solution multilevel_tabu_search() {
         /*cout << "Level " << prev_level_id << " stats:" << endl;
         cout << "  Nodes: " << num_nodes << endl;
         cout << "  C1: " << C1.size() << ", C2: " << C2.size() << endl;
-        cout << "  Matrix: " << distances.size() << "x" 
-             << (distances.empty() ? 0 : distances[0].size()) << endl;*/
+        cout << "  Matrix: " << truck_times.size() << "x" 
+             << (truck_times.empty() ? 0 : truck_times[0].size()) << endl;*/
 
         update_node_index_cache(all_levels[prev_level_id]);
         // CASE 1: LEVEL 0 - DÙNG EVALUATE VÀ TABU KHÔNG CÓ LEVEL
@@ -2161,7 +2228,35 @@ int main(int argc, char* argv[]) {
     } else {
         dataset_path = "D:\\New folder\\instances\\10.10.1.txt"; 
     }
+
+    if (argc > 4) {
+        MAX_LEVELS = max(1, atoi(argv[2]));
+        ITER_PER_SEGMENT = max(1, atoi(argv[3]));
+        SEGMENTS_PER_LEVEL = max(1, atoi(argv[4]));
+        USE_MANUAL_SEGMENT_CONFIG = true;
+    }
+
+    if (argc > 5) {
+        double ratio_arg = atof(argv[5]);
+        if (ratio_arg > 1.0) {
+            ratio_arg /= 100.0;
+        }
+        MERGE_RATIO = min(0.95, max(0.01, ratio_arg));
+    }
+
     read_dataset(dataset_path);
+    if (!USE_MANUAL_SEGMENT_CONFIG) {
+        ITER_PER_SEGMENT = SEGMENT_LENGTH;
+        SEGMENTS_PER_LEVEL = max(1, MAX_ITER / max(1, SEGMENT_LENGTH));
+    }
+
+    cout << "\n=== CONFIGURATION ===" << endl;
+    cout << "MAX_LEVELS: " << MAX_LEVELS << endl;
+    cout << "ITER_PER_SEGMENT: " << ITER_PER_SEGMENT << endl;
+    cout << "SEGMENTS_PER_LEVEL: " << SEGMENTS_PER_LEVEL << endl;
+    cout << "MERGE_RATIO: " << (MERGE_RATIO * 100.0) << "%" << endl;
+    cout << "MAX_ITER (= iter/segment * segments/level): " << MAX_ITER << endl;
+
     printf("MAX_ITER: %d\n", MAX_ITER);
     printf("Segment length: %d\n", SEGMENT_LENGTH);
  
@@ -2205,7 +2300,7 @@ int main(int argc, char* argv[]) {
         vehicles.push_back({ num_techs + i + 1, 0.83f, true, 120.0f }); // drone
     }
 
-    vector<vector<int>> test_routes = {
+    /*vector<vector<int>> test_routes = {
         // 3 Technicians
         {0, 43, 49, 48, 15, 44, 34, 0},
         {0, 30, 9, 16, 23, 12, 0},
@@ -2215,7 +2310,7 @@ int main(int argc, char* argv[]) {
         {0, 37, 41, 40, 25, 42, 21, 13, 47, 31, 0},
         {0, 19, 3, 18, 45, 22, 29, 5, 10, 33, 46, 17, 0, 24, 0},
         {0, 2, 6, 28, 35, 20, 27, 39, 7, 36, 50, 0}
-    };
+    };*/
 
     //Solution test_solution = create_test_solution_from_routes(test_routes);
 
