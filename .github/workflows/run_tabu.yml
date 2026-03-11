@@ -1,3 +1,37 @@
+name: Run Tabu Search with Segment Matrix
+
+on:
+  push:
+    branches: [ main, master, method_A ]
+  pull_request:
+    branches: [ main, master, method_A ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    name: Compile Tabu
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y g++ bc
+    - name: Compile executable
+      run: |
+        g++ -O3 -std=c++17 -o tabu src/Tabu_no_lwt.cpp
+        chmod +x tabu
+    - name: Upload executable
+      uses: actions/upload-artifact@v4
+      with:
+        name: tabu-executable
+        path: tabu
+        retention-days: 7
+        
   run-50-ab:
     name: 50ab ${{ matrix.instance }}_S${{ matrix.segments_per_level }}_L${{ matrix.num_levels }}
     needs: compile
