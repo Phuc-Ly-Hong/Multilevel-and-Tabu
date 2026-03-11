@@ -2013,7 +2013,7 @@ Solution multilevel_tabu_search() {
     all_levels.push_back(current_level);
 
     int L = 0;
-    int max_levels = 4;
+    int max_levels = MAX_LEVELS;
     bool coarsening = true;
     double prev_fitness = DBL_MAX;
 
