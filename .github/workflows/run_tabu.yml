@@ -57,10 +57,10 @@ jobs:
     - name: Run algorithm 5 times
       run: |
         chmod +x tabu
-        TOTAL_SEGMENTS=$(( ${{ matrix.segments_per_level }} * ${{ matrix.num_levels }} ))
+        TOTAL_SEGMENTS=$(( 2 * ${{ matrix.segments_per_level }} * ${{ matrix.num_levels }} ))
         for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 25m ./tabu instances/${{ matrix.instance }}.txt 300 ${TOTAL_SEGMENTS} > output_run${run}.txt 2>&1
+          timeout 25m ./tabu instances/${{ matrix.instance }}.txt 50 ${TOTAL_SEGMENTS} > output_run${run}.txt 2>&1
           EXIT_CODE=$?
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
@@ -156,10 +156,10 @@ jobs:
     - name: Run algorithm 5 times
       run: |
         chmod +x tabu
-        TOTAL_SEGMENTS=$(( ${{ matrix.segments_per_level }} * ${{ matrix.num_levels }} ))
+        TOTAL_SEGMENTS=$(( 2 * ${{ matrix.segments_per_level }} * ${{ matrix.num_levels }} ))
         for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 25m ./tabu instances/${{ matrix.instance }}.txt 300 ${TOTAL_SEGMENTS} > output_run${run}.txt 2>&1
+          timeout 25m ./tabu instances/${{ matrix.instance }}.txt 50 ${TOTAL_SEGMENTS} > output_run${run}.txt 2>&1
           EXIT_CODE=$?
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
@@ -234,7 +234,7 @@ jobs:
     name: 100ab ${{ matrix.instance }}_S${{ matrix.segments_per_level }}_L${{ matrix.num_levels }}
     needs: compile
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       max-parallel: 15
@@ -255,10 +255,10 @@ jobs:
     - name: Run algorithm 5 times
       run: |
         chmod +x tabu
-        TOTAL_SEGMENTS=$(( ${{ matrix.segments_per_level }} * ${{ matrix.num_levels }} ))
+        TOTAL_SEGMENTS=$(( 2 * ${{ matrix.segments_per_level }} * ${{ matrix.num_levels }} ))
         for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 45m ./tabu instances/${{ matrix.instance }}.txt 300 ${TOTAL_SEGMENTS} > output_run${run}.txt 2>&1
+          timeout 20m ./tabu instances/${{ matrix.instance }}.txt 100 ${TOTAL_SEGMENTS} > output_run${run}.txt 2>&1
           EXIT_CODE=$?
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
@@ -317,7 +317,7 @@ jobs:
     name: 100cd ${{ matrix.instance }}_S${{ matrix.segments_per_level }}_L${{ matrix.num_levels }}
     needs: compile
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       max-parallel: 15
@@ -338,10 +338,10 @@ jobs:
     - name: Run algorithm 5 times
       run: |
         chmod +x tabu
-        TOTAL_SEGMENTS=$(( ${{ matrix.segments_per_level }} * ${{ matrix.num_levels }} ))
+        TOTAL_SEGMENTS=$(( 2 * ${{ matrix.segments_per_level }} * ${{ matrix.num_levels }} ))
         for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 45m ./tabu instances/${{ matrix.instance }}.txt 300 ${TOTAL_SEGMENTS} > output_run${run}.txt 2>&1
+          timeout 20m ./tabu instances/${{ matrix.instance }}.txt 100 ${TOTAL_SEGMENTS} > output_run${run}.txt 2>&1
           EXIT_CODE=$?
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt

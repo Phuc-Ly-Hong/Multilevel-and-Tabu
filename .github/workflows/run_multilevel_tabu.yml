@@ -60,7 +60,7 @@ jobs:
         chmod +x multilevel_tabu
         for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 25m ./multilevel_tabu instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 300 ${{ matrix.segments_per_level }} > output_run${run}.txt 2>&1 || echo "TIMEOUT" >> output_run${run}.txt
+          timeout 25m ./multilevel_tabu instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 50 ${{ matrix.segments_per_level }} > output_run${run}.txt 2>&1 || echo "TIMEOUT" >> output_run${run}.txt
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
         done
@@ -145,7 +145,7 @@ jobs:
         chmod +x multilevel_tabu
         for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 25m ./multilevel_tabu instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 300 ${{ matrix.segments_per_level }} > output_run${run}.txt 2>&1 || echo "TIMEOUT" >> output_run${run}.txt
+          timeout 25m ./multilevel_tabu instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 50 ${{ matrix.segments_per_level }} > output_run${run}.txt 2>&1 || echo "TIMEOUT" >> output_run${run}.txt
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
         done
@@ -207,7 +207,7 @@ jobs:
     name: 100ab ${{ matrix.instance }}_S${{ matrix.segments_per_level }}_L${{ matrix.num_levels }}
     needs: compile
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       max-parallel: 15
@@ -230,7 +230,7 @@ jobs:
         chmod +x multilevel_tabu
         for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 45m ./multilevel_tabu instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 300 ${{ matrix.segments_per_level }} > output_run${run}.txt 2>&1 || echo "TIMEOUT" >> output_run${run}.txt
+          timeout 20m ./multilevel_tabu instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 100 ${{ matrix.segments_per_level }} > output_run${run}.txt 2>&1 || echo "TIMEOUT" >> output_run${run}.txt
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
         done
@@ -286,7 +286,7 @@ jobs:
     name: 100cd ${{ matrix.instance }}_S${{ matrix.segments_per_level }}_L${{ matrix.num_levels }}
     needs: compile
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       max-parallel: 15
@@ -309,7 +309,7 @@ jobs:
         chmod +x multilevel_tabu
         for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 45m ./multilevel_tabu instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 300 ${{ matrix.segments_per_level }} > output_run${run}.txt 2>&1 || echo "TIMEOUT" >> output_run${run}.txt
+          timeout 20m ./multilevel_tabu instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 100 ${{ matrix.segments_per_level }} > output_run${run}.txt 2>&1 || echo "TIMEOUT" >> output_run${run}.txt
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
         done
