@@ -21,12 +21,17 @@ jobs:
       run: g++ -O3 -std=c++17 -o tabu src/Tabu_no_lwt.cpp && chmod +x tabu
     - name: Compile MultiLevel
       run: g++ -O3 -std=c++17 -o multilevel src/Multilevel_Tabu_no_lwt.cpp && chmod +x multilevel
-    - uses: actions/upload-artifact@v4
+    - name: Upload Tabu
+      uses: actions/upload-artifact@v4
       with:
-        name: executables
-        path: |
-          tabu
-          multilevel
+        name: tabu-exe
+        path: tabu
+        retention-days: 1
+    - name: Upload MultiLevel
+      uses: actions/upload-artifact@v4
+      with:
+        name: multilevel-exe
+        path: multilevel
         retention-days: 1
 
   run-tabu:
@@ -48,7 +53,7 @@ jobs:
     - uses: actions/checkout@v4
     - uses: actions/download-artifact@v4
       with:
-        name: executables
+        name: tabu-exe
     - name: Run Tabu 5 times
       run: |
         chmod +x tabu
@@ -57,20 +62,18 @@ jobs:
           timeout 30m ./tabu instances/${{ matrix.instance }}.txt > out${run}.txt 2>&1
           EXIT=$?
           echo "$(echo "$(date +%s.%N) - $START" | bc)" > rt${run}.txt
-          [ $EXIT -eq 124 ] && echo "TIMEOUT"            >> out${run}.txt
+          [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
         done
-    - name: Parse Tabu results
+    - name: Parse results
       run: |
         python3 <<'EOF'
         import re, json, os
         instance = "${{ matrix.instance }}"
-        parts    = instance.split(".")
-
+        parts = instance.split(".")
         def last(pattern, text):
             m = re.findall(pattern, text)
             return float(m[-1]) if m else 0.0
-
         def parse(out, rt):
             if not os.path.exists(out):
                 return {"runtime": 0.0, "makespan": 0.0, "drone_violation": 0.0,
@@ -89,23 +92,17 @@ jobs:
             dv = last(r'Drone violation:\s*([0-9.+\-eE]+)', text)
             wv = last(r'Waiting violation:\s*([0-9.+\-eE]+)', text)
             return {
-                "runtime":           round(t, 3),
-                "makespan":          round(last(r'Makespan:\s*([0-9.+\-eE]+)', text), 4),
-                "drone_violation":   round(dv, 4),
+                "runtime": round(t, 3),
+                "makespan": round(last(r'Makespan:\s*([0-9.+\-eE]+)', text), 4),
+                "drone_violation": round(dv, 4),
                 "waiting_violation": round(wv, 4),
-                "fitness":           round(last(r'Fitness:\s*([0-9.+\-eE]+)', text), 4),
-                "feasible":          "YES" if abs(dv) < 1e-6 and abs(wv) < 1e-6 else "NO",
+                "fitness": round(last(r'Fitness:\s*([0-9.+\-eE]+)', text), 4),
+                "feasible": "YES" if abs(dv) < 1e-6 and abs(wv) < 1e-6 else "NO",
             }
-
         runs = [{"run": i, **parse(f"out{i}.txt", f"rt{i}.txt")} for i in range(1, 6)]
-        json.dump({
-            "instance": instance,
-            "num_customers": int(parts[0]),
-            "group": int(parts[1]),
-            "replica": int(parts[2]),
-            "algorithm": "TABU",
-            "runs": runs,
-        }, open("results.json", "w"), indent=2)
+        json.dump({"instance": instance, "num_customers": int(parts[0]),
+                   "group": int(parts[1]), "replica": int(parts[2]),
+                   "algorithm": "TABU", "runs": runs}, open("results.json", "w"), indent=2)
         EOF
     - uses: actions/upload-artifact@v4
       with:
@@ -132,9 +129,8 @@ jobs:
     - uses: actions/checkout@v4
     - uses: actions/download-artifact@v4
       with:
-        name: executables
+        name: multilevel-exe
     - name: Run MultiLevel 5 times
-      # args: <file> <MAX_LEVELS> <ITER_PER_SEGMENT> <SEGMENTS_PER_LEVEL>
       run: |
         chmod +x multilevel
         for run in {1..5}; do
@@ -142,20 +138,18 @@ jobs:
           timeout 30m ./multilevel instances/${{ matrix.instance }}.txt 5 50 10 > out${run}.txt 2>&1
           EXIT=$?
           echo "$(echo "$(date +%s.%N) - $START" | bc)" > rt${run}.txt
-          [ $EXIT -eq 124 ] && echo "TIMEOUT"            >> out${run}.txt
+          [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
         done
-    - name: Parse MultiLevel results (no waiting_violation)
+    - name: Parse results
       run: |
         python3 <<'EOF'
         import re, json, os
         instance = "${{ matrix.instance }}"
-        parts    = instance.split(".")
-
+        parts = instance.split(".")
         def last(pattern, text):
             m = re.findall(pattern, text)
             return float(m[-1]) if m else 0.0
-
         def parse(out, rt):
             if not os.path.exists(out):
                 return {"runtime": 0.0, "makespan": 0.0, "drone_violation": 0.0,
@@ -171,26 +165,19 @@ jobs:
             if "ERROR_EXIT_CODE" in text or "Fitness:" not in text:
                 return {"runtime": round(t,3), "makespan": 0.0, "drone_violation": 0.0,
                         "fitness": float("inf"), "feasible": "ERROR"}
-            # MultiLevel code does NOT have waiting_violation!
             dv = last(r'Drone violation:\s*([0-9.+\-eE]+)', text)
             return {
-                "runtime":           round(t, 3),
-                "makespan":          round(last(r'Makespan:\s*([0-9.+\-eE]+)', text), 4),
-                "drone_violation":   round(dv, 4),
-                "fitness":           round(last(r'Fitness:\s*([0-9.+\-eE]+)', text), 4),
-                "feasible":          "YES" if abs(dv) < 1e-6 else "NO",
+                "runtime": round(t, 3),
+                "makespan": round(last(r'Makespan:\s*([0-9.+\-eE]+)', text), 4),
+                "drone_violation": round(dv, 4),
+                "fitness": round(last(r'Fitness:\s*([0-9.+\-eE]+)', text), 4),
+                "feasible": "YES" if abs(dv) < 1e-6 else "NO",
             }
-
         runs = [{"run": i, **parse(f"out{i}.txt", f"rt{i}.txt")} for i in range(1, 6)]
-        json.dump({
-            "instance": instance,
-            "num_customers": int(parts[0]),
-            "group": int(parts[1]),
-            "replica": int(parts[2]),
-            "algorithm": "MULTILEVEL",
-            "ml_config": "L5_S10_iter50",
-            "runs": runs,
-        }, open("results.json", "w"), indent=2)
+        json.dump({"instance": instance, "num_customers": int(parts[0]),
+                   "group": int(parts[1]), "replica": int(parts[2]),
+                   "algorithm": "MULTILEVEL", "ml_config": "L5_S10_iter50",
+                   "runs": runs}, open("results.json", "w"), indent=2)
         EOF
     - uses: actions/upload-artifact@v4
       with:
@@ -204,26 +191,21 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
-    - name: Download Tabu results
-      uses: actions/download-artifact@v4
+    - uses: actions/download-artifact@v4
       continue-on-error: true
       with:
         pattern: tabu50-*
         merge-multiple: false
-    - name: Download MultiLevel results
-      uses: actions/download-artifact@v4
+    - uses: actions/download-artifact@v4
       continue-on-error: true
       with:
         pattern: ml50-*
         merge-multiple: false
-
     - name: Build comparison CSV
       run: |
         python3 <<'EOF'
         import json, glob, csv, os
-
         INF = float("inf")
-
         def load(pattern):
             out = {}
             for d in glob.glob(pattern):
@@ -232,97 +214,64 @@ jobs:
                     r = json.load(open(f))
                     out[r["instance"]] = r
             return out
-
         tabu = load("tabu50-*")
-        ml   = load("ml50-*")
-        all_instances = sorted(
-            set(list(tabu) + list(ml)),
-            key=lambda x: tuple(int(p) for p in x.split("."))
-        )
-
+        ml = load("ml50-*")
+        all_instances = sorted(set(list(tabu) + list(ml)),
+                               key=lambda x: tuple(int(p) for p in x.split(".")))
         def summarize(data):
-            if data is None:
-                return None
+            if data is None: return None
             runs = data["runs"]
             valid_fitness = [r["fitness"] for r in runs if r["fitness"] != INF]
-            feasible_cnt  = sum(1 for r in runs if r["feasible"] == "YES")
+            feasible_cnt = sum(1 for r in runs if r["feasible"] == "YES")
             return {
-                "best_fitness":   min(valid_fitness) if valid_fitness else INF,
-                "avg_fitness":    round(sum(valid_fitness)/len(valid_fitness), 4) if valid_fitness else INF,
-                "avg_time_s":     round(sum(r["runtime"] for r in runs)/len(runs), 3),
+                "best_fitness": min(valid_fitness) if valid_fitness else INF,
+                "avg_fitness": round(sum(valid_fitness)/len(valid_fitness), 4) if valid_fitness else INF,
+                "avg_time_s": round(sum(r["runtime"] for r in runs)/len(runs), 3),
                 "feasible_count": feasible_cnt,
-                "feasible_rate":  round(feasible_cnt / len(runs) * 100, 1),
+                "feasible_rate": round(feasible_cnt / len(runs) * 100, 1),
             }
-
-        # Gap = (ML - Tabu) / Tabu * 100%
-        #   NEGATIVE → ML better (lower fitness / faster time)
-        #   POSITIVE → Tabu better
         def gap(ml_val, tabu_val):
-            if tabu_val in (0, INF) or ml_val == INF:
-                return "N/A"
+            if tabu_val in (0, INF) or ml_val == INF: return "N/A"
             return round((ml_val - tabu_val) / tabu_val * 100, 4)
-
         def winner(g):
-            if g == "N/A":    return "N/A"
+            if g == "N/A": return "N/A"
             if abs(g) < 1e-4: return "TIE"
             return "ML_BETTER" if g < 0 else "TABU_BETTER"
-
-        cols = [
-            "Instance", "Num_Customers", "Group", "Replica",
-            "Tabu_Best_Fitness", "Tabu_Avg_Fitness", "Tabu_Avg_Time_s", "Tabu_Feasible_Rate_%",
-            "ML_Best_Fitness", "ML_Avg_Fitness", "ML_Avg_Time_s", "ML_Feasible_Rate_%",
-            "Gap_BestFitness_%", "Gap_AvgFitness_%", "Gap_AvgTime_%",
-            "Winner",
-        ]
-
+        cols = ["Instance", "Num_Customers", "Group", "Replica",
+                "Tabu_Best_Fitness", "Tabu_Avg_Fitness", "Tabu_Avg_Time_s", "Tabu_Feasible_Rate_%",
+                "ML_Best_Fitness", "ML_Avg_Fitness", "ML_Avg_Time_s", "ML_Feasible_Rate_%",
+                "Gap_BestFitness_%", "Gap_AvgFitness_%", "Gap_AvgTime_%", "Winner"]
         rows = []
         for inst in all_instances:
             parts = inst.split(".")
             t = summarize(tabu.get(inst))
             m = summarize(ml.get(inst))
-
-            g_best = gap(m["best_fitness"] if m else INF,
-                         t["best_fitness"] if t else INF)
-            g_avg  = gap(m["avg_fitness"]  if m else INF,
-                         t["avg_fitness"]  if t else INF)
-            g_time = gap(m["avg_time_s"]   if m else INF,
-                         t["avg_time_s"]   if t else INF)
-
+            g_best = gap(m["best_fitness"] if m else INF, t["best_fitness"] if t else INF)
+            g_avg = gap(m["avg_fitness"] if m else INF, t["avg_fitness"] if t else INF)
+            g_time = gap(m["avg_time_s"] if m else INF, t["avg_time_s"] if t else INF)
             rows.append({
-                "Instance":          inst,
-                "Num_Customers":     parts[0],
-                "Group":             parts[1],
-                "Replica":           parts[2],
-
-                "Tabu_Best_Fitness":  t["best_fitness"]  if t else "N/A",
-                "Tabu_Avg_Fitness":   t["avg_fitness"]   if t else "N/A",
-                "Tabu_Avg_Time_s":    t["avg_time_s"]    if t else "N/A",
+                "Instance": inst, "Num_Customers": parts[0], "Group": parts[1], "Replica": parts[2],
+                "Tabu_Best_Fitness": t["best_fitness"] if t else "N/A",
+                "Tabu_Avg_Fitness": t["avg_fitness"] if t else "N/A",
+                "Tabu_Avg_Time_s": t["avg_time_s"] if t else "N/A",
                 "Tabu_Feasible_Rate_%": t["feasible_rate"] if t else "N/A",
-
-                "ML_Best_Fitness":    m["best_fitness"]  if m else "N/A",
-                "ML_Avg_Fitness":     m["avg_fitness"]   if m else "N/A",
-                "ML_Avg_Time_s":      m["avg_time_s"]    if m else "N/A",
+                "ML_Best_Fitness": m["best_fitness"] if m else "N/A",
+                "ML_Avg_Fitness": m["avg_fitness"] if m else "N/A",
+                "ML_Avg_Time_s": m["avg_time_s"] if m else "N/A",
                 "ML_Feasible_Rate_%": m["feasible_rate"] if m else "N/A",
-
-                "Gap_BestFitness_%":  g_best,
-                "Gap_AvgFitness_%":   g_avg,
-                "Gap_AvgTime_%":      g_time,
-
+                "Gap_BestFitness_%": g_best, "Gap_AvgFitness_%": g_avg, "Gap_AvgTime_%": g_time,
                 "Winner": winner(g_best),
             })
-
         with open("COMPARE_ML_vs_TABU_50.csv", "w", newline="") as f:
             w = csv.DictWriter(f, fieldnames=cols)
             w.writeheader()
             w.writerows(rows)
-
-        ml_wins   = sum(1 for r in rows if r["Winner"] == "ML_BETTER")
+        ml_wins = sum(1 for r in rows if r["Winner"] == "ML_BETTER")
         tabu_wins = sum(1 for r in rows if r["Winner"] == "TABU_BETTER")
-        ties      = sum(1 for r in rows if r["Winner"] == "TIE")
-        no_data   = sum(1 for r in rows if r["Winner"] == "N/A")
-
+        ties = sum(1 for r in rows if r["Winner"] == "TIE")
+        no_data = sum(1 for r in rows if r["Winner"] == "N/A")
         print("=" * 70)
-        print("  ✅ COMPARISON: MultiLevel vs Tabu (Size 50)")
+        print("  COMPARISON: MultiLevel vs Tabu (Size 50)")
         print("  ML config: MAX_LEVELS=5, SEGMENTS=10, ITER_PER_SEG=50")
         print("=" * 70)
         print(f"  Total instances     : {len(rows)}")
@@ -331,12 +280,10 @@ jobs:
         print(f"  Ties                : {ties}")
         print(f"  No data             : {no_data}")
         print("=" * 70)
-        print("  📊 Gap formula: (ML_value - Tabu_value) / Tabu_value × 100%")
-        print("     • NEGATIVE gap → ML has LOWER fitness  → ML BETTER ✅")
-        print("     • POSITIVE gap → Tabu has LOWER fitness → Tabu BETTER ✅")
+        print("  Gap = (ML - Tabu) / Tabu × 100%")
+        print("  Negative gap → ML BETTER | Positive gap → Tabu BETTER")
         print("=" * 70)
         EOF
-
     - uses: actions/upload-artifact@v4
       with:
         name: compare-ml-vs-tabu-50
