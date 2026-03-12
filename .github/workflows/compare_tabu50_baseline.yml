@@ -16,17 +16,43 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+    
+    # ========== DEBUG MẠNH - KIỂM TRA INSTANCES ==========
+    - name: 🔍 VERIFY instances folder exists in repo
+      run: |
+        echo "==================== CRITICAL CHECK ===================="
+        if [ -d "instances" ]; then
+          echo "✅ instances/ folder EXISTS"
+          echo "📁 Total .txt files: $(find instances -name '*.txt' | wc -l)"
+          echo "📋 Sample files:"
+          ls instances/*.txt | head -10
+          echo "========================================================"
+        else
+          echo "❌ ❌ ❌ INSTANCES FOLDER NOT FOUND ❌ ❌ ❌"
+          echo "This is why your workflow fails!"
+          echo "Solution: Run these commands locally:"
+          echo "  git add instances/"
+          echo "  git commit -m 'Add instances folder'"
+          echo "  git push origin method_A"
+          echo "========================================================"
+          exit 1
+        fi
+    
     - run: sudo apt-get update && sudo apt-get install -y g++ bc
+    
     - name: Compile Tabu
       run: g++ -O3 -std=c++17 -o tabu src/Tabu_no_lwt.cpp && chmod +x tabu
+    
     - name: Compile MultiLevel
       run: g++ -O3 -std=c++17 -o multilevel src/Multilevel_Tabu_no_lwt.cpp && chmod +x multilevel
+    
     - name: Upload Tabu
       uses: actions/upload-artifact@v4
       with:
         name: tabu-exe
         path: tabu
         retention-days: 1
+    
     - name: Upload MultiLevel
       uses: actions/upload-artifact@v4
       with:
@@ -54,18 +80,7 @@ jobs:
     - uses: actions/download-artifact@v4
       with:
         name: tabu-exe
-    - name: Debug - Check files
-      run: |
-        echo "=== Current directory ==="
-        pwd
-        ls -la
-        echo "=== Checking instances folder ==="
-        ls -la instances/ 2>&1 | head -30 || echo "instances/ not found"
-        echo "=== Checking target instance file ==="
-        ls -lh instances/${{ matrix.instance }}.txt 2>&1 || echo "Target file not found"
-        echo "=== Checking tabu executable ==="
-        ls -lh tabu || echo "tabu not found"
-        file tabu || echo "Cannot check tabu file type"
+    
     - name: Run Tabu 5 times
       run: |
         chmod +x tabu
@@ -77,6 +92,7 @@ jobs:
           [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
         done
+    
     - name: Parse results
       run: |
         python3 <<'EOF'
@@ -116,6 +132,7 @@ jobs:
                    "group": int(parts[1]), "replica": int(parts[2]),
                    "algorithm": "TABU", "runs": runs}, open("results.json", "w"), indent=2)
         EOF
+    
     - uses: actions/upload-artifact@v4
       with:
         name: tabu50-${{ matrix.instance }}
@@ -142,18 +159,7 @@ jobs:
     - uses: actions/download-artifact@v4
       with:
         name: multilevel-exe
-    - name: Debug - Check files
-      run: |
-        echo "=== Current directory ==="
-        pwd
-        ls -la
-        echo "=== Checking instances folder ==="
-        ls -la instances/ 2>&1 | head -30 || echo "instances/ not found"
-        echo "=== Checking target instance file ==="
-        ls -lh instances/${{ matrix.instance }}.txt 2>&1 || echo "Target file not found"
-        echo "=== Checking multilevel executable ==="
-        ls -lh multilevel || echo "multilevel not found"
-        file multilevel || echo "Cannot check multilevel file type"
+    
     - name: Run MultiLevel 5 times
       run: |
         chmod +x multilevel
@@ -165,6 +171,7 @@ jobs:
           [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
         done
+    
     - name: Parse results
       run: |
         python3 <<'EOF'
@@ -203,6 +210,7 @@ jobs:
                    "algorithm": "MULTILEVEL", "ml_config": "L5_S10_iter50",
                    "runs": runs}, open("results.json", "w"), indent=2)
         EOF
+    
     - uses: actions/upload-artifact@v4
       with:
         name: ml50-${{ matrix.instance }}
