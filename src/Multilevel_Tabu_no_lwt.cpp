@@ -43,8 +43,8 @@ struct LevelInfo {
     vector<Node> nodes;
     vector<Node> C1_level, C2_level; // customers ở level này
     map<int, vector<int>> node_mapping; // ánh xạ từ node level này về node gốc
-    vector<vector<double>> truck_time_matrix;
-    vector<vector<double>> drone_time_matrix;
+    vector<vector<double>> truck_time_matrix; // ma trận thời gian cho technician
+    vector<vector<double>> drone_time_matrix; // ma trận thời gian cho drone
     int level_id;
     int num_customers;
 
@@ -55,8 +55,8 @@ struct MergedNodeInfo {
     int merged_node_id;
     vector<int> original_sequence;  // Thứ tự nodes trong group: [17, 13, 15]
     vector<int> current_sequence;   // Sequence ở level hiện tại
-    double internal_truck_time;
-    double internal_drone_time;
+    double internal_truck_time;     // Tổng thời gian truck bên trong
+    double internal_drone_time;     // Tổng thời gian drone bên trong
     vector<double> cumulative_truck_times;
     vector<double> cumulative_drone_times;
     int entry_node_original;                 // Node đầu tiên (entry point)
@@ -83,7 +83,6 @@ constexpr double DRONE_SPEED = 0.83;
 int depot_id = 0;
 int num_nodes = 0;
 double alpha1 = 1.0; // tham số hàm phạt thứ nhất
-double alpha2 = 1.0; // tham số hàm phạt thứ hai
 double Beta = 0.5; // tham số điều chỉnh hệ số hàm phạt
 
 int MAX_ITER;
@@ -150,6 +149,9 @@ void build_time_matrices_from_distance(const vector<vector<double>>& distance_ma
 
 void read_dataset(const string &filename){
     vector<Node> nodes;
+    C1.clear();
+    C2.clear();
+    base_type_by_node.clear();
     ifstream file(filename);
     if (!file.is_open()){
         cerr << "Error opening file: " << filename <<endl;
@@ -211,6 +213,7 @@ void read_dataset(const string &filename){
         SEGMENT_LENGTH = 50;
         MAX_NO_IMPROVE = 500000;
     }
+
     if (USE_MANUAL_SEGMENT_CONFIG) {
         SEGMENT_LENGTH = ITER_PER_SEGMENT;
         MAX_ITER = ITER_PER_SEGMENT * SEGMENTS_PER_LEVEL;
@@ -225,7 +228,7 @@ void read_dataset(const string &filename){
         }
     }
 
-    // Tính toán khoảng cách giữa các nút
+    // Tính ma trận khoảng cách hình học để suy ra ma trận thời gian.
     base_distance_matrix.resize(nodes.size(), vector<double>(nodes.size(), 0));
     for (size_t i = 0; i < nodes.size(); ++i){
         for (size_t j = 0; j < nodes.size(); ++j){
@@ -264,7 +267,7 @@ void print_solution(const Solution &sol){
     cout << "Fitness: " << sol.fitness << endl;
 }
 
-map <int, int> node_id_to_index_cache;
+unordered_map<int, int> node_id_to_index_cache;
 
 void update_node_index_cache(const LevelInfo& level) {
     node_id_to_index_cache.clear();
@@ -369,6 +372,7 @@ void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) 
                 } else {
                     travel_time = active_time_matrix[prev][cid];
                 }
+
                 current_time += travel_time;
                 prev = cid;
             }
@@ -376,7 +380,7 @@ void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) 
         sol.makespan = max(sol.makespan, current_time);
     }
 
-    sol.fitness = sol.makespan + alpha1*sol.drone_violation;
+    sol.fitness = sol.makespan + alpha1*sol.drone_violation ;
 }
 
 int get_type(int nid, const LevelInfo *current_level = nullptr) {
@@ -1275,7 +1279,6 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level, bool 
             /*cout << "Iter: " << iter << " Move: " << move_type 
                  << " current makespan: " << current_sol.makespan 
                  << ", drone_violation: " << current_sol.drone_violation 
-                 << ", waiting_violation: " << current_sol.waiting_violation 
                  << ", fitness: " << current_sol.fitness << endl;
             cout << "Route details:" << endl;
             for (size_t v = 0; v < current_sol.route.size(); v++) {
@@ -1499,7 +1502,10 @@ vector<tuple<int, int, int>> collect_merge_candidates(const LevelInfo& current_l
     return candidates;
 }
 
-LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_solution, const vector<vector<double>>& curr_truck_times, const vector<vector<double>>& curr_drone_times) {
+LevelInfo merge_customers(const LevelInfo& current_level,
+                         const Solution& best_solution,
+                         const vector<vector<double>>& curr_truck_times,
+                         const vector<vector<double>>& curr_drone_times) {
     LevelInfo next_level;
     next_level.level_id = current_level.level_id + 1;
     update_node_index_cache(current_level);
@@ -2039,7 +2045,12 @@ Solution multilevel_tabu_search() {
         
         //cout << "\n=== REFINING FROM LEVEL " << current_level_id << " TO LEVEL " << prev_level_id << " ===" << endl; 
         // Unmerge solution
+        auto unmerge_start = chrono::high_resolution_clock::now();
         s = unmerge_solution_to_previous_level(s, all_levels[current_level_id], all_levels[prev_level_id]);
+        auto unmerge_end = chrono::high_resolution_clock::now();
+        double unmerge_time = chrono::duration<double>(unmerge_end - unmerge_start).count();
+        cout << "⏱️  Unmerging from level " << current_level_id << " to " << prev_level_id 
+             << " Time: " << fixed << setprecision(10) << unmerge_time << "s" << endl;
         truck_times = all_levels[prev_level_id].truck_time_matrix;
         drone_times = all_levels[prev_level_id].drone_time_matrix;
 
@@ -2147,7 +2158,6 @@ Solution multilevel_tabu_search() {
     
     cout << "Makespan: " << test_sol.makespan << " min" << endl;
     cout << "Drone violation: " << test_sol.drone_violation << " min" << endl;
-    cout << "Waiting violation: " << test_sol.waiting_violation << " min" << endl;
     cout << "Fitness: " << test_sol.fitness << endl;
     cout << "Is feasible: " << (test_sol.is_feasible ? "YES ✅" : "NO ❌") << endl;
     
@@ -2159,10 +2169,6 @@ Solution multilevel_tabu_search() {
             cout << "     → Some drones flew > " << vehicles[3].limit_drone << " min without returning to depot" << endl;
         }
         
-        if (test_sol.waiting_violation > 0) {
-            cout << "  ⏳ Customer waiting time exceeded by " << test_sol.waiting_violation << " min" << endl;
-            cout << "     → Some customers waited > 60 min for drone to return" << endl;
-        }
     } else {
         cout << "\n ALL CONSTRAINTS SATISFIED!" << endl;
     }
@@ -2178,7 +2184,7 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\50.10.1.txt"; 
+        dataset_path = "D:\\New folder\\instances\\50.40.1.txt"; 
     }
 
     if (argc > 4) {
