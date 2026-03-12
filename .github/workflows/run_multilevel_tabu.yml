@@ -77,6 +77,8 @@ jobs:
         instance = "${{ matrix.instance }}"
         segments = ${{ matrix.segments_per_level }}
         levels = ${{ matrix.num_levels }}
+        iter_per_seg = int(instance.split(".")[0])
+        total_iter = 2 * iter_per_seg * segments * levels
         def find_metric_last(pattern, content):
             matches = re.findall(pattern, content)
             if not matches: return 0.0
@@ -87,7 +89,7 @@ jobs:
                 if not os.path.exists(output_file):
                     return {"runtime": 0, "makespan": 0, "drone_violation": 0,
                             "waiting_violation": 0, "fitness": float('inf'), "feasible": "NO_OUTPUT",
-                            "segments_per_level": segments, "num_levels": levels}
+                            "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
                 with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
                 runtime = 1500.0
@@ -98,11 +100,11 @@ jobs:
                 if "TIMEOUT" in content:
                     return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
                             "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "TIMEOUT",
-                            "segments_per_level": segments, "num_levels": levels}
+                            "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
                 if "ERROR_EXIT_CODE" in content or not content or "Fitness:" not in content:
                     return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
                             "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "ERROR",
-                            "segments_per_level": segments, "num_levels": levels}
+                            "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
                 makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
                 drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
                 waiting_viol = find_metric_last(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
@@ -111,18 +113,18 @@ jobs:
                 return {"runtime": round(runtime, 3), "makespan": round(makespan, 4),
                         "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
                         "fitness": round(fitness, 4), "feasible": feasible,
-                        "segments_per_level": segments, "num_levels": levels}
+                        "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
             except Exception as e:
                 return {"runtime": 0, "makespan": 0, "drone_violation": 0,
                         "waiting_violation": 0, "fitness": float('inf'), "feasible": "PARSE_ERROR",
-                        "segments_per_level": segments, "num_levels": levels}
+                        "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
         runs = []
         for run in range(1, 6):
             result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
             result["run"] = run
             runs.append(result)
         with open("results.json", "w") as f:
-            json.dump({"instance": instance, "segments_per_level": segments, "num_levels": levels, "runs": runs}, f, indent=2)
+            json.dump({"instance": instance, "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter, "runs": runs}, f, indent=2)
         EOF
     - name: Upload results
       uses: actions/upload-artifact@v4
@@ -175,6 +177,8 @@ jobs:
         instance = "${{ matrix.instance }}"
         segments = ${{ matrix.segments_per_level }}
         levels = ${{ matrix.num_levels }}
+        iter_per_seg = int(instance.split(".")[0])
+        total_iter = 2 * iter_per_seg * segments * levels
         def find_metric_last(pattern, content):
             matches = re.findall(pattern, content)
             if not matches: return 0.0
@@ -185,7 +189,7 @@ jobs:
                 if not os.path.exists(output_file):
                     return {"runtime": 0, "makespan": 0, "drone_violation": 0,
                             "waiting_violation": 0, "fitness": float('inf'), "feasible": "NO_OUTPUT",
-                            "segments_per_level": segments, "num_levels": levels}
+                            "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
                 with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
                 runtime = 1500.0
@@ -196,11 +200,11 @@ jobs:
                 if "TIMEOUT" in content:
                     return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
                             "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "TIMEOUT",
-                            "segments_per_level": segments, "num_levels": levels}
+                            "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
                 if "ERROR_EXIT_CODE" in content or not content or "Fitness:" not in content:
                     return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
                             "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "ERROR",
-                            "segments_per_level": segments, "num_levels": levels}
+                            "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
                 makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
                 drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
                 waiting_viol = find_metric_last(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
@@ -209,18 +213,18 @@ jobs:
                 return {"runtime": round(runtime, 3), "makespan": round(makespan, 4),
                         "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
                         "fitness": round(fitness, 4), "feasible": feasible,
-                        "segments_per_level": segments, "num_levels": levels}
+                        "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
             except Exception as e:
                 return {"runtime": 0, "makespan": 0, "drone_violation": 0,
                         "waiting_violation": 0, "fitness": float('inf'), "feasible": "PARSE_ERROR",
-                        "segments_per_level": segments, "num_levels": levels}
+                        "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
         runs = []
         for run in range(1, 6):
             result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
             result["run"] = run
             runs.append(result)
         with open("results.json", "w") as f:
-            json.dump({"instance": instance, "segments_per_level": segments, "num_levels": levels, "runs": runs}, f, indent=2)
+            json.dump({"instance": instance, "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter, "runs": runs}, f, indent=2)
         EOF
     - name: Upload results
       uses: actions/upload-artifact@v4
@@ -273,6 +277,8 @@ jobs:
         instance = "${{ matrix.instance }}"
         segments = ${{ matrix.segments_per_level }}
         levels = ${{ matrix.num_levels }}
+        iter_per_seg = int(instance.split(".")[0])
+        total_iter = 2 * iter_per_seg * segments * levels
         def find_metric_last(pattern, content):
             matches = re.findall(pattern, content)
             return float(matches[-1]) if matches else 0.0
@@ -286,7 +292,7 @@ jobs:
                 if "TIMEOUT" in content or "ERROR_EXIT_CODE" in content or not content or "Fitness:" not in content:
                     return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
                             "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "TIMEOUT",
-                            "segments_per_level": segments, "num_levels": levels}
+                            "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
                 makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
                 drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
                 waiting_viol = find_metric_last(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
@@ -295,14 +301,14 @@ jobs:
                 return {"runtime": round(runtime, 3), "makespan": round(makespan, 4),
                         "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
                         "fitness": round(fitness, 4), "feasible": feasible,
-                        "segments_per_level": segments, "num_levels": levels}
+                        "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
             except:
                 return {"runtime": 0, "makespan": 0, "drone_violation": 0,
                         "waiting_violation": 0, "fitness": float('inf'), "feasible": "ERROR",
-                        "segments_per_level": segments, "num_levels": levels}
+                        "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
         runs = [parse_output(f"output_run{i}.txt", f"runtime_run{i}.txt") | {"run": i} for i in range(1, 6)]
         with open("results.json", "w") as f:
-            json.dump({"instance": instance, "segments_per_level": segments, "num_levels": levels, "runs": runs}, f, indent=2)
+            json.dump({"instance": instance, "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter, "runs": runs}, f, indent=2)
         EOF
     - name: Upload results
       uses: actions/upload-artifact@v4
@@ -355,6 +361,8 @@ jobs:
         instance = "${{ matrix.instance }}"
         segments = ${{ matrix.segments_per_level }}
         levels = ${{ matrix.num_levels }}
+        iter_per_seg = int(instance.split(".")[0])
+        total_iter = 2 * iter_per_seg * segments * levels
         def find_metric_last(pattern, content):
             matches = re.findall(pattern, content)
             return float(matches[-1]) if matches else 0.0
@@ -368,7 +376,7 @@ jobs:
                 if "TIMEOUT" in content or "ERROR_EXIT_CODE" in content or not content or "Fitness:" not in content:
                     return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
                             "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "TIMEOUT",
-                            "segments_per_level": segments, "num_levels": levels}
+                            "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
                 makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
                 drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
                 waiting_viol = find_metric_last(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
@@ -377,14 +385,14 @@ jobs:
                 return {"runtime": round(runtime, 3), "makespan": round(makespan, 4),
                         "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
                         "fitness": round(fitness, 4), "feasible": feasible,
-                        "segments_per_level": segments, "num_levels": levels}
+                        "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
             except:
                 return {"runtime": 0, "makespan": 0, "drone_violation": 0,
                         "waiting_violation": 0, "fitness": float('inf'), "feasible": "ERROR",
-                        "segments_per_level": segments, "num_levels": levels}
+                        "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
         runs = [parse_output(f"output_run{i}.txt", f"runtime_run{i}.txt") | {"run": i} for i in range(1, 6)]
         with open("results.json", "w") as f:
-            json.dump({"instance": instance, "segments_per_level": segments, "num_levels": levels, "runs": runs}, f, indent=2)
+            json.dump({"instance": instance, "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter, "runs": runs}, f, indent=2)
         EOF
     - name: Upload results
       uses: actions/upload-artifact@v4
@@ -419,7 +427,7 @@ jobs:
             print("⚠️  No results found.")
         all_data.sort(key=lambda x: (tuple(map(int, x["instance"].split("."))), x["segments_per_level"], x["num_levels"]))
         with open("MULTILEVEL_TABU_RESULTS.csv", "w", newline="") as f:
-            cols = ["Instance", "Size", "Replica", "Segments_Per_Level", "Num_Levels", "Run",
+            cols = ["Instance", "Size", "Replica", "Segments_Per_Level", "Num_Levels", "Iter_Per_Segment", "Total_Iter", "Run",
                     "Runtime_s", "Makespan", "Drone_Violation", "Waiting_Violation", "Fitness", "Feasible"]
             writer = csv.DictWriter(f, fieldnames=cols)
             writer.writeheader()
@@ -428,10 +436,13 @@ jobs:
                 instance, size, replica = data["instance"], int(parts[0]), int(parts[2])
                 segments = data["segments_per_level"]
                 levels = data["num_levels"]
+                iter_per_seg = data.get("iter_per_segment", size)
+                total_iter = data.get("total_iter", 2 * iter_per_seg * segments * levels)
                 for run_data in data["runs"]:
                     writer.writerow({
                         "Instance": instance, "Size": size, "Replica": replica,
                         "Segments_Per_Level": segments, "Num_Levels": levels,
+                        "Iter_Per_Segment": iter_per_seg, "Total_Iter": total_iter,
                         "Run": run_data["run"], "Runtime_s": run_data["runtime"],
                         "Makespan": run_data["makespan"],
                         "Drone_Violation": run_data["drone_violation"],
