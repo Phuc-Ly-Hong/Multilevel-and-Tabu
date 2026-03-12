@@ -60,9 +60,15 @@ jobs:
         chmod +x multilevel_tabu
         for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 25m ./multilevel_tabu instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 50 ${{ matrix.segments_per_level }} > output_run${run}.txt 2>&1 || echo "TIMEOUT" >> output_run${run}.txt
+          timeout 25m ./multilevel_tabu instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 50 ${{ matrix.segments_per_level }} > output_run${run}.txt 2>&1
+          EXIT_CODE=$?
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
+          if [ $EXIT_CODE -eq 124 ]; then
+            echo "TIMEOUT" >> output_run${run}.txt
+          elif [ $EXIT_CODE -ne 0 ]; then
+            echo "ERROR_EXIT_CODE_$EXIT_CODE" >> output_run${run}.txt
+          fi
         done
     - name: Parse results
       run: |
@@ -78,18 +84,25 @@ jobs:
             except: return 0.0
         def parse_output(output_file, runtime_file):
             try:
+                if not os.path.exists(output_file):
+                    return {"runtime": 0, "makespan": 0, "drone_violation": 0,
+                            "waiting_violation": 0, "fitness": float('inf'), "feasible": "NO_OUTPUT",
+                            "segments_per_level": segments, "num_levels": levels}
                 with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
-                if "TIMEOUT" in content or not content or "Fitness:" not in content:
-                    runtime = 1500.0
-                    if os.path.exists(runtime_file):
-                        with open(runtime_file, "r") as f: runtime = float(f.read().strip())
+                runtime = 1500.0
+                if os.path.exists(runtime_file):
+                    with open(runtime_file, "r") as f:
+                        try: runtime = float(f.read().strip())
+                        except: pass
+                if "TIMEOUT" in content:
                     return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
                             "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "TIMEOUT",
                             "segments_per_level": segments, "num_levels": levels}
-                runtime = 0.0
-                if os.path.exists(runtime_file):
-                    with open(runtime_file, "r") as f: runtime = float(f.read().strip())
+                if "ERROR_EXIT_CODE" in content or not content or "Fitness:" not in content:
+                    return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
+                            "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "ERROR",
+                            "segments_per_level": segments, "num_levels": levels}
                 makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
                 drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
                 waiting_viol = find_metric_last(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
@@ -101,7 +114,7 @@ jobs:
                         "segments_per_level": segments, "num_levels": levels}
             except Exception as e:
                 return {"runtime": 0, "makespan": 0, "drone_violation": 0,
-                        "waiting_violation": 0, "fitness": float('inf'), "feasible": "ERROR",
+                        "waiting_violation": 0, "fitness": float('inf'), "feasible": "PARSE_ERROR",
                         "segments_per_level": segments, "num_levels": levels}
         runs = []
         for run in range(1, 6):
@@ -145,9 +158,15 @@ jobs:
         chmod +x multilevel_tabu
         for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 25m ./multilevel_tabu instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 50 ${{ matrix.segments_per_level }} > output_run${run}.txt 2>&1 || echo "TIMEOUT" >> output_run${run}.txt
+          timeout 25m ./multilevel_tabu instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 50 ${{ matrix.segments_per_level }} > output_run${run}.txt 2>&1
+          EXIT_CODE=$?
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
+          if [ $EXIT_CODE -eq 124 ]; then
+            echo "TIMEOUT" >> output_run${run}.txt
+          elif [ $EXIT_CODE -ne 0 ]; then
+            echo "ERROR_EXIT_CODE_$EXIT_CODE" >> output_run${run}.txt
+          fi
         done
     - name: Parse results
       run: |
@@ -163,18 +182,25 @@ jobs:
             except: return 0.0
         def parse_output(output_file, runtime_file):
             try:
+                if not os.path.exists(output_file):
+                    return {"runtime": 0, "makespan": 0, "drone_violation": 0,
+                            "waiting_violation": 0, "fitness": float('inf'), "feasible": "NO_OUTPUT",
+                            "segments_per_level": segments, "num_levels": levels}
                 with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
-                if "TIMEOUT" in content or not content or "Fitness:" not in content:
-                    runtime = 1500.0
-                    if os.path.exists(runtime_file):
-                        with open(runtime_file, "r") as f: runtime = float(f.read().strip())
+                runtime = 1500.0
+                if os.path.exists(runtime_file):
+                    with open(runtime_file, "r") as f:
+                        try: runtime = float(f.read().strip())
+                        except: pass
+                if "TIMEOUT" in content:
                     return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
                             "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "TIMEOUT",
                             "segments_per_level": segments, "num_levels": levels}
-                runtime = 0.0
-                if os.path.exists(runtime_file):
-                    with open(runtime_file, "r") as f: runtime = float(f.read().strip())
+                if "ERROR_EXIT_CODE" in content or not content or "Fitness:" not in content:
+                    return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
+                            "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "ERROR",
+                            "segments_per_level": segments, "num_levels": levels}
                 makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
                 drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
                 waiting_viol = find_metric_last(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
@@ -186,7 +212,7 @@ jobs:
                         "segments_per_level": segments, "num_levels": levels}
             except Exception as e:
                 return {"runtime": 0, "makespan": 0, "drone_violation": 0,
-                        "waiting_violation": 0, "fitness": float('inf'), "feasible": "ERROR",
+                        "waiting_violation": 0, "fitness": float('inf'), "feasible": "PARSE_ERROR",
                         "segments_per_level": segments, "num_levels": levels}
         runs = []
         for run in range(1, 6):
@@ -230,9 +256,15 @@ jobs:
         chmod +x multilevel_tabu
         for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 20m ./multilevel_tabu instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 100 ${{ matrix.segments_per_level }} > output_run${run}.txt 2>&1 || echo "TIMEOUT" >> output_run${run}.txt
+          timeout 20m ./multilevel_tabu instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 100 ${{ matrix.segments_per_level }} > output_run${run}.txt 2>&1
+          EXIT_CODE=$?
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
+          if [ $EXIT_CODE -eq 124 ]; then
+            echo "TIMEOUT" >> output_run${run}.txt
+          elif [ $EXIT_CODE -ne 0 ]; then
+            echo "ERROR_EXIT_CODE_$EXIT_CODE" >> output_run${run}.txt
+          fi
         done
     - name: Parse results
       run: |
@@ -248,16 +280,13 @@ jobs:
             try:
                 with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
-                if "TIMEOUT" in content or not content or "Fitness:" not in content:
-                    runtime = 2700.0
-                    if os.path.exists(runtime_file):
-                        with open(runtime_file, "r") as f: runtime = float(f.read().strip())
+                runtime = 2700.0
+                if os.path.exists(runtime_file):
+                    with open(runtime_file, "r") as f: runtime = float(f.read().strip())
+                if "TIMEOUT" in content or "ERROR_EXIT_CODE" in content or not content or "Fitness:" not in content:
                     return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
                             "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "TIMEOUT",
                             "segments_per_level": segments, "num_levels": levels}
-                runtime = 0.0
-                if os.path.exists(runtime_file):
-                    with open(runtime_file, "r") as f: runtime = float(f.read().strip())
                 makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
                 drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
                 waiting_viol = find_metric_last(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
@@ -309,9 +338,15 @@ jobs:
         chmod +x multilevel_tabu
         for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 20m ./multilevel_tabu instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 100 ${{ matrix.segments_per_level }} > output_run${run}.txt 2>&1 || echo "TIMEOUT" >> output_run${run}.txt
+          timeout 20m ./multilevel_tabu instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 100 ${{ matrix.segments_per_level }} > output_run${run}.txt 2>&1
+          EXIT_CODE=$?
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
+          if [ $EXIT_CODE -eq 124 ]; then
+            echo "TIMEOUT" >> output_run${run}.txt
+          elif [ $EXIT_CODE -ne 0 ]; then
+            echo "ERROR_EXIT_CODE_$EXIT_CODE" >> output_run${run}.txt
+          fi
         done
     - name: Parse results
       run: |
@@ -327,16 +362,13 @@ jobs:
             try:
                 with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
-                if "TIMEOUT" in content or not content or "Fitness:" not in content:
-                    runtime = 2700.0
-                    if os.path.exists(runtime_file):
-                        with open(runtime_file, "r") as f: runtime = float(f.read().strip())
+                runtime = 2700.0
+                if os.path.exists(runtime_file):
+                    with open(runtime_file, "r") as f: runtime = float(f.read().strip())
+                if "TIMEOUT" in content or "ERROR_EXIT_CODE" in content or not content or "Fitness:" not in content:
                     return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
                             "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "TIMEOUT",
                             "segments_per_level": segments, "num_levels": levels}
-                runtime = 0.0
-                if os.path.exists(runtime_file):
-                    with open(runtime_file, "r") as f: runtime = float(f.read().strip())
                 makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
                 drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
                 waiting_viol = find_metric_last(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
