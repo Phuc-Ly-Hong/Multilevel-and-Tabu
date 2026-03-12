@@ -150,9 +150,6 @@ void build_time_matrices_from_distance(const vector<vector<double>>& distance_ma
 
 void read_dataset(const string &filename){
     vector<Node> nodes;
-    C1.clear();
-    C2.clear();
-    base_type_by_node.clear();
     ifstream file(filename);
     if (!file.is_open()){
         cerr << "Error opening file: " << filename <<endl;
