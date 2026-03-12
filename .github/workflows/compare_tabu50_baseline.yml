@@ -54,6 +54,18 @@ jobs:
     - uses: actions/download-artifact@v4
       with:
         name: tabu-exe
+    - name: Debug - Check files
+      run: |
+        echo "=== Current directory ==="
+        pwd
+        ls -la
+        echo "=== Checking instances folder ==="
+        ls -la instances/ 2>&1 | head -30 || echo "instances/ not found"
+        echo "=== Checking target instance file ==="
+        ls -lh instances/${{ matrix.instance }}.txt 2>&1 || echo "Target file not found"
+        echo "=== Checking tabu executable ==="
+        ls -lh tabu || echo "tabu not found"
+        file tabu || echo "Cannot check tabu file type"
     - name: Run Tabu 5 times
       run: |
         chmod +x tabu
@@ -130,6 +142,18 @@ jobs:
     - uses: actions/download-artifact@v4
       with:
         name: multilevel-exe
+    - name: Debug - Check files
+      run: |
+        echo "=== Current directory ==="
+        pwd
+        ls -la
+        echo "=== Checking instances folder ==="
+        ls -la instances/ 2>&1 | head -30 || echo "instances/ not found"
+        echo "=== Checking target instance file ==="
+        ls -lh instances/${{ matrix.instance }}.txt 2>&1 || echo "Target file not found"
+        echo "=== Checking multilevel executable ==="
+        ls -lh multilevel || echo "multilevel not found"
+        file multilevel || echo "Cannot check multilevel file type"
     - name: Run MultiLevel 5 times
       run: |
         chmod +x multilevel
