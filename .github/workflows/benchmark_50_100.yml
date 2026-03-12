@@ -1,0 +1,222 @@
+name: Benchmark ML vs Tabu (50 & 100)
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: "Số lần chạy mỗi instance"
+        required: false
+        default: "3"
+      timeout_sec:
+        description: "Timeout mỗi lần chạy (giây)"
+        required: false
+        default: "3600"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build multilevel
+        run: g++ -O2 -std=c++17 -o multilevel src/Multilevel_Tabu_no_lwt.cpp
+
+      - name: Build tabu
+        run: g++ -O2 -std=c++17 -o tabu src/Tabu_no_lwt.cpp
+
+      - name: Upload executables
+        uses: actions/upload-artifact@v4
+        with:
+          name: exes
+          path: |
+            multilevel
+            tabu
+
+  benchmark:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        size: ["50", "100"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download executables
+        uses: actions/download-artifact@v4
+        with:
+          name: exes
+          path: .
+
+      - run: chmod +x multilevel tabu
+
+      - name: Run benchmark (size=${{ matrix.size }})
+        env:
+          SIZE: ${{ matrix.size }}
+          RUNS: ${{ github.event.inputs.runs || '3' }}
+          TIMEOUT: ${{ github.event.inputs.timeout_sec || '3600' }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, subprocess, glob, csv, re, time
+          from itertools import groupby
+
+          size    = os.environ['SIZE']
+          runs    = int(os.environ['RUNS'])
+          timeout = int(os.environ['TIMEOUT'])
+
+          variants = [
+              ('multilevel', './multilevel'),
+              ('tabu',       './tabu'),
+          ]
+
+          instances = sorted(glob.glob(f'instances/{size}.*.txt'))
+          print(f"Found {len(instances)} instances for size {size}", flush=True)
+
+          def parse_last(text, label):
+              pat = rf'(?im)^{re.escape(label)}:\s*([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)'
+              m = re.findall(pat, text)
+              return float(m[-1]) if m else float('nan')
+
+          rows = []
+          for vname, vexe in variants:
+              for inst in instances:
+                  for run in range(1, runs + 1):
+                      print(f"  {vname} | {os.path.basename(inst)} | run {run}", flush=True)
+                      t0 = time.time()
+                      try:
+                          res = subprocess.run(
+                              [vexe, inst],
+                              capture_output=True, text=True, timeout=timeout
+                          )
+                          out = res.stdout + res.stderr
+                      except subprocess.TimeoutExpired:
+                          out = ''
+                      elapsed = time.time() - t0
+
+                      fitness  = parse_last(out, 'Fitness')
+                      makespan = parse_last(out, 'Makespan')
+                      drone    = parse_last(out, 'Drone violation')
+
+                      rows.append({
+                          'variant':         vname,
+                          'size':            size,
+                          'instance':        os.path.basename(inst),
+                          'run':             run,
+                          'runtime_sec':     round(elapsed, 4),
+                          'fitness':         fitness,
+                          'makespan':        makespan,
+                          'drone_violation': drone,
+                      })
+                      print(f"    → fitness={fitness:.4f}  makespan={makespan:.4f}  t={elapsed:.2f}s", flush=True)
+
+          os.makedirs('results_bench', exist_ok=True)
+
+          # RAW CSV
+          raw_path = f'results_bench/raw_{size}.csv'
+          with open(raw_path, 'w', newline='') as f:
+              w = csv.DictWriter(f, fieldnames=rows[0].keys())
+              w.writeheader(); w.writerows(rows)
+          print(f"RAW  → {raw_path}")
+
+          # SUMMARY per variant x instance
+          key_fn = lambda r: (r['variant'], r['instance'])
+          summary = []
+          for (vname, inst), grp in groupby(sorted(rows, key=key_fn), key=key_fn):
+              grp = list(grp)
+              fits  = [r['fitness']     for r in grp]
+              times = [r['runtime_sec'] for r in grp]
+              summary.append({
+                  'variant':         vname,
+                  'size':            size,
+                  'instance':        inst,
+                  'runs':            len(grp),
+                  'best_fitness':    round(min(fits),           6),
+                  'avg_fitness':     round(sum(fits)/len(fits), 6),
+                  'avg_runtime_sec': round(sum(times)/len(times), 4),
+              })
+
+          summary_path = f'results_bench/summary_{size}.csv'
+          with open(summary_path, 'w', newline='') as f:
+              w = csv.DictWriter(f, fieldnames=summary[0].keys())
+              w.writeheader(); w.writerows(summary)
+          print(f"SUMMARY → {summary_path}")
+          PYEOF
+
+      - name: Upload results (size=${{ matrix.size }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-size-${{ matrix.size }}
+          path: results_bench/
+          retention-days: 14
+
+  aggregate:
+    needs: benchmark
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all results
+        uses: actions/download-artifact@v4
+        with:
+          path: all_results
+
+      - name: Merge CSVs + print final table
+        run: |
+          python3 - <<'PYEOF'
+          import csv, glob, os
+          from itertools import groupby
+          from pathlib import Path
+
+          out = Path('final'); out.mkdir(exist_ok=True)
+
+          # Merge raw
+          def merge(pattern, outfile):
+              files = sorted(glob.glob(pattern, recursive=True))
+              if not files: return
+              header, rows = None, []
+              for fp in files:
+                  with open(fp, newline='') as f:
+                      rd = csv.DictReader(f)
+                      if not header: header = rd.fieldnames
+                      rows.extend(rd)
+              with open(out / outfile, 'w', newline='') as f:
+                  w = csv.DictWriter(f, fieldnames=header)
+                  w.writeheader(); w.writerows(rows)
+              return rows
+
+          merge('all_results/**/raw_*.csv',     'all_raw.csv')
+          all_summary = merge('all_results/**/summary_*.csv', 'all_summary.csv')
+          if not all_summary:
+              print("No summary files found"); exit(0)
+
+          # Print overall table grouped by variant x size
+          key_fn = lambda r: (r['size'], r['variant'])
+          print(f"\n{'='*72}")
+          print(f"{'VARIANT':<25} {'SIZE':>5} {'#INST':>6} {'AVG_TIME(s)':>12} {'BEST_FIT':>12} {'AVG_FIT':>12}")
+          print(f"{'='*72}")
+          for (sz, vname), grp in groupby(sorted(all_summary, key=key_fn), key=key_fn):
+              grp = list(grp)
+              bf = [float(r['best_fitness'])    for r in grp]
+              af = [float(r['avg_fitness'])     for r in grp]
+              tm = [float(r['avg_runtime_sec']) for r in grp]
+              print(f"{vname:<25} {sz:>5} {len(grp):>6} "
+                    f"{sum(tm)/len(tm):>12.2f} "
+                    f"{sum(bf)/len(bf):>12.4f} "
+                    f"{sum(af)/len(af):>12.4f}")
+          print(f"{'='*72}")
+          PYEOF
+
+      - name: Upload final merged results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-final
+          path: final/
+          retention-days: 30
