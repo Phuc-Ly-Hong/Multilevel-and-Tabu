@@ -1,0 +1,243 @@
+name: Compare Tabu Baseline - Size 50
+
+on:
+  push:
+    branches: [ main, master, method_A ]
+  pull_request:
+    branches: [ main, master, method_A ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    name: Compile Tabu
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y g++ bc
+    - name: Compile executable
+      run: |
+        g++ -O3 -std=c++17 -o tabu src/Tabu_no_lwt.cpp
+        chmod +x tabu
+    - name: Upload executable
+      uses: actions/upload-artifact@v4
+      with:
+        name: tabu-baseline-executable
+        path: tabu
+        retention-days: 7
+
+  run-50:
+    name: run ${{ matrix.instance }}
+    needs: compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        instance: [
+          "50.10.1", "50.10.2", "50.10.3", "50.10.4",
+          "50.20.1", "50.20.2", "50.20.3", "50.20.4",
+          "50.30.1", "50.30.2", "50.30.3", "50.30.4",
+          "50.40.1", "50.40.2", "50.40.3", "50.40.4"
+        ]
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Download executable
+      uses: actions/download-artifact@v4
+      with:
+        name: tabu-baseline-executable
+    - name: Run algorithm 5 times
+      run: |
+        chmod +x tabu
+        for run in {1..5}; do
+          START_TIME=$(date +%s.%N)
+          timeout 30m ./tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
+          EXIT_CODE=$?
+          END_TIME=$(date +%s.%N)
+          echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
+          if [ $EXIT_CODE -eq 124 ]; then
+            echo "TIMEOUT" >> output_run${run}.txt
+          elif [ $EXIT_CODE -ne 0 ]; then
+            echo "ERROR_EXIT_CODE_$EXIT_CODE" >> output_run${run}.txt
+          fi
+        done
+    - name: Parse results
+      run: |
+        python3 <<'EOF'
+        import re, json, os
+        instance = "${{ matrix.instance }}"
+        parts = instance.split(".")
+        num_customers = int(parts[0])
+        group = int(parts[1])
+        replica = int(parts[2])
+
+        def find_metric_last(pattern, content):
+            matches = re.findall(pattern, content)
+            return float(matches[-1]) if matches else 0.0
+
+        def parse_output(output_file, runtime_file):
+            try:
+                if not os.path.exists(output_file):
+                    return {"runtime": 0.0, "makespan": 0.0, "drone_violation": 0.0,
+                            "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "NO_OUTPUT"}
+                with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+                runtime = 0.0
+                if os.path.exists(runtime_file):
+                    with open(runtime_file, "r") as f:
+                        try: runtime = float(f.read().strip())
+                        except: pass
+                if "TIMEOUT" in content:
+                    return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
+                            "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "TIMEOUT"}
+                if "ERROR_EXIT_CODE" in content or not content or "Fitness:" not in content:
+                    return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
+                            "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "ERROR"}
+                makespan      = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
+                drone_viol    = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
+                waiting_viol  = find_metric_last(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
+                fitness       = find_metric_last(r'Fitness:\s*([0-9.+\-eE]+)', content)
+                feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
+                return {"runtime": round(runtime, 3), "makespan": round(makespan, 4),
+                        "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
+                        "fitness": round(fitness, 4), "feasible": feasible}
+            except:
+                return {"runtime": 0.0, "makespan": 0.0, "drone_violation": 0.0,
+                        "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "PARSE_ERROR"}
+
+        runs = []
+        for i in range(1, 6):
+            r = parse_output(f"output_run{i}.txt", f"runtime_run{i}.txt")
+            r["run"] = i
+            runs.append(r)
+
+        with open("results.json", "w") as f:
+            json.dump({"instance": instance, "num_customers": num_customers,
+                       "group": group, "replica": replica, "runs": runs}, f, indent=2)
+        EOF
+    - name: Upload results
+      uses: actions/upload-artifact@v4
+      with:
+        name: baseline50-${{ matrix.instance }}
+        path: results.json
+        retention-days: 30
+
+  aggregate:
+    name: Aggregate & Compare
+    needs: run-50
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download all results
+      uses: actions/download-artifact@v4
+      continue-on-error: true
+      with:
+        pattern: baseline50-*
+        merge-multiple: false
+    - name: Create comparison CSVs
+      run: |
+        python3 <<'EOF'
+        import json, glob, csv, os, math
+
+        INF = float('inf')
+        all_data = []
+        for result_dir in glob.glob("baseline50-*"):
+            json_file = os.path.join(result_dir, "results.json")
+            if os.path.exists(json_file):
+                with open(json_file) as f:
+                    all_data.append(json.load(f))
+
+        if not all_data:
+            print("No results found.")
+            exit(0)
+
+        all_data.sort(key=lambda x: (x["num_customers"], x["group"], x["replica"]))
+
+        # ── 1. RAW CSV (mỗi run một dòng) ───────────────────────────────────────
+        raw_cols = ["Instance", "Num_Customers", "Group", "Replica",
+                    "Run", "Runtime_s", "Makespan",
+                    "Drone_Violation", "Waiting_Violation", "Fitness", "Feasible"]
+        with open("TABU_BASELINE50_RAW.csv", "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=raw_cols)
+            writer.writeheader()
+            for data in all_data:
+                for run_data in data["runs"]:
+                    writer.writerow({
+                        "Instance":        data["instance"],
+                        "Num_Customers":   data["num_customers"],
+                        "Group":           data["group"],
+                        "Replica":         data["replica"],
+                        "Run":             run_data["run"],
+                        "Runtime_s":       run_data["runtime"],
+                        "Makespan":        run_data["makespan"],
+                        "Drone_Violation": run_data["drone_violation"],
+                        "Waiting_Violation": run_data["waiting_violation"],
+                        "Fitness":         run_data["fitness"],
+                        "Feasible":        run_data["feasible"],
+                    })
+
+        # ── 2. SUMMARY CSV (per instance, gap metrics) ───────────────────────────
+        def safe_gap(val, ref):
+            if ref == 0 or ref == INF or val == INF:
+                return "N/A"
+            return round((val - ref) / ref * 100, 4)
+
+        summary_cols = [
+            "Instance", "Num_Customers", "Group", "Replica",
+            "Best_Fitness", "Avg_Fitness", "Gap_Avg_Fitness_%",
+            "Best_Time_s", "Avg_Time_s", "Gap_Avg_Time_%",
+            "Num_Feasible", "Feasible_Rate_%"
+        ]
+        with open("TABU_BASELINE50_SUMMARY.csv", "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=summary_cols)
+            writer.writeheader()
+            for data in all_data:
+                valid_runs = [r for r in data["runs"] if r["fitness"] != INF]
+                all_fitness = [r["fitness"] for r in valid_runs] if valid_runs else []
+                all_times   = [r["runtime"] for r in data["runs"]]
+                feasible_count = sum(1 for r in data["runs"] if r["feasible"] == "YES")
+                feasible_rate  = round(feasible_count / len(data["runs"]) * 100, 1)
+
+                best_fit = min(all_fitness) if all_fitness else INF
+                avg_fit  = round(sum(all_fitness) / len(all_fitness), 4) if all_fitness else INF
+                best_t   = min(all_times) if all_times else 0.0
+                avg_t    = round(sum(all_times) / len(all_times), 3) if all_times else 0.0
+
+                writer.writerow({
+                    "Instance":           data["instance"],
+                    "Num_Customers":      data["num_customers"],
+                    "Group":              data["group"],
+                    "Replica":            data["replica"],
+                    "Best_Fitness":       best_fit if best_fit != INF else "N/A",
+                    "Avg_Fitness":        avg_fit  if avg_fit  != INF else "N/A",
+                    "Gap_Avg_Fitness_%":  safe_gap(avg_fit, best_fit),
+                    "Best_Time_s":        round(best_t, 3),
+                    "Avg_Time_s":         avg_t,
+                    "Gap_Avg_Time_%":     safe_gap(avg_t, best_t),
+                    "Num_Feasible":       feasible_count,
+                    "Feasible_Rate_%":    feasible_rate,
+                })
+
+        print(f"✅ RAW CSV: {sum(len(d['runs']) for d in all_data)} rows ({len(all_data)} instances × 5 runs)")
+        print(f"✅ SUMMARY CSV: {len(all_data)} instances with gap metrics")
+        EOF
+    - name: Upload RAW CSV
+      uses: actions/upload-artifact@v4
+      with:
+        name: baseline50-raw
+        path: TABU_BASELINE50_RAW.csv
+        retention-days: 90
+    - name: Upload SUMMARY CSV
+      uses: actions/upload-artifact@v4
+      with:
+        name: baseline50-summary
+        path: TABU_BASELINE50_SUMMARY.csv
+        retention-days: 90
