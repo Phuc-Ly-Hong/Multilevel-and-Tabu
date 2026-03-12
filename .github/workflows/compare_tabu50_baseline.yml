@@ -1,13 +1,5 @@
 name: Compare MultiLevel vs Tabu - Size 50
 
-# Config for MultiLevel (change these to tune the comparison)
-# ./multilevel <file> <MAX_LEVELS> <ITER_PER_SEGMENT> <SEGMENTS_PER_LEVEL>
-# Total ML iterations = 2 * ITER_PER_SEGMENT * ML_LEVELS * ML_SEGMENTS
-env:
-  ML_LEVELS: 5
-  ML_SEGMENTS: 10
-  # ITER_PER_SEGMENT is passed as the instance size (50) → total = 2*50*10*5 = 5000
-
 on:
   push:
     branches: [ main, master, method_A ]
@@ -68,7 +60,7 @@ jobs:
           [ $EXIT -eq 124 ] && echo "TIMEOUT"            >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
         done
-    - name: Parse results
+    - name: Parse Tabu results
       run: |
         python3 <<'EOF'
         import re, json, os
@@ -81,8 +73,7 @@ jobs:
 
         def parse(out, rt):
             if not os.path.exists(out):
-                return {"status": "NO_OUTPUT", "runtime": 0.0,
-                        "makespan": 0.0, "drone_violation": 0.0,
+                return {"runtime": 0.0, "makespan": 0.0, "drone_violation": 0.0,
                         "waiting_violation": 0.0, "fitness": float("inf"), "feasible": "NO_OUTPUT"}
             text = open(out, encoding="utf-8", errors="ignore").read()
             t = 0.0
@@ -154,7 +145,7 @@ jobs:
           [ $EXIT -eq 124 ] && echo "TIMEOUT"            >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
         done
-    - name: Parse results
+    - name: Parse MultiLevel results (no waiting_violation)
       run: |
         python3 <<'EOF'
         import re, json, os
@@ -168,7 +159,7 @@ jobs:
         def parse(out, rt):
             if not os.path.exists(out):
                 return {"runtime": 0.0, "makespan": 0.0, "drone_violation": 0.0,
-                        "waiting_violation": 0.0, "fitness": float("inf"), "feasible": "NO_OUTPUT"}
+                        "fitness": float("inf"), "feasible": "NO_OUTPUT"}
             text = open(out, encoding="utf-8", errors="ignore").read()
             t = 0.0
             if os.path.exists(rt):
@@ -176,19 +167,18 @@ jobs:
                 except: pass
             if "TIMEOUT" in text:
                 return {"runtime": round(t,3), "makespan": 0.0, "drone_violation": 0.0,
-                        "waiting_violation": 0.0, "fitness": float("inf"), "feasible": "TIMEOUT"}
+                        "fitness": float("inf"), "feasible": "TIMEOUT"}
             if "ERROR_EXIT_CODE" in text or "Fitness:" not in text:
                 return {"runtime": round(t,3), "makespan": 0.0, "drone_violation": 0.0,
-                        "waiting_violation": 0.0, "fitness": float("inf"), "feasible": "ERROR"}
+                        "fitness": float("inf"), "feasible": "ERROR"}
+            # MultiLevel code does NOT have waiting_violation!
             dv = last(r'Drone violation:\s*([0-9.+\-eE]+)', text)
-            wv = last(r'Waiting violation:\s*([0-9.+\-eE]+)', text)
             return {
                 "runtime":           round(t, 3),
                 "makespan":          round(last(r'Makespan:\s*([0-9.+\-eE]+)', text), 4),
                 "drone_violation":   round(dv, 4),
-                "waiting_violation": round(wv, 4),
                 "fitness":           round(last(r'Fitness:\s*([0-9.+\-eE]+)', text), 4),
-                "feasible":          "YES" if abs(dv) < 1e-6 and abs(wv) < 1e-6 else "NO",
+                "feasible":          "YES" if abs(dv) < 1e-6 else "NO",
             }
 
         runs = [{"run": i, **parse(f"out{i}.txt", f"rt{i}.txt")} for i in range(1, 6)]
@@ -198,7 +188,7 @@ jobs:
             "group": int(parts[1]),
             "replica": int(parts[2]),
             "algorithm": "MULTILEVEL",
-            "ml_config": "L5_S10_iter50",   # MAX_LEVELS=5, SEGMENTS=10, ITER_PER_SEG=50
+            "ml_config": "L5_S10_iter50",
             "runs": runs,
         }, open("results.json", "w"), indent=2)
         EOF
@@ -234,7 +224,6 @@ jobs:
 
         INF = float("inf")
 
-        # ── load results ─────────────────────────────────────────────────────────
         def load(pattern):
             out = {}
             for d in glob.glob(pattern):
@@ -251,7 +240,6 @@ jobs:
             key=lambda x: tuple(int(p) for p in x.split("."))
         )
 
-        # ── summarise 5 runs into best / avg ─────────────────────────────────────
         def summarize(data):
             if data is None:
                 return None
@@ -266,10 +254,9 @@ jobs:
                 "feasible_rate":  round(feasible_cnt / len(runs) * 100, 1),
             }
 
-        # ── gap formula ───────────────────────────────────────────────────────────
-        # Gap = (ML_value - Tabu_value) / Tabu_value * 100 %
-        #   NEGATIVE → ML is better (smaller fitness / faster time)
-        #   POSITIVE → Tabu is better
+        # Gap = (ML - Tabu) / Tabu * 100%
+        #   NEGATIVE → ML better (lower fitness / faster time)
+        #   POSITIVE → Tabu better
         def gap(ml_val, tabu_val):
             if tabu_val in (0, INF) or ml_val == INF:
                 return "N/A"
@@ -280,30 +267,12 @@ jobs:
             if abs(g) < 1e-4: return "TIE"
             return "ML_BETTER" if g < 0 else "TABU_BETTER"
 
-        # ── write comparison CSV ──────────────────────────────────────────────────
         cols = [
             "Instance", "Num_Customers", "Group", "Replica",
-
-            # Tabu columns
-            "Tabu_Best_Fitness",
-            "Tabu_Avg_Fitness",
-            "Tabu_Avg_Time_s",
-            "Tabu_Feasible_Rate_%",
-
-            # MultiLevel columns  (config: MAX_LEVELS=5, SEGMENTS=10, ITER_PER_SEG=50)
-            "ML_Best_Fitness",
-            "ML_Avg_Fitness",
-            "ML_Avg_Time_s",
-            "ML_Feasible_Rate_%",
-
-            # Gap: (ML - Tabu) / Tabu * 100 %
-            # Negative = ML better, Positive = Tabu better
-            "Gap_BestFitness_%",
-            "Gap_AvgFitness_%",
-            "Gap_AvgTime_%",
-
-            # Winner based on best fitness
-            "Winner",            # ML_BETTER | TABU_BETTER | TIE | N/A
+            "Tabu_Best_Fitness", "Tabu_Avg_Fitness", "Tabu_Avg_Time_s", "Tabu_Feasible_Rate_%",
+            "ML_Best_Fitness", "ML_Avg_Fitness", "ML_Avg_Time_s", "ML_Feasible_Rate_%",
+            "Gap_BestFitness_%", "Gap_AvgFitness_%", "Gap_AvgTime_%",
+            "Winner",
         ]
 
         rows = []
@@ -347,26 +316,25 @@ jobs:
             w.writeheader()
             w.writerows(rows)
 
-        # ── print summary ─────────────────────────────────────────────────────────
         ml_wins   = sum(1 for r in rows if r["Winner"] == "ML_BETTER")
         tabu_wins = sum(1 for r in rows if r["Winner"] == "TABU_BETTER")
         ties      = sum(1 for r in rows if r["Winner"] == "TIE")
         no_data   = sum(1 for r in rows if r["Winner"] == "N/A")
 
-        print("=" * 55)
-        print("  ML vs Tabu — Size 50 Summary")
-        print("  ML config: MAX_LEVELS=5, SEGMENTS=10, ITER/SEG=50")
-        print("=" * 55)
-        print(f"  Instances compared : {len(rows)}")
-        print(f"  ML_BETTER  (gap < 0): {ml_wins}")
-        print(f"  TABU_BETTER(gap > 0): {tabu_wins}")
-        print(f"  TIE                 : {ties}")
-        print(f"  N/A (missing data)  : {no_data}")
-        print("=" * 55)
-        print("  Gap = (ML_Fitness - Tabu_Fitness) / Tabu_Fitness × 100 %")
-        print("  Negative gap → ML has LOWER fitness  → ML BETTER")
-        print("  Positive gap → Tabu has LOWER fitness → Tabu BETTER")
-        print("=" * 55)
+        print("=" * 70)
+        print("  ✅ COMPARISON: MultiLevel vs Tabu (Size 50)")
+        print("  ML config: MAX_LEVELS=5, SEGMENTS=10, ITER_PER_SEG=50")
+        print("=" * 70)
+        print(f"  Total instances     : {len(rows)}")
+        print(f"  ML wins (gap < 0)   : {ml_wins}")
+        print(f"  Tabu wins (gap > 0) : {tabu_wins}")
+        print(f"  Ties                : {ties}")
+        print(f"  No data             : {no_data}")
+        print("=" * 70)
+        print("  📊 Gap formula: (ML_value - Tabu_value) / Tabu_value × 100%")
+        print("     • NEGATIVE gap → ML has LOWER fitness  → ML BETTER ✅")
+        print("     • POSITIVE gap → Tabu has LOWER fitness → Tabu BETTER ✅")
+        print("=" * 70)
         EOF
 
     - uses: actions/upload-artifact@v4
