@@ -22,7 +22,7 @@ struct Solution {
     double fitness; // giá trị hàm mục tiêu
     bool is_feasible; // lời giải có hợp lệ không
 
-    Solution(): makespan(0), drone_violation(0), fitness(DBL_MAX), is_feasible(true) {}
+    Solution(): makespan(0), drone_violation(0), waiting_violation(0), fitness(DBL_MAX), is_feasible(true) {}
 };
 
 struct TabuMove {
@@ -114,6 +114,8 @@ void build_time_matrices_from_distance(const vector<vector<double>>& distance_ma
 
 void read_dataset(const string &filename){
     vector<Node> nodes;
+    C1.clear();
+    C2.clear();
     ifstream file(filename);
     if (!file.is_open()){
         cerr << "Error opening file: " << filename <<endl;
@@ -188,6 +190,7 @@ void read_dataset(const string &filename){
             }
         }
     }
+
     build_time_matrices_from_distance(distances, truck_times, drone_times);
 
     // Phân loại khách hàng
@@ -247,6 +250,7 @@ void evaluate_solution(Solution &sol) {
         int prev = depot_id;
         double current_time = 0;
         double depart_time = 0;
+        vector<pair<int, double>> served_in_trip;
 
         for (int j = 0; j < sol.route[i].size(); j++) {
             int cid = sol.route[i][j];
@@ -264,7 +268,7 @@ void evaluate_solution(Solution &sol) {
                     sol.drone_violation += (flight_time - vehicles[i].limit_drone);
                 }
                 
-                // Kiểm tra vi phạm thời gian chờ của các khách hàng đã phục vụ
+                // Kiểm tra vi phạm thời gian chờ của các khách hàng đã phục vụ - DISABLED
                 /*for (auto &p : served_in_trip){
                     int served_node_id = p.first;
                     double time_arrived_at_node = p.second;
@@ -275,16 +279,19 @@ void evaluate_solution(Solution &sol) {
                     }
                 }*/
                 
-                if (sol.drone_violation > 0 /*|| sol.waiting_violation > 0*/) {
+                if (sol.drone_violation > 0) {
                     sol.is_feasible = false;
                 }
                 
                 depart_time = current_time;
+                served_in_trip.clear();
                 prev = depot_id;
             } else {
                 // Di chuyển từ prev đến customer cid
                 double travel_time = time_matrix[prev][cid];
                 double entry_time = current_time + travel_time;
+                
+                served_in_trip.push_back({cid, entry_time});
                 
                 current_time += travel_time;
                 prev = cid;
@@ -293,7 +300,7 @@ void evaluate_solution(Solution &sol) {
         sol.makespan = max(sol.makespan, current_time);
     }
 
-    sol.fitness = sol.makespan + alpha1*sol.drone_violation + alpha2*sol.waiting_violation;
+    sol.fitness = sol.makespan + alpha1*sol.drone_violation; // + alpha2*sol.waiting_violation; // Removed waiting violation
 }
 
 Solution init_greedy_solution() {
@@ -358,9 +365,9 @@ Solution init_greedy_solution() {
             const vector<vector<double>>& time_matrix = vehicles[v].is_drone ? drone_times : truck_times;
             for (size_t i = 0; i < unserved_C2.size(); i++) {
                 int cid = unserved_C2[i];
-                double d = time_matrix[current_pos[v]][cid];
-                if (d < best_time) {
-                    best_time = d;
+                double t = time_matrix[current_pos[v]][cid];
+                if (t < best_time) {
+                    best_time = t;
                     best_idx = i;
                 }
             }
@@ -1210,8 +1217,9 @@ int main(int argc, char* argv[]){
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\50.10.1.txt"; 
+        dataset_path = "D:\\New folder\\instances\\50.40.1.txt"; 
     }
+
     if (argc > 3) {
         manual_iter_per_segment = max(1, atoi(argv[2]));
         manual_total_segments = max(1, atoi(argv[3]));
@@ -1228,6 +1236,8 @@ int main(int argc, char* argv[]){
     cout << "ITER_PER_SEGMENT: " << SEGMENT_LENGTH << endl;
     cout << "TOTAL_SEGMENTS: " << max(1, MAX_ITER / max(1, SEGMENT_LENGTH)) << endl;
     cout << "MAX_ITER: " << MAX_ITER << endl;
+
+    printf(" %d\n", MAX_ITER);
  
     // Khởi tạo danh sách xe 
     vehicles.clear();
