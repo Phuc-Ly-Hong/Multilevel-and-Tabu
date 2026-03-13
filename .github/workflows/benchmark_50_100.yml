@@ -2,9 +2,9 @@ name: Benchmark ML vs Tabu (50 & 100)
 
 on:
   push:
-    branches: ["**"]
+    branches: []
   pull_request:
-    branches: ["**"]
+    branches: []
   workflow_dispatch:
     inputs:
       runs:

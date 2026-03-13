@@ -300,8 +300,6 @@ void normalize_route(vector<int> &route) {
     route.swap(tmp);
 }
 
-map<int, double> internal_distance_cache;
-
 void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) {
     for (auto &route : sol.route) normalize_route(route);
 
@@ -834,12 +832,6 @@ Solution move_2opt(Solution current_sol, size_t v1, size_t pos1, size_t v2, size
         
         if (pos1 >= pos2 || pos2 - pos1 < 2) {
             return current_sol;
-        }
-        
-        // Lưu segment bị đảo
-        vector<int> reversed_segment;
-        for (size_t i = pos1; i <= pos2; i++) {
-            reversed_segment.push_back(new_sol.route[v1][i]);
         }
         
         reverse(new_sol.route[v1].begin() + pos1, new_sol.route[v1].begin() + pos2 + 1);
@@ -2069,7 +2061,6 @@ Solution multilevel_tabu_search() {
         if (prev_level_id == 0) {
             cout << "\n🎯 FINAL REFINEMENT AT LEVEL 0 (No merged nodes)" << endl;
             merged_nodes_info.clear();
-            internal_distance_cache.clear();
             
             // EVALUATE KHÔNG CÓ LEVEL (nullptr)
             evaluate_solution(s, nullptr);
