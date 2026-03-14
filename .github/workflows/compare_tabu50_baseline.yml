@@ -1,10 +1,10 @@
-name: Compare MultiLevel vs Tabu - Size 50
+name: Compare MultiLevel vs Tabu - 50 and 100
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, method_A ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main, master, method_A ]
   workflow_dispatch:
 
 permissions:
@@ -16,27 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    
-    # ========== DEBUG MẠNH - KIỂM TRA INSTANCES ==========
-    - name: 🔍 VERIFY instances folder exists in repo
-      run: |
-        echo "==================== CRITICAL CHECK ===================="
-        if [ -d "instances" ]; then
-          echo "✅ instances/ folder EXISTS"
-          echo "📁 Total .txt files: $(find instances -name '*.txt' | wc -l)"
-          echo "📋 Sample files:"
-          ls instances/*.txt | head -10
-          echo "========================================================"
-        else
-          echo "❌ ❌ ❌ INSTANCES FOLDER NOT FOUND ❌ ❌ ❌"
-          echo "This is why your workflow fails!"
-          echo "Solution: Run these commands locally:"
-          echo "  git add instances/"
-          echo "  git commit -m 'Add instances folder'"
-          echo "  git push origin method_A"
-          echo "========================================================"
-          exit 1
-        fi
     
     - run: sudo apt-get update && sudo apt-get install -y g++ bc
     
@@ -60,15 +39,17 @@ jobs:
         path: multilevel
         retention-days: 1
 
-  run-tabu:
-    name: Tabu ${{ matrix.instance }}
+  run-tabu-50:
+    name: Tabu50 ${{ matrix.instance }} S${{ matrix.segments_per_level }} L${{ matrix.num_levels }}
     needs: compile
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      max-parallel: 20
+      max-parallel: 40
       matrix:
+        segments_per_level: [5, 10, 15]
+        num_levels: [3, 4, 5, 6, 7, 8]
         instance: [
           "50.10.1", "50.10.2", "50.10.3", "50.10.4",
           "50.20.1", "50.20.2", "50.20.3", "50.20.4",
@@ -84,9 +65,11 @@ jobs:
     - name: Run Tabu 5 times
       run: |
         chmod +x tabu
+        ITER_PER_SEG=50
+        TOTAL_SEGMENTS=$((2 * ${{ matrix.segments_per_level }} * ${{ matrix.num_levels }}))
         for run in {1..5}; do
           START=$(date +%s.%N)
-          timeout 30m ./tabu instances/${{ matrix.instance }}.txt > out${run}.txt 2>&1
+          timeout 25m ./tabu instances/${{ matrix.instance }}.txt ${ITER_PER_SEG} ${TOTAL_SEGMENTS} > out${run}.txt 2>&1
           EXIT=$?
           echo "$(echo "$(date +%s.%N) - $START" | bc)" > rt${run}.txt
           [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
@@ -99,6 +82,10 @@ jobs:
         import re, json, os
         instance = "${{ matrix.instance }}"
         parts = instance.split(".")
+        segments = ${{ matrix.segments_per_level }}
+        levels = ${{ matrix.num_levels }}
+        iter_per_seg = 50
+        total_iter = 2 * iter_per_seg * segments * levels
         def last(pattern, text):
             m = re.findall(pattern, text)
             return float(m[-1]) if m else 0.0
@@ -130,24 +117,30 @@ jobs:
         runs = [{"run": i, **parse(f"out{i}.txt", f"rt{i}.txt")} for i in range(1, 6)]
         json.dump({"instance": instance, "num_customers": int(parts[0]),
                    "group": int(parts[1]), "replica": int(parts[2]),
-                   "algorithm": "TABU", "runs": runs}, open("results.json", "w"), indent=2)
+                   "algorithm": "TABU",
+                   "segments_per_level": segments, "num_levels": levels,
+                   "iter_per_segment": iter_per_seg, "total_iter": total_iter,
+                   "runs": runs}, open("results.json", "w"), indent=2)
         EOF
     
     - uses: actions/upload-artifact@v4
       with:
-        name: tabu50-${{ matrix.instance }}
+        name: tabu50-${{ matrix.instance }}-S${{ matrix.segments_per_level }}-L${{ matrix.num_levels }}
         path: results.json
         retention-days: 30
 
-  run-multilevel:
-    name: ML ${{ matrix.instance }}
+  run-multilevel-50:
+    name: ML50 ${{ matrix.instance }} S${{ matrix.segments_per_level }} L${{ matrix.num_levels }} R${{ matrix.compression_ratio }}
     needs: compile
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      max-parallel: 20
+      max-parallel: 40
       matrix:
+        compression_ratio: [0.10, 0.20, 0.30]
+        segments_per_level: [5, 10, 15]
+        num_levels: [3, 4, 5, 6, 7, 8]
         instance: [
           "50.10.1", "50.10.2", "50.10.3", "50.10.4",
           "50.20.1", "50.20.2", "50.20.3", "50.20.4",
@@ -163,9 +156,10 @@ jobs:
     - name: Run MultiLevel 5 times
       run: |
         chmod +x multilevel
+        ITER_PER_SEG=50
         for run in {1..5}; do
           START=$(date +%s.%N)
-          timeout 30m ./multilevel instances/${{ matrix.instance }}.txt 5 50 10 > out${run}.txt 2>&1
+          timeout 25m ./multilevel instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} ${ITER_PER_SEG} ${{ matrix.segments_per_level }} ${{ matrix.compression_ratio }} > out${run}.txt 2>&1
           EXIT=$?
           echo "$(echo "$(date +%s.%N) - $START" | bc)" > rt${run}.txt
           [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
@@ -178,6 +172,11 @@ jobs:
         import re, json, os
         instance = "${{ matrix.instance }}"
         parts = instance.split(".")
+        segments = ${{ matrix.segments_per_level }}
+        levels = ${{ matrix.num_levels }}
+        compression_ratio = ${{ matrix.compression_ratio }}
+        iter_per_seg = 50
+        total_iter = 2 * iter_per_seg * segments * levels
         def last(pattern, text):
             m = re.findall(pattern, text)
             return float(m[-1]) if m else 0.0
@@ -207,19 +206,202 @@ jobs:
         runs = [{"run": i, **parse(f"out{i}.txt", f"rt{i}.txt")} for i in range(1, 6)]
         json.dump({"instance": instance, "num_customers": int(parts[0]),
                    "group": int(parts[1]), "replica": int(parts[2]),
-                   "algorithm": "MULTILEVEL", "ml_config": "L5_S10_iter50",
+                   "algorithm": "MULTILEVEL",
+                   "segments_per_level": segments, "num_levels": levels,
+                   "iter_per_segment": iter_per_seg, "total_iter": total_iter,
+                   "compression_ratio": compression_ratio,
                    "runs": runs}, open("results.json", "w"), indent=2)
         EOF
     
     - uses: actions/upload-artifact@v4
       with:
-        name: ml50-${{ matrix.instance }}
+        name: ml50-${{ matrix.instance }}-S${{ matrix.segments_per_level }}-L${{ matrix.num_levels }}-R${{ matrix.compression_ratio }}
         path: results.json
         retention-days: 30
 
-  aggregate:
-    name: Compare ML vs Tabu
-    needs: [run-tabu, run-multilevel]
+  run-tabu-100:
+    name: Tabu100 ${{ matrix.instance }} S${{ matrix.segments_per_level }} L${{ matrix.num_levels }}
+    needs: compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 40
+      matrix:
+        segments_per_level: [5, 10, 15]
+        num_levels: [3, 4, 5, 6, 7, 8]
+        instance: [
+          "100.10.1", "100.10.2", "100.10.3", "100.10.4",
+          "100.20.1", "100.20.2", "100.20.3", "100.20.4",
+          "100.30.1", "100.30.2", "100.30.3", "100.30.4",
+          "100.40.1", "100.40.2", "100.40.3", "100.40.4"
+        ]
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/download-artifact@v4
+      with:
+        name: tabu-exe
+
+    - name: Run Tabu 5 times
+      run: |
+        chmod +x tabu
+        ITER_PER_SEG=100
+        TOTAL_SEGMENTS=$((2 * ${{ matrix.segments_per_level }} * ${{ matrix.num_levels }}))
+        for run in {1..5}; do
+          START=$(date +%s.%N)
+          timeout 25m ./tabu instances/${{ matrix.instance }}.txt ${ITER_PER_SEG} ${TOTAL_SEGMENTS} > out${run}.txt 2>&1
+          EXIT=$?
+          echo "$(echo "$(date +%s.%N) - $START" | bc)" > rt${run}.txt
+          [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
+          [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
+        done
+
+    - name: Parse results
+      run: |
+        python3 <<'EOF'
+        import re, json, os
+        instance = "${{ matrix.instance }}"
+        parts = instance.split(".")
+        segments = ${{ matrix.segments_per_level }}
+        levels = ${{ matrix.num_levels }}
+        iter_per_seg = 100
+        total_iter = 2 * iter_per_seg * segments * levels
+        def last(pattern, text):
+            m = re.findall(pattern, text)
+            return float(m[-1]) if m else 0.0
+        def parse(out, rt):
+            if not os.path.exists(out):
+                return {"runtime": 0.0, "makespan": 0.0, "drone_violation": 0.0,
+                        "waiting_violation": 0.0, "fitness": float("inf"), "feasible": "NO_OUTPUT"}
+            text = open(out, encoding="utf-8", errors="ignore").read()
+            t = 0.0
+            if os.path.exists(rt):
+                try: t = float(open(rt).read().strip())
+                except: pass
+            if "TIMEOUT" in text:
+                return {"runtime": round(t,3), "makespan": 0.0, "drone_violation": 0.0,
+                        "waiting_violation": 0.0, "fitness": float("inf"), "feasible": "TIMEOUT"}
+            if "ERROR_EXIT_CODE" in text or "Fitness:" not in text:
+                return {"runtime": round(t,3), "makespan": 0.0, "drone_violation": 0.0,
+                        "waiting_violation": 0.0, "fitness": float("inf"), "feasible": "ERROR"}
+            dv = last(r'Drone violation:\s*([0-9.+\-eE]+)', text)
+            wv = last(r'Waiting violation:\s*([0-9.+\-eE]+)', text)
+            return {
+                "runtime": round(t, 3),
+                "makespan": round(last(r'Makespan:\s*([0-9.+\-eE]+)', text), 4),
+                "drone_violation": round(dv, 4),
+                "waiting_violation": round(wv, 4),
+                "fitness": round(last(r'Fitness:\s*([0-9.+\-eE]+)', text), 4),
+                "feasible": "YES" if abs(dv) < 1e-6 and abs(wv) < 1e-6 else "NO",
+            }
+        runs = [{"run": i, **parse(f"out{i}.txt", f"rt{i}.txt")} for i in range(1, 6)]
+        json.dump({"instance": instance, "num_customers": int(parts[0]),
+                   "group": int(parts[1]), "replica": int(parts[2]),
+                   "algorithm": "TABU",
+                   "segments_per_level": segments, "num_levels": levels,
+                   "iter_per_segment": iter_per_seg, "total_iter": total_iter,
+                   "runs": runs}, open("results.json", "w"), indent=2)
+        EOF
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: tabu100-${{ matrix.instance }}-S${{ matrix.segments_per_level }}-L${{ matrix.num_levels }}
+        path: results.json
+        retention-days: 30
+
+  run-multilevel-100:
+    name: ML100 ${{ matrix.instance }} S${{ matrix.segments_per_level }} L${{ matrix.num_levels }} R${{ matrix.compression_ratio }}
+    needs: compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 40
+      matrix:
+        compression_ratio: [0.10, 0.20, 0.30]
+        segments_per_level: [5, 10, 15]
+        num_levels: [3, 4, 5, 6, 7, 8]
+        instance: [
+          "100.10.1", "100.10.2", "100.10.3", "100.10.4",
+          "100.20.1", "100.20.2", "100.20.3", "100.20.4",
+          "100.30.1", "100.30.2", "100.30.3", "100.30.4",
+          "100.40.1", "100.40.2", "100.40.3", "100.40.4"
+        ]
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/download-artifact@v4
+      with:
+        name: multilevel-exe
+
+    - name: Run MultiLevel 5 times
+      run: |
+        chmod +x multilevel
+        ITER_PER_SEG=100
+        for run in {1..5}; do
+          START=$(date +%s.%N)
+          timeout 25m ./multilevel instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} ${ITER_PER_SEG} ${{ matrix.segments_per_level }} ${{ matrix.compression_ratio }} > out${run}.txt 2>&1
+          EXIT=$?
+          echo "$(echo "$(date +%s.%N) - $START" | bc)" > rt${run}.txt
+          [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
+          [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
+        done
+
+    - name: Parse results
+      run: |
+        python3 <<'EOF'
+        import re, json, os
+        instance = "${{ matrix.instance }}"
+        parts = instance.split(".")
+        segments = ${{ matrix.segments_per_level }}
+        levels = ${{ matrix.num_levels }}
+        compression_ratio = ${{ matrix.compression_ratio }}
+        iter_per_seg = 100
+        total_iter = 2 * iter_per_seg * segments * levels
+        def last(pattern, text):
+            m = re.findall(pattern, text)
+            return float(m[-1]) if m else 0.0
+        def parse(out, rt):
+            if not os.path.exists(out):
+                return {"runtime": 0.0, "makespan": 0.0, "drone_violation": 0.0,
+                        "fitness": float("inf"), "feasible": "NO_OUTPUT"}
+            text = open(out, encoding="utf-8", errors="ignore").read()
+            t = 0.0
+            if os.path.exists(rt):
+                try: t = float(open(rt).read().strip())
+                except: pass
+            if "TIMEOUT" in text:
+                return {"runtime": round(t,3), "makespan": 0.0, "drone_violation": 0.0,
+                        "fitness": float("inf"), "feasible": "TIMEOUT"}
+            if "ERROR_EXIT_CODE" in text or "Fitness:" not in text:
+                return {"runtime": round(t,3), "makespan": 0.0, "drone_violation": 0.0,
+                        "fitness": float("inf"), "feasible": "ERROR"}
+            dv = last(r'Drone violation:\s*([0-9.+\-eE]+)', text)
+            return {
+                "runtime": round(t, 3),
+                "makespan": round(last(r'Makespan:\s*([0-9.+\-eE]+)', text), 4),
+                "drone_violation": round(dv, 4),
+                "fitness": round(last(r'Fitness:\s*([0-9.+\-eE]+)', text), 4),
+                "feasible": "YES" if abs(dv) < 1e-6 else "NO",
+            }
+        runs = [{"run": i, **parse(f"out{i}.txt", f"rt{i}.txt")} for i in range(1, 6)]
+        json.dump({"instance": instance, "num_customers": int(parts[0]),
+                   "group": int(parts[1]), "replica": int(parts[2]),
+                   "algorithm": "MULTILEVEL",
+                   "segments_per_level": segments, "num_levels": levels,
+                   "iter_per_segment": iter_per_seg, "total_iter": total_iter,
+                   "compression_ratio": compression_ratio,
+                   "runs": runs}, open("results.json", "w"), indent=2)
+        EOF
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: ml100-${{ matrix.instance }}-S${{ matrix.segments_per_level }}-L${{ matrix.num_levels }}-R${{ matrix.compression_ratio }}
+        path: results.json
+        retention-days: 30
+
+  aggregate-50:
+    name: Aggregate 50
+    needs: [run-tabu-50, run-multilevel-50]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -233,23 +415,71 @@ jobs:
       with:
         pattern: ml50-*
         merge-multiple: false
+    - name: Check downloaded artifacts
+      run: |
+        TABU_DIRS=$(find . -maxdepth 1 -type d -name 'tabu50-*' | wc -l)
+        ML_DIRS=$(find . -maxdepth 1 -type d -name 'ml50-*' | wc -l)
+        echo "Downloaded artifact dirs -> Tabu: $TABU_DIRS, ML: $ML_DIRS"
+        if [ "$TABU_DIRS" -eq 0 ] && [ "$ML_DIRS" -eq 0 ]; then
+          echo "No comparison artifacts found. Skip aggregation."
+          cat > COMPARE_ML_vs_TABU_50.csv <<'CSV'
+Instance,Num_Customers,Group,Replica,Tabu_Best_Fitness,Tabu_Avg_Fitness,Tabu_Avg_Time_s,Tabu_Feasible_Rate_%,ML_Best_Fitness,ML_Avg_Fitness,ML_Avg_Time_s,ML_Feasible_Rate_%,Gap_BestFitness_%,Gap_AvgFitness_%,Gap_AvgTime_%,Winner
+CSV
+          cat > MULTILEVEL_AGGREGATE_SUMMARY_50.csv <<'CSV'
+Instance,Size,Segments_Per_Level,Num_Levels,Iter_Per_Segment,Total_Iter,Compression_Ratio,Avg_Runtime_s,Avg_Makespan,Min_Makespan
+CSV
+          exit 0
+        fi
     - name: Build comparison CSV
       run: |
         python3 <<'EOF'
         import json, glob, csv, os
         INF = float("inf")
         def load(pattern):
-            out = {}
-            for d in glob.glob(pattern):
-                f = os.path.join(d, "results.json")
-                if os.path.exists(f):
-                    r = json.load(open(f))
-                    out[r["instance"]] = r
-            return out
+          out = []
+          for d in glob.glob(pattern):
+            f = os.path.join(d, "results.json")
+            if os.path.exists(f):
+              try:
+                with open(f, encoding="utf-8") as fh:
+                  r = json.load(fh)
+                if "instance" in r and "runs" in r:
+                  out.append(r)
+              except Exception as e:
+                print(f"WARN: skip invalid json {f}: {e}")
+          return out
         tabu = load("tabu50-*")
         ml = load("ml50-*")
-        all_instances = sorted(set(list(tabu) + list(ml)),
-                               key=lambda x: tuple(int(p) for p in x.split(".")))
+        def key_sort(k):
+          inst, seg, lv, it, tt = k
+          return (tuple(int(p) for p in inst.split(".")), seg, lv, it, tt)
+        def group_tabu(data_list):
+          out = {}
+          for data in data_list:
+            k = (
+              data["instance"],
+              int(data.get("segments_per_level", 10)),
+              int(data.get("num_levels", 5)),
+              int(data.get("iter_per_segment", 50)),
+              int(data.get("total_iter", 5000)),
+            )
+            out[k] = data
+          return out
+        def group_ml(data_list):
+          out = {}
+          for data in data_list:
+            k = (
+              data["instance"],
+              int(data.get("segments_per_level", 10)),
+              int(data.get("num_levels", 5)),
+              int(data.get("iter_per_segment", 50)),
+              int(data.get("total_iter", 5000)),
+              float(data.get("compression_ratio", 0.10)),
+            )
+            out[k] = data
+          return out
+        tabu_g = group_tabu(tabu)
+        ml_g = group_ml(ml)
         def summarize(data):
             if data is None: return None
             runs = data["runs"]
@@ -269,20 +499,36 @@ jobs:
             if g == "N/A": return "N/A"
             if abs(g) < 1e-4: return "TIE"
             return "ML_BETTER" if g < 0 else "TABU_BETTER"
-        cols = ["Instance", "Num_Customers", "Group", "Replica",
+        cols = ["Instance", "Num_Customers", "Group", "Replica", "Segments_Per_Level", "Num_Levels", "Iter_Per_Segment", "Total_Iter", "Compression_Ratio",
                 "Tabu_Best_Fitness", "Tabu_Avg_Fitness", "Tabu_Avg_Time_s", "Tabu_Feasible_Rate_%",
                 "ML_Best_Fitness", "ML_Avg_Fitness", "ML_Avg_Time_s", "ML_Feasible_Rate_%",
                 "Gap_BestFitness_%", "Gap_AvgFitness_%", "Gap_AvgTime_%", "Winner"]
+        ml_cols = [
+            "Instance", "Size", "Segments_Per_Level", "Num_Levels",
+            "Iter_Per_Segment", "Total_Iter", "Compression_Ratio",
+            "Avg_Runtime_s", "Avg_Makespan", "Min_Makespan"
+        ]
         rows = []
-        for inst in all_instances:
+        if not ml_g and not tabu_g:
+          with open("COMPARE_ML_vs_TABU_50.csv", "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=cols)
+            w.writeheader()
+          with open("MULTILEVEL_AGGREGATE_SUMMARY_50.csv", "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=ml_cols)
+            w.writeheader()
+          print("No instance data found in artifacts. Wrote header-only CSV.")
+          raise SystemExit(0)
+        for mk in sorted(ml_g.keys(), key=lambda k: key_sort(k[:5])):
+            inst, seg, lv, it, tt, cr = mk
             parts = inst.split(".")
-            t = summarize(tabu.get(inst))
-            m = summarize(ml.get(inst))
+            t = summarize(tabu_g.get((inst, seg, lv, it, tt)))
+            m = summarize(ml_g.get(mk))
             g_best = gap(m["best_fitness"] if m else INF, t["best_fitness"] if t else INF)
             g_avg = gap(m["avg_fitness"] if m else INF, t["avg_fitness"] if t else INF)
             g_time = gap(m["avg_time_s"] if m else INF, t["avg_time_s"] if t else INF)
             rows.append({
                 "Instance": inst, "Num_Customers": parts[0], "Group": parts[1], "Replica": parts[2],
+                "Segments_Per_Level": seg, "Num_Levels": lv, "Iter_Per_Segment": it, "Total_Iter": tt, "Compression_Ratio": cr,
                 "Tabu_Best_Fitness": t["best_fitness"] if t else "N/A",
                 "Tabu_Avg_Fitness": t["avg_fitness"] if t else "N/A",
                 "Tabu_Avg_Time_s": t["avg_time_s"] if t else "N/A",
@@ -315,9 +561,170 @@ jobs:
         print("  Gap = (ML - Tabu) / Tabu × 100%")
         print("  Negative gap → ML BETTER | Positive gap → Tabu BETTER")
         print("=" * 70)
+
+        ml_summary_rows = []
+        for mk in sorted(ml_g.keys(), key=lambda k: key_sort(k[:5])):
+            inst, segments, levels, iter_per_seg, total_iter, compression_ratio = mk
+            data = ml_g[mk]
+            runs = data.get("runs", [])
+            if not runs:
+                continue
+
+            parts = inst.split(".")
+            size = int(parts[0]) if parts and parts[0].isdigit() else "N/A"
+
+            runtimes = [float(r.get("runtime", 0.0)) for r in runs]
+            makespans = [
+                float(r.get("makespan", 0.0))
+                for r in runs
+                if float(r.get("makespan", 0.0)) > 0.0 and float(r.get("fitness", INF)) != INF
+            ]
+
+            avg_runtime = round(sum(runtimes) / len(runtimes), 3) if runtimes else 0.0
+            avg_makespan = round(sum(makespans) / len(makespans), 4) if makespans else "N/A"
+            min_makespan = round(min(makespans), 4) if makespans else "N/A"
+
+            ml_summary_rows.append({
+                "Instance": inst,
+                "Size": size,
+                "Segments_Per_Level": segments,
+                "Num_Levels": levels,
+                "Iter_Per_Segment": iter_per_seg,
+                "Total_Iter": total_iter,
+                "Compression_Ratio": compression_ratio,
+                "Avg_Runtime_s": avg_runtime,
+                "Avg_Makespan": avg_makespan,
+                "Min_Makespan": min_makespan,
+            })
+
+        with open("MULTILEVEL_AGGREGATE_SUMMARY_50.csv", "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=ml_cols)
+            w.writeheader()
+            w.writerows(ml_summary_rows)
+
+        print(f"MultiLevel aggregate rows: {len(ml_summary_rows)}")
         EOF
     - uses: actions/upload-artifact@v4
       with:
         name: compare-ml-vs-tabu-50
-        path: COMPARE_ML_vs_TABU_50.csv
+        path: |
+          COMPARE_ML_vs_TABU_50.csv
+          MULTILEVEL_AGGREGATE_SUMMARY_50.csv
+        retention-days: 90
+
+  aggregate-100:
+    name: Aggregate 100
+    needs: [run-tabu-100, run-multilevel-100]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/download-artifact@v4
+      continue-on-error: true
+      with:
+        pattern: tabu100-*
+        merge-multiple: false
+    - uses: actions/download-artifact@v4
+      continue-on-error: true
+      with:
+        pattern: ml100-*
+        merge-multiple: false
+    - name: Build comparison CSV
+      run: |
+        python3 <<'EOF'
+        import json, glob, csv, os
+        INF = float("inf")
+        def load(pattern):
+            out = {}
+            for d in glob.glob(pattern):
+                f = os.path.join(d, "results.json")
+                if os.path.exists(f):
+                    try:
+                        with open(f, encoding="utf-8") as fh:
+                            r = json.load(fh)
+                        if "instance" in r and "runs" in r:
+                            out[f"{r['instance']}|{r.get('segments_per_level')}|{r.get('num_levels')}|{r.get('iter_per_segment')}|{r.get('total_iter')}|{r.get('compression_ratio', 'TABU')}"] = r
+                    except Exception as e:
+                        print(f"WARN: skip invalid json {f}: {e}")
+            return out
+        tabu = load("tabu100-*")
+        ml = load("ml100-*")
+        def summarize(data):
+            if data is None: return None
+            runs = data["runs"]
+            valid_fitness = [r["fitness"] for r in runs if r["fitness"] != INF]
+            return {
+                "best_fitness": min(valid_fitness) if valid_fitness else INF,
+                "avg_fitness": round(sum(valid_fitness)/len(valid_fitness), 4) if valid_fitness else INF,
+                "avg_time_s": round(sum(r["runtime"] for r in runs)/len(runs), 3),
+            }
+        cols = ["Instance", "Size", "Segments_Per_Level", "Num_Levels", "Iter_Per_Segment", "Total_Iter", "Compression_Ratio",
+                "Tabu_Best_Fitness", "Tabu_Avg_Fitness", "Tabu_Avg_Time_s",
+                "ML_Best_Fitness", "ML_Avg_Fitness", "ML_Avg_Time_s",
+                "Gap_BestFitness_%", "Gap_AvgFitness_%", "Gap_AvgTime_%"]
+        ml_cols = ["Instance", "Size", "Segments_Per_Level", "Num_Levels", "Iter_Per_Segment", "Total_Iter", "Compression_Ratio", "Avg_Runtime_s", "Avg_Makespan", "Min_Makespan"]
+        rows = []
+        ml_rows = []
+        for k, mdata in ml.items():
+            inst = mdata["instance"]
+            seg = int(mdata.get("segments_per_level", 10))
+            lv = int(mdata.get("num_levels", 5))
+            it = int(mdata.get("iter_per_segment", 100))
+            tt = int(mdata.get("total_iter", 2 * it * seg * lv))
+            cr = float(mdata.get("compression_ratio", 0.10))
+            tkey = f"{inst}|{seg}|{lv}|{it}|{tt}|TABU"
+            tdata = tabu.get(tkey)
+            ms = summarize(mdata)
+            ts = summarize(tdata) if tdata else None
+            def gap(a, b):
+                if b in (0, INF) or a == INF: return "N/A"
+                return round((a - b) / b * 100, 4)
+            rows.append({
+                "Instance": inst,
+                "Size": int(inst.split(".")[0]),
+                "Segments_Per_Level": seg,
+                "Num_Levels": lv,
+                "Iter_Per_Segment": it,
+                "Total_Iter": tt,
+                "Compression_Ratio": cr,
+                "Tabu_Best_Fitness": ts["best_fitness"] if ts else "N/A",
+                "Tabu_Avg_Fitness": ts["avg_fitness"] if ts else "N/A",
+                "Tabu_Avg_Time_s": ts["avg_time_s"] if ts else "N/A",
+                "ML_Best_Fitness": ms["best_fitness"] if ms else "N/A",
+                "ML_Avg_Fitness": ms["avg_fitness"] if ms else "N/A",
+                "ML_Avg_Time_s": ms["avg_time_s"] if ms else "N/A",
+                "Gap_BestFitness_%": gap(ms["best_fitness"] if ms else INF, ts["best_fitness"] if ts else INF),
+                "Gap_AvgFitness_%": gap(ms["avg_fitness"] if ms else INF, ts["avg_fitness"] if ts else INF),
+                "Gap_AvgTime_%": gap(ms["avg_time_s"] if ms else INF, ts["avg_time_s"] if ts else INF),
+            })
+            valid_makespans = [float(r.get("makespan", 0.0)) for r in mdata.get("runs", []) if float(r.get("makespan", 0.0)) > 0.0 and float(r.get("fitness", INF)) != INF]
+            runtimes = [float(r.get("runtime", 0.0)) for r in mdata.get("runs", [])]
+            ml_rows.append({
+                "Instance": inst,
+                "Size": int(inst.split(".")[0]),
+                "Segments_Per_Level": seg,
+                "Num_Levels": lv,
+                "Iter_Per_Segment": it,
+                "Total_Iter": tt,
+                "Compression_Ratio": cr,
+                "Avg_Runtime_s": round(sum(runtimes)/len(runtimes), 3) if runtimes else 0.0,
+                "Avg_Makespan": round(sum(valid_makespans)/len(valid_makespans), 4) if valid_makespans else "N/A",
+                "Min_Makespan": round(min(valid_makespans), 4) if valid_makespans else "N/A",
+            })
+        with open("COMPARE_ML_vs_TABU_100.csv", "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=cols)
+            w.writeheader()
+            w.writerows(rows)
+        with open("MULTILEVEL_AGGREGATE_SUMMARY_100.csv", "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=ml_cols)
+            w.writeheader()
+            w.writerows(ml_rows)
+        print(f"Compare rows: {len(rows)}")
+        print(f"ML aggregate rows: {len(ml_rows)}")
+        EOF
+    - uses: actions/upload-artifact@v4
+      with:
+        name: compare-ml-vs-tabu-100
+        path: |
+          COMPARE_ML_vs_TABU_100.csv
+          MULTILEVEL_AGGREGATE_SUMMARY_100.csv
         retention-days: 90
