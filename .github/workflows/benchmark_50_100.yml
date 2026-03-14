@@ -72,6 +72,7 @@ jobs:
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > rt${run}.txt
           [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
+          true
         done
     - name: Parse results
       run: |
@@ -158,6 +159,7 @@ jobs:
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > rt${run}.txt
           [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
+          true
         done
     - name: Parse results
       run: |
@@ -244,6 +246,7 @@ jobs:
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > rt${run}.txt
           [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
+          true
         done
     - name: Parse results
       run: |
@@ -330,6 +333,7 @@ jobs:
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > rt${run}.txt
           [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
+          true
         done
     - name: Parse results
       run: |
@@ -416,6 +420,7 @@ jobs:
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > rt${run}.txt
           [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
+          true
         done
     - name: Parse results
       run: |
@@ -502,6 +507,7 @@ jobs:
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > rt${run}.txt
           [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
+          true
         done
     - name: Parse results
       run: |
@@ -588,6 +594,7 @@ jobs:
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > rt${run}.txt
           [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
+          true
         done
     - name: Parse results
       run: |
@@ -674,6 +681,7 @@ jobs:
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > rt${run}.txt
           [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
+          true
         done
     - name: Parse results
       run: |
@@ -760,6 +768,7 @@ jobs:
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > rt${run}.txt
           [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
+          true
         done
     - name: Parse results
       run: |
@@ -846,6 +855,7 @@ jobs:
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > rt${run}.txt
           [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
+          true
         done
     - name: Parse results
       run: |
@@ -932,6 +942,7 @@ jobs:
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > rt${run}.txt
           [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
+          true
         done
     - name: Parse results
       run: |
@@ -1018,6 +1029,7 @@ jobs:
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > rt${run}.txt
           [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
+          true
         done
     - name: Parse results
       run: |
