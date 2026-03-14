@@ -66,8 +66,10 @@ jobs:
         TOTAL_SEGMENTS=$((2 * ${{ matrix.segments_per_level }} * ${{ matrix.num_levels }}))
         for run in {1..5}; do
           START=$(date +%s)
+          set +e
           timeout 25m ./tabu instances/${{ matrix.instance }}.txt ${ITER_PER_SEG} ${TOTAL_SEGMENTS} > out${run}.txt 2>&1
           EXIT=$?
+          set -e
           echo "$(( $(date +%s) - START ))" > rt${run}.txt
           [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
@@ -153,6 +155,7 @@ jobs:
           START=$(date +%s)
           timeout 25m ./tabu instances/${{ matrix.instance }}.txt ${ITER_PER_SEG} ${TOTAL_SEGMENTS} > out${run}.txt 2>&1
           EXIT=$?
+          set -e
           echo "$(( $(date +%s) - START ))" > rt${run}.txt
           [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
@@ -238,6 +241,7 @@ jobs:
           START=$(date +%s)
           timeout 25m ./multilevel instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} ${ITER_PER_SEG} ${{ matrix.segments_per_level }} ${{ matrix.compression_ratio }} > out${run}.txt 2>&1
           EXIT=$?
+          set -e
           echo "$(( $(date +%s) - START ))" > rt${run}.txt
           [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
@@ -323,6 +327,7 @@ jobs:
           START=$(date +%s)
           timeout 25m ./multilevel instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} ${ITER_PER_SEG} ${{ matrix.segments_per_level }} ${{ matrix.compression_ratio }} > out${run}.txt 2>&1
           EXIT=$?
+          set -e
           echo "$(( $(date +%s) - START ))" > rt${run}.txt
           [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
@@ -408,6 +413,7 @@ jobs:
           START=$(date +%s)
           timeout 25m ./multilevel instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} ${ITER_PER_SEG} ${{ matrix.segments_per_level }} ${{ matrix.compression_ratio }} > out${run}.txt 2>&1
           EXIT=$?
+          set -e
           echo "$(( $(date +%s) - START ))" > rt${run}.txt
           [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
@@ -493,6 +499,7 @@ jobs:
           START=$(date +%s)
           timeout 25m ./multilevel instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} ${ITER_PER_SEG} ${{ matrix.segments_per_level }} ${{ matrix.compression_ratio }} > out${run}.txt 2>&1
           EXIT=$?
+          set -e
           echo "$(( $(date +%s) - START ))" > rt${run}.txt
           [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
@@ -578,6 +585,7 @@ jobs:
           START=$(date +%s)
           timeout 25m ./tabu instances/${{ matrix.instance }}.txt ${ITER_PER_SEG} ${TOTAL_SEGMENTS} > out${run}.txt 2>&1
           EXIT=$?
+          set -e
           echo "$(( $(date +%s) - START ))" > rt${run}.txt
           [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
@@ -663,6 +671,7 @@ jobs:
           START=$(date +%s)
           timeout 25m ./tabu instances/${{ matrix.instance }}.txt ${ITER_PER_SEG} ${TOTAL_SEGMENTS} > out${run}.txt 2>&1
           EXIT=$?
+          set -e
           echo "$(( $(date +%s) - START ))" > rt${run}.txt
           [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
@@ -748,6 +757,7 @@ jobs:
           START=$(date +%s)
           timeout 25m ./multilevel instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} ${ITER_PER_SEG} ${{ matrix.segments_per_level }} ${{ matrix.compression_ratio }} > out${run}.txt 2>&1
           EXIT=$?
+          set -e
           echo "$(( $(date +%s) - START ))" > rt${run}.txt
           [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
@@ -833,6 +843,7 @@ jobs:
           START=$(date +%s)
           timeout 25m ./multilevel instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} ${ITER_PER_SEG} ${{ matrix.segments_per_level }} ${{ matrix.compression_ratio }} > out${run}.txt 2>&1
           EXIT=$?
+          set -e
           echo "$(( $(date +%s) - START ))" > rt${run}.txt
           [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
@@ -918,6 +929,7 @@ jobs:
           START=$(date +%s)
           timeout 25m ./multilevel instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} ${ITER_PER_SEG} ${{ matrix.segments_per_level }} ${{ matrix.compression_ratio }} > out${run}.txt 2>&1
           EXIT=$?
+          set -e
           echo "$(( $(date +%s) - START ))" > rt${run}.txt
           [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
@@ -1001,8 +1013,10 @@ jobs:
         ITER_PER_SEG=100
         for run in {1..5}; do
           START=$(date +%s)
+          set +e
           timeout 25m ./multilevel instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} ${ITER_PER_SEG} ${{ matrix.segments_per_level }} ${{ matrix.compression_ratio }} > out${run}.txt 2>&1
           EXIT=$?
+          set -e
           echo "$(( $(date +%s) - START ))" > rt${run}.txt
           [ $EXIT -eq 124 ] && echo "TIMEOUT" >> out${run}.txt
           [ $EXIT -ne 0 ] && [ $EXIT -ne 124 ] && echo "ERROR_EXIT_CODE_$EXIT" >> out${run}.txt
