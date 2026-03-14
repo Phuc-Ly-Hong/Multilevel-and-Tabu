@@ -1972,7 +1972,7 @@ Solution multilevel_tabu_search() {
         auto level_start = chrono::high_resolution_clock::now();   
         update_node_index_cache(all_levels[L]);
         Solution s_current = tabu_search(s, &all_levels[L], true);
-        update_edge_frequency(s);
+        update_edge_frequency(s_current);
         auto level_end = chrono::high_resolution_clock::now();
         double level_time = chrono::duration<double>(level_end - level_start).count();
         print_solution(s_current);
