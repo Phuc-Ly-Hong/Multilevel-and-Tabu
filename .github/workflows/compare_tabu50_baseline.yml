@@ -423,10 +423,10 @@ jobs:
         if [ "$TABU_DIRS" -eq 0 ] && [ "$ML_DIRS" -eq 0 ]; then
           echo "No comparison artifacts found. Skip aggregation."
           cat > COMPARE_ML_vs_TABU_50.csv <<'CSV'
-Instance,Num_Customers,Group,Replica,Tabu_Best_Fitness,Tabu_Avg_Fitness,Tabu_Avg_Time_s,Tabu_Feasible_Rate_%,ML_Best_Fitness,ML_Avg_Fitness,ML_Avg_Time_s,ML_Feasible_Rate_%,Gap_BestFitness_%,Gap_AvgFitness_%,Gap_AvgTime_%,Winner
+          Instance,Num_Customers,Group,Replica,Tabu_Best_Fitness,Tabu_Avg_Fitness,Tabu_Avg_Time_s,Tabu_Feasible_Rate_%,ML_Best_Fitness,ML_Avg_Fitness,ML_Avg_Time_s,ML_Feasible_Rate_%,Gap_BestFitness_%,Gap_AvgFitness_%,Gap_AvgTime_%,Winner
 CSV
           cat > MULTILEVEL_AGGREGATE_SUMMARY_50.csv <<'CSV'
-Instance,Size,Segments_Per_Level,Num_Levels,Iter_Per_Segment,Total_Iter,Compression_Ratio,Avg_Runtime_s,Avg_Makespan,Min_Makespan
+          Instance,Size,Segments_Per_Level,Num_Levels,Iter_Per_Segment,Total_Iter,Compression_Ratio,Avg_Runtime_s,Avg_Makespan,Min_Makespan
 CSV
           exit 0
         fi
