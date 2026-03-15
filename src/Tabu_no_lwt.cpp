@@ -1207,6 +1207,7 @@ Solution tabu_search(){
 }
 
 int main(int argc, char* argv[]){
+    srand(time(nullptr));
     string dataset_path;
     int manual_iter_per_segment = -1;
     int manual_total_segments = -1;
