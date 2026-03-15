@@ -2,9 +2,9 @@ name: Run Tabu Search with Multilevel-like Config Matrix
 
 on:
   push:
-    branches: [ main, master, methodA ]
+    branches: [ main, master, method_A ]
   pull_request:
-    branches: [ main, master, methodA ]
+    branches: [ main, master, method_A ]
   workflow_dispatch:
 
 permissions:
