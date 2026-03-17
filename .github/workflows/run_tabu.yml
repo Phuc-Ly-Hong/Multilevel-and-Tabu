@@ -26,7 +26,7 @@ jobs:
 
     - name: Compile executable
       run: |
-        g++ -O3 -std=c++17 -o tabu src/Tabu_no_lwt.cpp
+        g++ -O3 -std=c++17 -o tabu src/Tabu_random_no_lwt.cpp
         chmod +x tabu
 
     - name: Upload executable
@@ -37,7 +37,7 @@ jobs:
         retention-days: 7
 
   run-50-ab:
-    name: 50ab ${{ matrix.instance }}_S${{ matrix.segments_per_level }}_L${{ matrix.num_levels }}
+    name: 50ab ${{ matrix.instance }}_S${{ matrix.segments_per_level }}_L${{ matrix.num_levels }}_R${{ matrix.merge_ratio }}
     needs: compile
     runs-on: ubuntu-latest
     timeout-minutes: 180
@@ -45,8 +45,9 @@ jobs:
       fail-fast: false
       max-parallel: 20
       matrix:
-        segments_per_level: [5, 10, 15]
-        num_levels: [3, 4, 5, 6, 7, 8]
+        segments_per_level: [1]
+        num_levels: [3, 4, 5]
+        merge_ratio: [5, 10]
         instance: [
           "50.10.1", "50.10.2", "50.20.1", "50.20.2",
           "50.30.1", "50.30.2", "50.40.1", "50.40.2"
@@ -64,12 +65,12 @@ jobs:
     - name: Run algorithm 5 times
       run: |
         chmod +x tabu
-        ITER_PER_SEG=50
-        TOTAL_SEGMENTS=$((2 * ${{ matrix.segments_per_level }} * ${{ matrix.num_levels }}))
+        MAX_ITER_LEVEL=500
+        TOTAL_ITER=$((2 * ${{ matrix.num_levels }} * MAX_ITER_LEVEL))
 
         for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 25m ./tabu instances/${{ matrix.instance }}.txt ${ITER_PER_SEG} ${TOTAL_SEGMENTS} > output_run${run}.txt 2>&1
+          timeout 25m ./tabu instances/${{ matrix.instance }}.txt ${TOTAL_ITER} > output_run${run}.txt 2>&1
           EXIT_CODE=$?
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
@@ -89,8 +90,10 @@ jobs:
         instance = "${{ matrix.instance }}"
         segments = ${{ matrix.segments_per_level }}
         levels = ${{ matrix.num_levels }}
+        merge_ratio = ${{ matrix.merge_ratio }}
         iter_per_seg = int(instance.split(".")[0])
-        total_iter = 2 * iter_per_seg * segments * levels
+        max_iter_level = int(instance.split(".")[0]) * 10
+        total_iter = 2 * levels * max_iter_level
 
         def find_metric_last(pattern, content):
             matches = re.findall(pattern, content)
@@ -173,6 +176,7 @@ jobs:
                 "instance": instance,
                 "segments_per_level": segments,
                 "num_levels": levels,
+            "merge_ratio": merge_ratio,
                 "iter_per_segment": iter_per_seg,
                 "total_iter": total_iter,
                 "runs": runs
@@ -182,12 +186,12 @@ jobs:
     - name: Upload results
       uses: actions/upload-artifact@v4
       with:
-        name: tabu-result-${{ matrix.instance }}-S${{ matrix.segments_per_level }}-L${{ matrix.num_levels }}
+        name: tabu-result-${{ matrix.instance }}-S${{ matrix.segments_per_level }}-L${{ matrix.num_levels }}-R${{ matrix.merge_ratio }}
         path: results.json
         retention-days: 30
 
   run-50-cd:
-    name: 50cd ${{ matrix.instance }}_S${{ matrix.segments_per_level }}_L${{ matrix.num_levels }}
+    name: 50cd ${{ matrix.instance }}_S${{ matrix.segments_per_level }}_L${{ matrix.num_levels }}_R${{ matrix.merge_ratio }}
     needs: compile
     runs-on: ubuntu-latest
     timeout-minutes: 180
@@ -195,8 +199,9 @@ jobs:
       fail-fast: false
       max-parallel: 20
       matrix:
-        segments_per_level: [5, 10, 15]
-        num_levels: [3, 4, 5, 6, 7, 8]
+        segments_per_level: [1]
+        num_levels: [3, 4, 5]
+        merge_ratio: [5, 10]
         instance: [
           "50.10.3", "50.10.4", "50.20.3", "50.20.4",
           "50.30.3", "50.30.4", "50.40.3", "50.40.4"
@@ -214,12 +219,12 @@ jobs:
     - name: Run algorithm 5 times
       run: |
         chmod +x tabu
-        ITER_PER_SEG=50
-        TOTAL_SEGMENTS=$((2 * ${{ matrix.segments_per_level }} * ${{ matrix.num_levels }}))
+        MAX_ITER_LEVEL=500
+        TOTAL_ITER=$((2 * ${{ matrix.num_levels }} * MAX_ITER_LEVEL))
 
         for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 25m ./tabu instances/${{ matrix.instance }}.txt ${ITER_PER_SEG} ${TOTAL_SEGMENTS} > output_run${run}.txt 2>&1
+          timeout 25m ./tabu instances/${{ matrix.instance }}.txt ${TOTAL_ITER} > output_run${run}.txt 2>&1
           EXIT_CODE=$?
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
@@ -239,8 +244,10 @@ jobs:
         instance = "${{ matrix.instance }}"
         segments = ${{ matrix.segments_per_level }}
         levels = ${{ matrix.num_levels }}
+        merge_ratio = ${{ matrix.merge_ratio }}
         iter_per_seg = int(instance.split(".")[0])
-        total_iter = 2 * iter_per_seg * segments * levels
+        max_iter_level = int(instance.split(".")[0]) * 10
+        total_iter = 2 * levels * max_iter_level
 
         def find_metric_last(pattern, content):
             matches = re.findall(pattern, content)
@@ -323,6 +330,7 @@ jobs:
                 "instance": instance,
                 "segments_per_level": segments,
                 "num_levels": levels,
+            "merge_ratio": merge_ratio,
                 "iter_per_segment": iter_per_seg,
                 "total_iter": total_iter,
                 "runs": runs
@@ -332,12 +340,12 @@ jobs:
     - name: Upload results
       uses: actions/upload-artifact@v4
       with:
-        name: tabu-result-${{ matrix.instance }}-S${{ matrix.segments_per_level }}-L${{ matrix.num_levels }}
+        name: tabu-result-${{ matrix.instance }}-S${{ matrix.segments_per_level }}-L${{ matrix.num_levels }}-R${{ matrix.merge_ratio }}
         path: results.json
         retention-days: 30
 
   run-100-ab:
-    name: 100ab ${{ matrix.instance }}_S${{ matrix.segments_per_level }}_L${{ matrix.num_levels }}
+    name: 100ab ${{ matrix.instance }}_S${{ matrix.segments_per_level }}_L${{ matrix.num_levels }}_R${{ matrix.merge_ratio }}
     needs: compile
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -345,8 +353,9 @@ jobs:
       fail-fast: false
       max-parallel: 15
       matrix:
-        segments_per_level: [5, 10, 15]
-        num_levels: [3, 4, 5, 6, 7, 8]
+        segments_per_level: [1]
+        num_levels: [3, 4, 5]
+        merge_ratio: [5, 10]
         instance: [
           "100.10.1", "100.10.2", "100.20.1", "100.20.2",
           "100.30.1", "100.30.2", "100.40.1", "100.40.2"
@@ -364,12 +373,12 @@ jobs:
     - name: Run algorithm 5 times
       run: |
         chmod +x tabu
-        ITER_PER_SEG=100
-        TOTAL_SEGMENTS=$((2 * ${{ matrix.segments_per_level }} * ${{ matrix.num_levels }}))
+        MAX_ITER_LEVEL=1000
+        TOTAL_ITER=$((2 * ${{ matrix.num_levels }} * MAX_ITER_LEVEL))
 
         for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 20m ./tabu instances/${{ matrix.instance }}.txt ${ITER_PER_SEG} ${TOTAL_SEGMENTS} > output_run${run}.txt 2>&1
+          timeout 20m ./tabu instances/${{ matrix.instance }}.txt ${TOTAL_ITER} > output_run${run}.txt 2>&1
           EXIT_CODE=$?
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
@@ -389,8 +398,10 @@ jobs:
         instance = "${{ matrix.instance }}"
         segments = ${{ matrix.segments_per_level }}
         levels = ${{ matrix.num_levels }}
+        merge_ratio = ${{ matrix.merge_ratio }}
         iter_per_seg = int(instance.split(".")[0])
-        total_iter = 2 * iter_per_seg * segments * levels
+        max_iter_level = int(instance.split(".")[0]) * 10
+        total_iter = 2 * levels * max_iter_level
 
         def find_metric_last(pattern, content):
             matches = re.findall(pattern, content)
@@ -473,6 +484,7 @@ jobs:
                 "instance": instance,
                 "segments_per_level": segments,
                 "num_levels": levels,
+            "merge_ratio": merge_ratio,
                 "iter_per_segment": iter_per_seg,
                 "total_iter": total_iter,
                 "runs": runs
@@ -482,12 +494,12 @@ jobs:
     - name: Upload results
       uses: actions/upload-artifact@v4
       with:
-        name: tabu-result-${{ matrix.instance }}-S${{ matrix.segments_per_level }}-L${{ matrix.num_levels }}
+        name: tabu-result-${{ matrix.instance }}-S${{ matrix.segments_per_level }}-L${{ matrix.num_levels }}-R${{ matrix.merge_ratio }}
         path: results.json
         retention-days: 30
 
   run-100-cd:
-    name: 100cd ${{ matrix.instance }}_S${{ matrix.segments_per_level }}_L${{ matrix.num_levels }}
+    name: 100cd ${{ matrix.instance }}_S${{ matrix.segments_per_level }}_L${{ matrix.num_levels }}_R${{ matrix.merge_ratio }}
     needs: compile
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -495,8 +507,9 @@ jobs:
       fail-fast: false
       max-parallel: 15
       matrix:
-        segments_per_level: [5, 10, 15]
-        num_levels: [3, 4, 5, 6, 7, 8]
+        segments_per_level: [1]
+        num_levels: [3, 4, 5]
+        merge_ratio: [5, 10]
         instance: [
           "100.10.3", "100.10.4", "100.20.3", "100.20.4",
           "100.30.3", "100.30.4", "100.40.3", "100.40.4"
@@ -514,12 +527,12 @@ jobs:
     - name: Run algorithm 5 times
       run: |
         chmod +x tabu
-        ITER_PER_SEG=100
-        TOTAL_SEGMENTS=$((2 * ${{ matrix.segments_per_level }} * ${{ matrix.num_levels }}))
+        MAX_ITER_LEVEL=1000
+        TOTAL_ITER=$((2 * ${{ matrix.num_levels }} * MAX_ITER_LEVEL))
 
         for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 20m ./tabu instances/${{ matrix.instance }}.txt ${ITER_PER_SEG} ${TOTAL_SEGMENTS} > output_run${run}.txt 2>&1
+          timeout 20m ./tabu instances/${{ matrix.instance }}.txt ${TOTAL_ITER} > output_run${run}.txt 2>&1
           EXIT_CODE=$?
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
@@ -539,8 +552,10 @@ jobs:
         instance = "${{ matrix.instance }}"
         segments = ${{ matrix.segments_per_level }}
         levels = ${{ matrix.num_levels }}
+        merge_ratio = ${{ matrix.merge_ratio }}
         iter_per_seg = int(instance.split(".")[0])
-        total_iter = 2 * iter_per_seg * segments * levels
+        max_iter_level = int(instance.split(".")[0]) * 10
+        total_iter = 2 * levels * max_iter_level
 
         def find_metric_last(pattern, content):
             matches = re.findall(pattern, content)
@@ -623,6 +638,7 @@ jobs:
                 "instance": instance,
                 "segments_per_level": segments,
                 "num_levels": levels,
+            "merge_ratio": merge_ratio,
                 "iter_per_segment": iter_per_seg,
                 "total_iter": total_iter,
                 "runs": runs
@@ -632,7 +648,7 @@ jobs:
     - name: Upload results
       uses: actions/upload-artifact@v4
       with:
-        name: tabu-result-${{ matrix.instance }}-S${{ matrix.segments_per_level }}-L${{ matrix.num_levels }}
+        name: tabu-result-${{ matrix.instance }}-S${{ matrix.segments_per_level }}-L${{ matrix.num_levels }}-R${{ matrix.merge_ratio }}
         path: results.json
         retention-days: 30
 
@@ -667,13 +683,14 @@ jobs:
         all_data.sort(key=lambda x: (
             tuple(map(int, x["instance"].split("."))),
             x["segments_per_level"],
-            x["num_levels"]
+          x["num_levels"],
+          x.get("merge_ratio", 0)
         ))
 
         with open("TABU_RESULTS_FOR_COMPARE.csv", "w", newline="") as f:
             cols = [
                 "Instance", "Size", "Replica",
-                "Segments_Per_Level", "Num_Levels", "Iter_Per_Segment", "Total_Iter",
+              "Segments_Per_Level", "Num_Levels", "Merge_Ratio", "Iter_Per_Segment", "Total_Iter",
                 "Run", "Runtime_s", "Makespan", "Drone_Violation", "Waiting_Violation", "Fitness", "Feasible"
             ]
             writer = csv.DictWriter(f, fieldnames=cols)
@@ -686,8 +703,9 @@ jobs:
                 replica = int(parts[2])
                 segments = data["segments_per_level"]
                 levels = data["num_levels"]
+                merge_ratio = data.get("merge_ratio", "")
                 iter_per_seg = data.get("iter_per_segment", size)
-                total_iter = data.get("total_iter", 2 * iter_per_seg * segments * levels)
+                total_iter = data.get("total_iter", 2 * levels * (size * 10))
 
                 for run_data in data["runs"]:
                     writer.writerow({
@@ -696,6 +714,7 @@ jobs:
                         "Replica": replica,
                         "Segments_Per_Level": segments,
                         "Num_Levels": levels,
+                        "Merge_Ratio": merge_ratio,
                         "Iter_Per_Segment": iter_per_seg,
                         "Total_Iter": total_iter,
                         "Run": run_data["run"],
