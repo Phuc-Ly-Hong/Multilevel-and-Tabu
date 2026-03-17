@@ -682,15 +682,15 @@ jobs:
 
         all_data.sort(key=lambda x: (
             tuple(map(int, x["instance"].split("."))),
-            x["segments_per_level"],
-          x["num_levels"],
-          x.get("merge_ratio", 0)
+            x["num_levels"],
+            x.get("merge_ratio", 0),
+            x.get("total_iter", 0)
         ))
 
         with open("TABU_RESULTS_FOR_COMPARE.csv", "w", newline="") as f:
             cols = [
                 "Instance", "Size", "Replica",
-              "Segments_Per_Level", "Num_Levels", "Merge_Ratio", "Iter_Per_Segment", "Total_Iter",
+                "Num_Levels", "Merge_Ratio", "Total_Iter",
                 "Run", "Runtime_s", "Makespan", "Drone_Violation", "Waiting_Violation", "Fitness", "Feasible"
             ]
             writer = csv.DictWriter(f, fieldnames=cols)
@@ -701,10 +701,8 @@ jobs:
                 instance = data["instance"]
                 size = int(parts[0])
                 replica = int(parts[2])
-                segments = data["segments_per_level"]
                 levels = data["num_levels"]
                 merge_ratio = data.get("merge_ratio", "")
-                iter_per_seg = data.get("iter_per_segment", size)
                 total_iter = data.get("total_iter", 2 * levels * (size * 10))
 
                 for run_data in data["runs"]:
@@ -712,10 +710,8 @@ jobs:
                         "Instance": instance,
                         "Size": size,
                         "Replica": replica,
-                        "Segments_Per_Level": segments,
                         "Num_Levels": levels,
                         "Merge_Ratio": merge_ratio,
-                        "Iter_Per_Segment": iter_per_seg,
                         "Total_Iter": total_iter,
                         "Run": run_data["run"],
                         "Runtime_s": run_data["runtime"],

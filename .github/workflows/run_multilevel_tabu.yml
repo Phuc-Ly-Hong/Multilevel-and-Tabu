@@ -428,45 +428,66 @@ jobs:
     - name: Create summary CSV
       run: |
         python3 <<'EOF'
-        import json, glob, csv, os
-        all_data = []
-        for result_dir in glob.glob("multilevel-result-*"):
-            json_file = os.path.join(result_dir, "results.json")
-            if os.path.exists(json_file):
-                with open(json_file) as f:
-                    all_data.append(json.load(f))
-        if not all_data:
-            print("⚠️  No results found.")
-        all_data.sort(key=lambda x: (tuple(map(int, x["instance"].split("."))), x["segments_per_level"], x["num_levels"], x.get("merge_ratio", 0)))
-        with open("MULTILEVEL_TABU_RESULTS.csv", "w", newline="") as f:
-          cols = ["Instance", "Size", "Replica", "Segments_Per_Level", "Num_Levels", "Merge_Ratio", "Iter_Per_Segment", "Total_Iter", "Run",
-                    "Runtime_s", "Makespan", "Drone_Violation", "Waiting_Violation", "Fitness", "Feasible"]
-            writer = csv.DictWriter(f, fieldnames=cols)
-            writer.writeheader()
-            for data in all_data:
-                parts = data["instance"].split(".")
-                instance, size, replica = data["instance"], int(parts[0]), int(parts[2])
-                segments = data["segments_per_level"]
-                levels = data["num_levels"]
-                merge_ratio = data.get("merge_ratio", "")
-                iter_per_seg = data.get("iter_per_segment", size)
-                total_iter = data.get("total_iter", 2 * levels * (size * 10))
-                for run_data in data["runs"]:
-                    writer.writerow({
-                        "Instance": instance, "Size": size, "Replica": replica,
-                        "Segments_Per_Level": segments, "Num_Levels": levels,
-                    "Merge_Ratio": merge_ratio,
-                        "Iter_Per_Segment": iter_per_seg, "Total_Iter": total_iter,
-                        "Run": run_data["run"], "Runtime_s": run_data["runtime"],
-                        "Makespan": run_data["makespan"],
-                        "Drone_Violation": run_data["drone_violation"],
-                        "Waiting_Violation": run_data["waiting_violation"],
-                        "Fitness": run_data["fitness"], "Feasible": run_data["feasible"]
-                    })
-        if all_data:
-            print(f"✅ CSV created: {len(all_data)} config-instance combinations")
-        else:
-            print("✅ Empty CSV created")
+      import csv
+      import glob
+      import json
+      import os
+
+      all_data = []
+      for result_dir in glob.glob("multilevel-result-*"):
+        json_file = os.path.join(result_dir, "results.json")
+        if os.path.exists(json_file):
+          with open(json_file) as f:
+            all_data.append(json.load(f))
+
+      if not all_data:
+        print("⚠️  No results found.")
+
+      all_data.sort(key=lambda x: (
+        tuple(map(int, x["instance"].split("."))),
+        x["num_levels"],
+        x.get("merge_ratio", 0),
+        x.get("total_iter", 0),
+      ))
+
+      with open("MULTILEVEL_TABU_RESULTS.csv", "w", newline="") as f:
+        cols = [
+          "Instance", "Size", "Replica", "Num_Levels", "Merge_Ratio", "Total_Iter", "Run",
+          "Runtime_s", "Makespan", "Drone_Violation", "Waiting_Violation", "Fitness", "Feasible",
+        ]
+        writer = csv.DictWriter(f, fieldnames=cols)
+        writer.writeheader()
+
+        for data in all_data:
+          parts = data["instance"].split(".")
+          instance = data["instance"]
+          size = int(parts[0])
+          replica = int(parts[2])
+          levels = data["num_levels"]
+          merge_ratio = data.get("merge_ratio", "")
+          total_iter = data.get("total_iter", 2 * levels * (size * 10))
+
+          for run_data in data["runs"]:
+            writer.writerow({
+              "Instance": instance,
+              "Size": size,
+              "Replica": replica,
+              "Num_Levels": levels,
+              "Merge_Ratio": merge_ratio,
+              "Total_Iter": total_iter,
+              "Run": run_data["run"],
+              "Runtime_s": run_data["runtime"],
+              "Makespan": run_data["makespan"],
+              "Drone_Violation": run_data["drone_violation"],
+              "Waiting_Violation": run_data["waiting_violation"],
+              "Fitness": run_data["fitness"],
+              "Feasible": run_data["feasible"],
+            })
+
+      if all_data:
+        print(f"✅ CSV created: {len(all_data)} config-instance combinations")
+      else:
+        print("✅ Empty CSV created")
         EOF
     - name: Upload CSV
       uses: actions/upload-artifact@v4
