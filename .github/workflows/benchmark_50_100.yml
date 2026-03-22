@@ -2,9 +2,9 @@ name: Compare MultiLevel vs Tabu - 50 and 100
 
 on:
   push:
-    branches: [ main, master, Method_B ]
+    branches: [ main, master, Method_ ]
   pull_request:
-    branches: [ main, master, Method_B ]
+    branches: [ main, master, MethodB ]
   workflow_dispatch:
 
 permissions:
