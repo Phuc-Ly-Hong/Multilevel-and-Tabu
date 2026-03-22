@@ -2,9 +2,9 @@ name: Run Multilevel Tabu Search with Config Matrix
 
 on:
   push:
-    branches: [ main, master, Method_ ]
+    branches: [ main, master, Method_C ]
   pull_request:
-    branches: [ main, master, Method_ ]
+    branches: [ main, master, Method_C ]
   workflow_dispatch:
 
 permissions:
@@ -24,7 +24,7 @@ jobs:
         sudo apt-get install -y g++ bc
     - name: Compile executable
       run: |
-        g++ -O3 -std=c++17 -o multilevel_tabu src/Multilevel_Tabu_no_lwt.cpp
+        g++ -O3 -std=c++17 -o multilevel_tabu src/Multilevel_random_no_lwt.cpp
         chmod +x multilevel_tabu
     - name: Upload executable
       uses: actions/upload-artifact@v4
@@ -34,7 +34,7 @@ jobs:
         retention-days: 7
 
   run-50-ab:
-    name: 50ab ${{ matrix.instance }}_S${{ matrix.segments_per_level }}_L${{ matrix.num_levels }}
+    name: 50ab ${{ matrix.instance }}_S${{ matrix.segments_per_level }}_L${{ matrix.num_levels }}_R${{ matrix.merge_ratio }}
     needs: compile
     runs-on: ubuntu-latest
     timeout-minutes: 180
@@ -42,8 +42,9 @@ jobs:
       fail-fast: false
       max-parallel: 20
       matrix:
-        segments_per_level: [5, 10, 15]
-        num_levels: [3, 4, 5, 6, 7, 8]
+        segments_per_level: [1]
+        num_levels: [3, 4, 5]
+        merge_ratio: [5, 10]
         instance: [
           "50.10.1", "50.10.2", "50.20.1", "50.20.2",
           "50.30.1", "50.30.2", "50.40.1", "50.40.2"
@@ -60,7 +61,7 @@ jobs:
         chmod +x multilevel_tabu
         for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 25m ./multilevel_tabu instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 50 ${{ matrix.segments_per_level }} > output_run${run}.txt 2>&1
+          timeout 25m ./multilevel_tabu instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 1 1 ${{ matrix.merge_ratio }} > output_run${run}.txt 2>&1
           EXIT_CODE=$?
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
@@ -77,8 +78,10 @@ jobs:
         instance = "${{ matrix.instance }}"
         segments = ${{ matrix.segments_per_level }}
         levels = ${{ matrix.num_levels }}
+        merge_ratio = ${{ matrix.merge_ratio }}
         iter_per_seg = int(instance.split(".")[0])
-        total_iter = 2 * iter_per_seg * segments * levels
+        max_iter_level = int(instance.split(".")[0]) * 10
+        total_iter = 2 * levels * max_iter_level
         def find_metric_last(pattern, content):
             matches = re.findall(pattern, content)
             if not matches: return 0.0
@@ -124,17 +127,17 @@ jobs:
             result["run"] = run
             runs.append(result)
         with open("results.json", "w") as f:
-            json.dump({"instance": instance, "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter, "runs": runs}, f, indent=2)
+          json.dump({"instance": instance, "segments_per_level": segments, "num_levels": levels, "merge_ratio": merge_ratio, "iter_per_segment": iter_per_seg, "total_iter": total_iter, "runs": runs}, f, indent=2)
         EOF
     - name: Upload results
       uses: actions/upload-artifact@v4
       with:
-        name: multilevel-result-${{ matrix.instance }}-S${{ matrix.segments_per_level }}-L${{ matrix.num_levels }}
+        name: multilevel-result-${{ matrix.instance }}-S${{ matrix.segments_per_level }}-L${{ matrix.num_levels }}-R${{ matrix.merge_ratio }}
         path: results.json
         retention-days: 30
 
   run-50-cd:
-    name: 50cd ${{ matrix.instance }}_S${{ matrix.segments_per_level }}_L${{ matrix.num_levels }}
+    name: 50cd ${{ matrix.instance }}_S${{ matrix.segments_per_level }}_L${{ matrix.num_levels }}_R${{ matrix.merge_ratio }}
     needs: compile
     runs-on: ubuntu-latest
     timeout-minutes: 180
@@ -142,8 +145,9 @@ jobs:
       fail-fast: false
       max-parallel: 20
       matrix:
-        segments_per_level: [5, 10, 15]
-        num_levels: [3, 4, 5, 6, 7, 8]
+        segments_per_level: [1]
+        num_levels: [3, 4, 5]
+        merge_ratio: [5, 10]
         instance: [
           "50.10.3", "50.10.4", "50.20.3", "50.20.4",
           "50.30.3", "50.30.4", "50.40.3", "50.40.4"
@@ -160,7 +164,7 @@ jobs:
         chmod +x multilevel_tabu
         for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 25m ./multilevel_tabu instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 50 ${{ matrix.segments_per_level }} > output_run${run}.txt 2>&1
+          timeout 25m ./multilevel_tabu instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 1 1 ${{ matrix.merge_ratio }} > output_run${run}.txt 2>&1
           EXIT_CODE=$?
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
@@ -177,8 +181,10 @@ jobs:
         instance = "${{ matrix.instance }}"
         segments = ${{ matrix.segments_per_level }}
         levels = ${{ matrix.num_levels }}
+        merge_ratio = ${{ matrix.merge_ratio }}
         iter_per_seg = int(instance.split(".")[0])
-        total_iter = 2 * iter_per_seg * segments * levels
+        max_iter_level = int(instance.split(".")[0]) * 10
+        total_iter = 2 * levels * max_iter_level
         def find_metric_last(pattern, content):
             matches = re.findall(pattern, content)
             if not matches: return 0.0
@@ -224,17 +230,17 @@ jobs:
             result["run"] = run
             runs.append(result)
         with open("results.json", "w") as f:
-            json.dump({"instance": instance, "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter, "runs": runs}, f, indent=2)
+          json.dump({"instance": instance, "segments_per_level": segments, "num_levels": levels, "merge_ratio": merge_ratio, "iter_per_segment": iter_per_seg, "total_iter": total_iter, "runs": runs}, f, indent=2)
         EOF
     - name: Upload results
       uses: actions/upload-artifact@v4
       with:
-        name: multilevel-result-${{ matrix.instance }}-S${{ matrix.segments_per_level }}-L${{ matrix.num_levels }}
+        name: multilevel-result-${{ matrix.instance }}-S${{ matrix.segments_per_level }}-L${{ matrix.num_levels }}-R${{ matrix.merge_ratio }}
         path: results.json
         retention-days: 30
 
   run-100-ab:
-    name: 100ab ${{ matrix.instance }}_S${{ matrix.segments_per_level }}_L${{ matrix.num_levels }}
+    name: 100ab ${{ matrix.instance }}_S${{ matrix.segments_per_level }}_L${{ matrix.num_levels }}_R${{ matrix.merge_ratio }}
     needs: compile
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -242,8 +248,9 @@ jobs:
       fail-fast: false
       max-parallel: 15
       matrix:
-        segments_per_level: [5, 10, 15]
-        num_levels: [3, 4, 5, 6, 7, 8]
+        segments_per_level: [1]
+        num_levels: [3, 4, 5]
+        merge_ratio: [5, 10]
         instance: [
           "100.10.1", "100.10.2", "100.20.1", "100.20.2",
           "100.30.1", "100.30.2", "100.40.1", "100.40.2"
@@ -260,7 +267,7 @@ jobs:
         chmod +x multilevel_tabu
         for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 20m ./multilevel_tabu instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 100 ${{ matrix.segments_per_level }} > output_run${run}.txt 2>&1
+          timeout 20m ./multilevel_tabu instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 1 1 ${{ matrix.merge_ratio }} > output_run${run}.txt 2>&1
           EXIT_CODE=$?
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
@@ -277,8 +284,10 @@ jobs:
         instance = "${{ matrix.instance }}"
         segments = ${{ matrix.segments_per_level }}
         levels = ${{ matrix.num_levels }}
+        merge_ratio = ${{ matrix.merge_ratio }}
         iter_per_seg = int(instance.split(".")[0])
-        total_iter = 2 * iter_per_seg * segments * levels
+        max_iter_level = int(instance.split(".")[0]) * 10
+        total_iter = 2 * levels * max_iter_level
         def find_metric_last(pattern, content):
             matches = re.findall(pattern, content)
             return float(matches[-1]) if matches else 0.0
@@ -308,17 +317,17 @@ jobs:
                         "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
         runs = [parse_output(f"output_run{i}.txt", f"runtime_run{i}.txt") | {"run": i} for i in range(1, 6)]
         with open("results.json", "w") as f:
-            json.dump({"instance": instance, "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter, "runs": runs}, f, indent=2)
+          json.dump({"instance": instance, "segments_per_level": segments, "num_levels": levels, "merge_ratio": merge_ratio, "iter_per_segment": iter_per_seg, "total_iter": total_iter, "runs": runs}, f, indent=2)
         EOF
     - name: Upload results
       uses: actions/upload-artifact@v4
       with:
-        name: multilevel-result-${{ matrix.instance }}-S${{ matrix.segments_per_level }}-L${{ matrix.num_levels }}
+        name: multilevel-result-${{ matrix.instance }}-S${{ matrix.segments_per_level }}-L${{ matrix.num_levels }}-R${{ matrix.merge_ratio }}
         path: results.json
         retention-days: 30
 
   run-100-cd:
-    name: 100cd ${{ matrix.instance }}_S${{ matrix.segments_per_level }}_L${{ matrix.num_levels }}
+    name: 100cd ${{ matrix.instance }}_S${{ matrix.segments_per_level }}_L${{ matrix.num_levels }}_R${{ matrix.merge_ratio }}
     needs: compile
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -326,8 +335,9 @@ jobs:
       fail-fast: false
       max-parallel: 15
       matrix:
-        segments_per_level: [5, 10, 15]
-        num_levels: [3, 4, 5, 6, 7, 8]
+        segments_per_level: [1]
+        num_levels: [3, 4, 5]
+        merge_ratio: [5, 10]
         instance: [
           "100.10.3", "100.10.4", "100.20.3", "100.20.4",
           "100.30.3", "100.30.4", "100.40.3", "100.40.4"
@@ -344,7 +354,7 @@ jobs:
         chmod +x multilevel_tabu
         for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 20m ./multilevel_tabu instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 100 ${{ matrix.segments_per_level }} > output_run${run}.txt 2>&1
+          timeout 20m ./multilevel_tabu instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 1 1 ${{ matrix.merge_ratio }} > output_run${run}.txt 2>&1
           EXIT_CODE=$?
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
@@ -361,8 +371,10 @@ jobs:
         instance = "${{ matrix.instance }}"
         segments = ${{ matrix.segments_per_level }}
         levels = ${{ matrix.num_levels }}
+        merge_ratio = ${{ matrix.merge_ratio }}
         iter_per_seg = int(instance.split(".")[0])
-        total_iter = 2 * iter_per_seg * segments * levels
+        max_iter_level = int(instance.split(".")[0]) * 10
+        total_iter = 2 * levels * max_iter_level
         def find_metric_last(pattern, content):
             matches = re.findall(pattern, content)
             return float(matches[-1]) if matches else 0.0
@@ -392,12 +404,12 @@ jobs:
                         "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
         runs = [parse_output(f"output_run{i}.txt", f"runtime_run{i}.txt") | {"run": i} for i in range(1, 6)]
         with open("results.json", "w") as f:
-            json.dump({"instance": instance, "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter, "runs": runs}, f, indent=2)
+          json.dump({"instance": instance, "segments_per_level": segments, "num_levels": levels, "merge_ratio": merge_ratio, "iter_per_segment": iter_per_seg, "total_iter": total_iter, "runs": runs}, f, indent=2)
         EOF
     - name: Upload results
       uses: actions/upload-artifact@v4
       with:
-        name: multilevel-result-${{ matrix.instance }}-S${{ matrix.segments_per_level }}-L${{ matrix.num_levels }}
+        name: multilevel-result-${{ matrix.instance }}-S${{ matrix.segments_per_level }}-L${{ matrix.num_levels }}-R${{ matrix.merge_ratio }}
         path: results.json
         retention-days: 30
 
@@ -416,39 +428,62 @@ jobs:
     - name: Create summary CSV
       run: |
         python3 <<'EOF'
-        import json, glob, csv, os
+        import csv
+        import glob
+        import json
+        import os
+
         all_data = []
         for result_dir in glob.glob("multilevel-result-*"):
             json_file = os.path.join(result_dir, "results.json")
             if os.path.exists(json_file):
                 with open(json_file) as f:
                     all_data.append(json.load(f))
+
         if not all_data:
             print("⚠️  No results found.")
-        all_data.sort(key=lambda x: (tuple(map(int, x["instance"].split("."))), x["segments_per_level"], x["num_levels"]))
+
+        all_data.sort(key=lambda x: (
+            tuple(map(int, x["instance"].split("."))),
+            x["num_levels"],
+            x.get("merge_ratio", 0),
+            x.get("total_iter", 0),
+        ))
+
         with open("MULTILEVEL_TABU_RESULTS.csv", "w", newline="") as f:
-            cols = ["Instance", "Size", "Replica", "Segments_Per_Level", "Num_Levels", "Iter_Per_Segment", "Total_Iter", "Run",
-                    "Runtime_s", "Makespan", "Drone_Violation", "Waiting_Violation", "Fitness", "Feasible"]
+            cols = [
+                "Instance", "Size", "Replica", "Num_Levels", "Merge_Ratio", "Total_Iter", "Run",
+                "Runtime_s", "Makespan", "Drone_Violation", "Waiting_Violation", "Fitness", "Feasible",
+            ]
             writer = csv.DictWriter(f, fieldnames=cols)
             writer.writeheader()
+
             for data in all_data:
                 parts = data["instance"].split(".")
-                instance, size, replica = data["instance"], int(parts[0]), int(parts[2])
-                segments = data["segments_per_level"]
+                instance = data["instance"]
+                size = int(parts[0])
+                replica = int(parts[2])
                 levels = data["num_levels"]
-                iter_per_seg = data.get("iter_per_segment", size)
-                total_iter = data.get("total_iter", 2 * iter_per_seg * segments * levels)
+                merge_ratio = data.get("merge_ratio", "")
+                total_iter = data.get("total_iter", 2 * levels * (size * 10))
+
                 for run_data in data["runs"]:
                     writer.writerow({
-                        "Instance": instance, "Size": size, "Replica": replica,
-                        "Segments_Per_Level": segments, "Num_Levels": levels,
-                        "Iter_Per_Segment": iter_per_seg, "Total_Iter": total_iter,
-                        "Run": run_data["run"], "Runtime_s": run_data["runtime"],
+                        "Instance": instance,
+                        "Size": size,
+                        "Replica": replica,
+                        "Num_Levels": levels,
+                        "Merge_Ratio": merge_ratio,
+                        "Total_Iter": total_iter,
+                        "Run": run_data["run"],
+                        "Runtime_s": run_data["runtime"],
                         "Makespan": run_data["makespan"],
                         "Drone_Violation": run_data["drone_violation"],
                         "Waiting_Violation": run_data["waiting_violation"],
-                        "Fitness": run_data["fitness"], "Feasible": run_data["feasible"]
+                        "Fitness": run_data["fitness"],
+                        "Feasible": run_data["feasible"],
                     })
+
         if all_data:
             print(f"✅ CSV created: {len(all_data)} config-instance combinations")
         else:
