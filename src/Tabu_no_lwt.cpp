@@ -1186,22 +1186,7 @@ Solution tabu_search(){
             }
         } else no_improve_count++;
 
-        if ((iter + 1)% SEGMENT_LENGTH == 0) {
-            update_weights();
-            if (segment_improved) {
-                no_improve_segment_length = 0;
-            } else {
-                no_improve_segment_length++;
-            }
-            /*cout << "SEGMENT " << (iter + 1)/SEGMENT_LENGTH << " COMPLETE" << endl;
-            cout << "No improve segments: " << no_improve_segment_length <<"/"<< max_no_improve_segment << endl;
-            cout << "Updated weights: ";
-            for (size_t i = 0; i < MOVE_SET.size(); i++) {
-                cout << MOVE_SET[i] << "=" << weights[i] << " ";
-            }
-            cout << endl;
-            cout << "Current best fitness: " << best_sol.fitness << endl;*/
-        }
+        update_weights();
     }
     return best_sol;
 }

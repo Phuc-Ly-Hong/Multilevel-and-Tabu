@@ -91,8 +91,6 @@ int MAX_NO_IMPROVE;
 double EPSILON = 1e-6;
 
 int MAX_LEVELS = 4;
-int ITER_PER_SEGMENT = -1;
-int SEGMENTS_PER_LEVEL = -1;
 bool USE_MANUAL_SEGMENT_CONFIG = false;
 double MERGE_RATIO = 0.10;
 
@@ -214,10 +212,6 @@ void read_dataset(const string &filename){
         MAX_NO_IMPROVE = 500000;
     }
 
-    if (USE_MANUAL_SEGMENT_CONFIG) {
-        SEGMENT_LENGTH = ITER_PER_SEGMENT;
-        MAX_ITER = ITER_PER_SEGMENT * SEGMENTS_PER_LEVEL;
-    }
     for (const auto& node : nodes) {
         if (node.id == depot_id) {
             cout << "Node id: " << node.id << " (depot), x: " << node.x << ", y: " << node.y << endl;
@@ -1352,22 +1346,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level, bool 
             }
         } else no_improve_count++;
 
-        if ((iter + 1)% SEGMENT_LENGTH == 0) {
-            update_weights();
-            if (segment_improved) {
-                no_improve_segment_length = 0;
-            } else {
-                no_improve_segment_length++;
-            }
-            /*cout << "SEGMENT " << (iter + 1)/SEGMENT_LENGTH << " COMPLETE" << endl;
-            cout << "No improve segments: " << no_improve_segment_length <<"/"<< max_no_improve_segment << endl;
-            cout << "Updated weights: ";
-            for (size_t i = 0; i < MOVE_SET.size(); i++) {
-                cout << MOVE_SET[i] << "=" << weights[i] << " ";
-            }
-            cout << endl;
-            cout << "Current best fitness: " << best_sol.fitness << endl;*/
-        }
+        update_weights();
     }
     return best_sol;
 }
@@ -2178,31 +2157,20 @@ int main(int argc, char* argv[]) {
         dataset_path = "D:\\New folder\\instances\\10.10.1.txt"; 
     }
 
-    if (argc > 4) {
+    if (argc > 2) {
         MAX_LEVELS = max(1, atoi(argv[2]));
-        ITER_PER_SEGMENT = max(1, atoi(argv[3]));
-        SEGMENTS_PER_LEVEL = max(1, atoi(argv[4]));
-        USE_MANUAL_SEGMENT_CONFIG = true;
     }
 
-    if (argc > 5) {
-        double ratio_arg = atof(argv[5]);
-        if (ratio_arg > 1.0) {
-            ratio_arg /= 100.0;
-        }
+    if (argc > 3) {
+        double ratio_arg = atof(argv[3]);
+        if (ratio_arg > 1.0) ratio_arg /= 100.0;
         MERGE_RATIO = min(0.95, max(0.01, ratio_arg));
     }
 
     read_dataset(dataset_path);
-    if (!USE_MANUAL_SEGMENT_CONFIG) {
-        ITER_PER_SEGMENT = SEGMENT_LENGTH;
-        SEGMENTS_PER_LEVEL = max(1, MAX_ITER / max(1, SEGMENT_LENGTH));
-    }
 
     cout << "\n=== CONFIGURATION ===" << endl;
     cout << "MAX_LEVELS: " << MAX_LEVELS << endl;
-    cout << "ITER_PER_SEGMENT: " << ITER_PER_SEGMENT << endl;
-    cout << "SEGMENTS_PER_LEVEL: " << SEGMENTS_PER_LEVEL << endl;
     cout << "MERGE_RATIO: " << (MERGE_RATIO * 100.0) << "%" << endl;
     cout << "MAX_ITER (= iter/segment * segments/level): " << MAX_ITER << endl;
 
