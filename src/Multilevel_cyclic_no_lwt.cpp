@@ -1134,7 +1134,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level, bool 
                         }
                     }
                 }
-            }
+            } 
             
             // Inter-route 2-opt (khác xe)
             for(size_t v1 = 0; v1 < vehicles.size(); v1++) {
