@@ -2,9 +2,9 @@ name: Run Tabu Search with Multilevel-like Config Matrix
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, method_A ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main, master, method_A ]
   workflow_dispatch:
 
 permissions:
@@ -26,7 +26,7 @@ jobs:
 
     - name: Compile executable
       run: |
-        g++ -O3 -std=c++17 -o tabu src/Tabu_random_no_lwt.cpp
+        g++ -O3 -std=c++17 -o tabu src/Tabu_cyclic_no_lwt.cpp
         chmod +x tabu
 
     - name: Upload executable
