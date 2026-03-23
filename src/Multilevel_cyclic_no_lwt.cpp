@@ -659,7 +659,7 @@ Solution move_2_1(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
     
     if (pos1 == 0 || pos2 == 0 || pos2 >= new_sol.route[v2].size() - 1) {
         return current_sol;
-    }
+    } 
     
     if (pos1 + 1 >= new_sol.route[v1].size() - 1) {
         return current_sol;
