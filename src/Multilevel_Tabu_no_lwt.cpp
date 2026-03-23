@@ -2201,7 +2201,7 @@ int main(int argc, char* argv[]) {
         num_techs = 10;
         num_drones = 4;
     }
-    else if (customers <= 500) {
+    else if (customers <= 500) { 
         num_techs = 10;
         num_drones = 10;
     }
