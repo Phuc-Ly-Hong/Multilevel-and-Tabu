@@ -93,13 +93,10 @@ int MAX_NO_IMPROVE;
 double EPSILON = 1e-6;
 
 int MAX_LEVELS = 4;
-int ITER_PER_SEGMENT = -1;
-int SEGMENTS_PER_LEVEL = -1;
 bool USE_MANUAL_SEGMENT_CONFIG = false;
 double MERGE_RATIO = 0.10;
 
 // Adaptive parameters
-int SEGMENT_LENGTH;
 vector<string> MOVE_SET = {"1-0", "1-1", "2-0", "2-1", "2-2", "2-opt"};
 vector<double> weights = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
 vector<double> scorePi = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
@@ -177,48 +174,37 @@ void read_dataset(const string &filename){
     if (nodes.size() > 1000) {
         // Bộ rất lớn (> 1000)
         MAX_ITER = 50000;
-        SEGMENT_LENGTH = 5000;
         MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 1000) {
         // Bộ 1000 (501-1000)
         MAX_ITER = 25000;
-        SEGMENT_LENGTH = 2500;
         MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 500) {
         // Bộ 500 (201-500)
         MAX_ITER = 12500;
-        SEGMENT_LENGTH = 12500;
         MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 200) {
         // Bộ 200 (101-200)
         MAX_ITER = 6000;
-        SEGMENT_LENGTH = 600;
         MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 100) {
         // Bộ 100 (100)
         MAX_ITER = 1000;
-        SEGMENT_LENGTH = 100;
         MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 50) {
         // Bộ 50 (50-99)
         MAX_ITER = 500;
-        SEGMENT_LENGTH = 50;
         MAX_NO_IMPROVE = 500000;
     }
     else {
         // Bộ nhỏ (6-49)
         MAX_ITER = 500;
-        SEGMENT_LENGTH = 50;
         MAX_NO_IMPROVE = 500000;
-    }
-    if (USE_MANUAL_SEGMENT_CONFIG) {
-        SEGMENT_LENGTH = ITER_PER_SEGMENT;
-        MAX_ITER = ITER_PER_SEGMENT * SEGMENTS_PER_LEVEL;
     }
     for (const auto& node : nodes) {
         if (node.id == depot_id) {
@@ -1359,22 +1345,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level, bool 
             }
         } else no_improve_count++;
 
-        if ((iter + 1)% SEGMENT_LENGTH == 0) {
-            update_weights();
-            if (segment_improved) {
-                no_improve_segment_length = 0;
-            } else {
-                no_improve_segment_length++;
-            }
-            /*cout << "SEGMENT " << (iter + 1)/SEGMENT_LENGTH << " COMPLETE" << endl;
-            cout << "No improve segments: " << no_improve_segment_length <<"/"<< max_no_improve_segment << endl;
-            cout << "Updated weights: ";
-            for (size_t i = 0; i < MOVE_SET.size(); i++) {
-                cout << MOVE_SET[i] << "=" << weights[i] << " ";
-            }
-            cout << endl;
-            cout << "Current best fitness: " << best_sol.fitness << endl;*/
-        }
+        update_weights();
     }
     return best_sol;
 }
@@ -2185,39 +2156,27 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\50.10.1.txt"; 
+        dataset_path = "D:\\New folder\\instances\\10.10.1.txt"; 
     }
 
-    if (argc > 4) {
+    if (argc > 2) {
         MAX_LEVELS = max(1, atoi(argv[2]));
-        ITER_PER_SEGMENT = max(1, atoi(argv[3]));
-        SEGMENTS_PER_LEVEL = max(1, atoi(argv[4]));
-        USE_MANUAL_SEGMENT_CONFIG = true;
     }
 
-    if (argc > 5) {
-        double ratio_arg = atof(argv[5]);
-        if (ratio_arg > 1.0) {
-            ratio_arg /= 100.0;
-        }
+    if (argc > 3) {
+        double ratio_arg = atof(argv[3]);
+        if (ratio_arg > 1.0) ratio_arg /= 100.0;
         MERGE_RATIO = min(0.95, max(0.01, ratio_arg));
     }
 
     read_dataset(dataset_path);
-    if (!USE_MANUAL_SEGMENT_CONFIG) {
-        ITER_PER_SEGMENT = SEGMENT_LENGTH;
-        SEGMENTS_PER_LEVEL = max(1, MAX_ITER / max(1, SEGMENT_LENGTH));
-    }
 
     cout << "\n=== CONFIGURATION ===" << endl;
     cout << "MAX_LEVELS: " << MAX_LEVELS << endl;
-    cout << "ITER_PER_SEGMENT: " << ITER_PER_SEGMENT << endl;
-    cout << "SEGMENTS_PER_LEVEL: " << SEGMENTS_PER_LEVEL << endl;
     cout << "MERGE_RATIO: " << (MERGE_RATIO * 100.0) << "%" << endl;
     cout << "MAX_ITER (= iter/segment * segments/level): " << MAX_ITER << endl;
 
     printf("MAX_ITER: %d\n", MAX_ITER);
-    printf("Segment length: %d\n", SEGMENT_LENGTH);
  
     // Khởi tạo danh sách xe 
     vehicles.clear();
@@ -2243,7 +2202,7 @@ int main(int argc, char* argv[]) {
         num_techs = 10;
         num_drones = 4;
     }
-    else if (customers <= 500) {
+    else if (customers <= 500) { 
         num_techs = 10;
         num_drones = 10;
     }
