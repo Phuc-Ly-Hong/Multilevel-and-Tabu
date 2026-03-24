@@ -2151,7 +2151,7 @@ int main(int argc, char* argv[]) {
 
     printf("MAX_ITER: %d\n", MAX_ITER);
  
-    // Khởi tạo danh sách xe 
+    // Khởi tạo danh sách xe
     vehicles.clear();
     int customers = num_nodes-1;
     int num_techs = 0, num_drones = 0;
