@@ -2100,7 +2100,7 @@ Solution multilevel_tabu_search() {
     evaluate_solution(test_sol, nullptr);
     
     cout << "\n" << string(70, '=') << endl;
-    cout << "📋 TEST RESULTS" << endl;
+    cout << " TEST RESULTS" << endl;
     cout << string(70, '=') << "\n" << endl;
     
     cout << "Makespan: " << test_sol.makespan << " min" << endl;
