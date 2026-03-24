@@ -1194,30 +1194,23 @@ Solution tabu_search(){
 int main(int argc, char* argv[]){
     srand(time(nullptr));
     string dataset_path;
-    int manual_iter_per_segment = -1;
-    int manual_total_segments = -1;
 
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\50.40.1.txt"; 
-    }
-
-    if (argc > 3) {
-        manual_iter_per_segment = max(1, atoi(argv[2]));
-        manual_total_segments = max(1, atoi(argv[3]));
+        dataset_path = "D:\\New folder\\instances\\10.10.1.txt"; 
     }
 
     read_dataset(dataset_path);
 
-    if (manual_iter_per_segment > 0 && manual_total_segments > 0) {
-        SEGMENT_LENGTH = manual_iter_per_segment;
-        MAX_ITER = manual_iter_per_segment * manual_total_segments;
+    if (argc > 2) {
+        int override_max_iter = atoi(argv[2]);
+        if (override_max_iter > 0) {
+            MAX_ITER = override_max_iter;
+        }
     }
 
     cout << "\n=== CONFIGURATION ===" << endl;
-    cout << "ITER_PER_SEGMENT: " << SEGMENT_LENGTH << endl;
-    cout << "TOTAL_SEGMENTS: " << max(1, MAX_ITER / max(1, SEGMENT_LENGTH)) << endl;
     cout << "MAX_ITER: " << MAX_ITER << endl;
 
     printf(" %d\n", MAX_ITER);
