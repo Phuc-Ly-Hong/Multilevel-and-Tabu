@@ -2139,7 +2139,7 @@ Solution multilevel_tabu_search() {
         }
         
         if (test_sol.waiting_violation > 0) {
-            cout << "  ⏳ Customer waiting time exceeded by " << test_sol.waiting_violation << " min" << endl;
+            cout << "   Customer waiting time exceeded by " << test_sol.waiting_violation << " min" << endl;
             cout << "     → Some customers waited > 60 min for drone to return" << endl;
         }
     } else {
