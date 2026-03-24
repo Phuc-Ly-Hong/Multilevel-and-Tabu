@@ -96,7 +96,6 @@ bool USE_MANUAL_SEGMENT_CONFIG = false;
 double MERGE_RATIO = 0.10;
 
 // Adaptive parameters
-int SEGMENT_LENGTH;
 vector<string> MOVE_SET = {"1-0", "1-1", "2-0", "2-1", "2-2", "2-opt"};
 vector<double> weights = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
 vector<double> scorePi = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
@@ -173,43 +172,36 @@ void read_dataset(const string &filename){
     if (nodes.size() > 1000) {
         // Bộ rất lớn (> 1000)
         MAX_ITER = 50000;
-        SEGMENT_LENGTH = 5000;
         MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 1000) {
         // Bộ 1000 (501-1000)
         MAX_ITER = 25000;
-        SEGMENT_LENGTH = 2500;
         MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 500) {
         // Bộ 500 (201-500)
         MAX_ITER = 12500;
-        SEGMENT_LENGTH = 12500;
         MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 200) {
         // Bộ 200 (101-200)
         MAX_ITER = 6000;
-        SEGMENT_LENGTH = 600;
         MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 100) {
         // Bộ 100 (100)
         MAX_ITER = 1000;
-        SEGMENT_LENGTH = 100;
         MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 50) {
         // Bộ 50 (50-99)
         MAX_ITER = 500;
-        SEGMENT_LENGTH = 50;
         MAX_NO_IMPROVE = 500000;
     }
     else {
         // Bộ nhỏ (6-49)
         MAX_ITER = 500;
-        SEGMENT_LENGTH = 50;
         MAX_NO_IMPROVE = 500000;
     }
 
@@ -2139,11 +2131,14 @@ int main(int argc, char* argv[]) {
 
     if (argc > 2) {
         MAX_LEVELS = max(1, atoi(argv[2]));
+        USE_MANUAL_SEGMENT_CONFIG = true;
     }
 
-    if (argc > 3) {
-        double ratio_arg = atof(argv[3]);
-        if (ratio_arg > 1.0) ratio_arg /= 100.0;
+    if (argc > 5) {
+        double ratio_arg = atof(argv[5]);
+        if (ratio_arg > 1.0) {
+            ratio_arg /= 100.0;
+        }
         MERGE_RATIO = min(0.95, max(0.01, ratio_arg));
     }
 
@@ -2155,7 +2150,6 @@ int main(int argc, char* argv[]) {
     cout << "MAX_ITER (= iter/segment * segments/level): " << MAX_ITER << endl;
 
     printf("MAX_ITER: %d\n", MAX_ITER);
-    printf("Segment length: %d\n", SEGMENT_LENGTH);
  
     // Khởi tạo danh sách xe 
     vehicles.clear();
@@ -2181,7 +2175,7 @@ int main(int argc, char* argv[]) {
         num_techs = 10;
         num_drones = 4;
     }
-    else if (customers <= 500) { 
+    else if (customers <= 500) {
         num_techs = 10;
         num_drones = 10;
     }
