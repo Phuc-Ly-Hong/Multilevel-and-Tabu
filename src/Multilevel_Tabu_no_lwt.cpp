@@ -2161,11 +2161,14 @@ int main(int argc, char* argv[]) {
 
     if (argc > 2) {
         MAX_LEVELS = max(1, atoi(argv[2]));
+        USE_MANUAL_SEGMENT_CONFIG = true;
     }
 
-    if (argc > 3) {
-        double ratio_arg = atof(argv[3]);
-        if (ratio_arg > 1.0) ratio_arg /= 100.0;
+    if (argc > 5) {
+        double ratio_arg = atof(argv[5]);
+        if (ratio_arg > 1.0) {
+            ratio_arg /= 100.0;
+        }
         MERGE_RATIO = min(0.95, max(0.01, ratio_arg));
     }
 
@@ -2202,7 +2205,7 @@ int main(int argc, char* argv[]) {
         num_techs = 10;
         num_drones = 4;
     }
-    else if (customers <= 500) { 
+    else if (customers <= 500) {
         num_techs = 10;
         num_drones = 10;
     }
