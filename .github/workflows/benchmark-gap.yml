@@ -1,0 +1,229 @@
+name: Benchmark Multilevel vs Tabu (Gap CSV)
+
+on:
+  workflow_dispatch:
+    inputs:
+      repeats:
+        description: "Runs per dataset per algorithm"
+        required: false
+        default: "3"
+  push:
+    branches: [ main, master ]
+    paths:
+      - "src/Multilevel.cpp"
+      - "src/Tabu.cpp"
+      - "instances/C101_3.txt"
+      - "instances/C201_3.txt"
+      - "instances/R101_3.txt"
+      - "instances/RC101_3.txt"
+      - ".github/workflows/benchmark-gap.yml"
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ python3
+
+      - name: Compile algorithms
+        run: |
+          g++ -O2 -std=c++17 -o multilevel src/Multilevel.cpp
+          g++ -O2 -std=c++17 -o tabu src/Tabu.cpp
+
+      - name: Run benchmark and build CSV
+        env:
+          REPEATS: ${{ github.event.inputs.repeats || '3' }}
+        run: |
+          cat > benchmark_runner.py << 'PY'
+          import csv
+          import re
+          import time
+          import math
+          import subprocess
+          from statistics import mean
+
+          DATASETS = [
+              ("C101_3", "instances/C101_3.txt"),
+              ("C201_3", "instances/C201_3.txt"),
+              ("R101_3", "instances/R101_3.txt"),
+              ("RC101_3", "instances/RC101_3.txt"),
+          ]
+
+          ALGS = [
+              ("Multilevel", "./multilevel"),
+              ("Tabu", "./tabu"),
+          ]
+
+          REPEATS = int("${REPEATS}")
+          OUT_CSV = "benchmark_results.csv"
+
+          fitness_pattern = re.compile(r"Fitness:\s*([+-]?\d+(?:\.\d+)?)")
+
+          def run_once(exe, dataset_path):
+              t0 = time.perf_counter()
+              p = subprocess.run(
+                  [exe, dataset_path],
+                  stdout=subprocess.PIPE,
+                  stderr=subprocess.STDOUT,
+                  text=True,
+                  check=False,
+                  timeout=1800
+              )
+              elapsed = time.perf_counter() - t0
+              out = p.stdout or ""
+              m = fitness_pattern.findall(out)
+              if not m:
+                  raise RuntimeError(f"Cannot parse Fitness from output of {exe} on {dataset_path}\nOutput:\n{out[:2000]}")
+              fitness = float(m[-1])  # lấy Fitness cuối cùng
+              return fitness, elapsed
+
+          rows_runs = []
+          per_dataset = {}
+
+          for ds_name, ds_path in DATASETS:
+              per_dataset[ds_name] = {}
+              for alg_name, exe in ALGS:
+                  fits = []
+                  times = []
+                  for r in range(1, REPEATS + 1):
+                      f, t = run_once(exe, ds_path)
+                      fits.append(f)
+                      times.append(t)
+                      rows_runs.append({
+                          "dataset": ds_name,
+                          "algorithm": alg_name,
+                          "run_id": r,
+                          "fitness": f,
+                          "time_sec": t
+                      })
+                  per_dataset[ds_name][alg_name] = {
+                      "avg_fitness": mean(fits),
+                      "best_fitness": min(fits),
+                      "avg_time": mean(times)
+                  }
+
+          # Gap definitions (baseline = Tabu)
+          # Gap average (%) = (avg_fitness_tabu - avg_fitness_multilevel) / avg_fitness_tabu * 100
+          # Gap best (%)    = (best_fitness_tabu - best_fitness_multilevel) / best_fitness_tabu * 100
+          # Gap time (%)    = (avg_time_tabu - avg_time_multilevel) / avg_time_tabu * 100
+          # dương => Multilevel tốt hơn (nhỏ hơn) theo metric đó
+          summary_rows = []
+          gap_avg_list = []
+          gap_best_list = []
+          gap_time_list = []
+
+          for ds_name, v in per_dataset.items():
+              ml = v["Multilevel"]
+              tb = v["Tabu"]
+
+              def safe_gap(base, other):
+                  if abs(base) < 1e-12:
+                      return float("nan")
+                  return (base - other) / base * 100.0
+
+              gap_avg = safe_gap(tb["avg_fitness"], ml["avg_fitness"])
+              gap_best = safe_gap(tb["best_fitness"], ml["best_fitness"])
+              gap_time = safe_gap(tb["avg_time"], ml["avg_time"])
+
+              if not math.isnan(gap_avg): gap_avg_list.append(gap_avg)
+              if not math.isnan(gap_best): gap_best_list.append(gap_best)
+              if not math.isnan(gap_time): gap_time_list.append(gap_time)
+
+              summary_rows.append({
+                  "dataset": ds_name,
+                  "ml_avg_fitness": ml["avg_fitness"],
+                  "tb_avg_fitness": tb["avg_fitness"],
+                  "ml_best_fitness": ml["best_fitness"],
+                  "tb_best_fitness": tb["best_fitness"],
+                  "ml_avg_time_sec": ml["avg_time"],
+                  "tb_avg_time_sec": tb["avg_time"],
+                  "gap_average_pct": gap_avg,
+                  "gap_best_pct": gap_best,
+                  "gap_time_pct": gap_time
+              })
+
+          overall = {
+              "dataset": "OVERALL",
+              "ml_avg_fitness": mean([s["ml_avg_fitness"] for s in summary_rows]),
+              "tb_avg_fitness": mean([s["tb_avg_fitness"] for s in summary_rows]),
+              "ml_best_fitness": min([s["ml_best_fitness"] for s in summary_rows]),
+              "tb_best_fitness": min([s["tb_best_fitness"] for s in summary_rows]),
+              "ml_avg_time_sec": mean([s["ml_avg_time_sec"] for s in summary_rows]),
+              "tb_avg_time_sec": mean([s["tb_avg_time_sec"] for s in summary_rows]),
+              "gap_average_pct": mean(gap_avg_list) if gap_avg_list else float("nan"),
+              "gap_best_pct": mean(gap_best_list) if gap_best_list else float("nan"),
+              "gap_time_pct": mean(gap_time_list) if gap_time_list else float("nan"),
+          }
+
+          with open(OUT_CSV, "w", newline="", encoding="utf-8") as f:
+              w = csv.writer(f)
+
+              w.writerow(["section", "dataset", "algorithm", "run_id", "fitness", "time_sec"])
+              for r in rows_runs:
+                  w.writerow([
+                      "raw_run",
+                      r["dataset"],
+                      r["algorithm"],
+                      r["run_id"],
+                      f"{r['fitness']:.6f}",
+                      f"{r['time_sec']:.6f}",
+                  ])
+
+              w.writerow([])
+              w.writerow([
+                  "section",
+                  "dataset",
+                  "ml_avg_fitness", "tb_avg_fitness",
+                  "ml_best_fitness", "tb_best_fitness",
+                  "ml_avg_time_sec", "tb_avg_time_sec",
+                  "gap_average_pct", "gap_best_pct", "gap_time_pct"
+              ])
+
+              for s in summary_rows:
+                  w.writerow([
+                      "per_dataset",
+                      s["dataset"],
+                      f"{s['ml_avg_fitness']:.6f}",
+                      f"{s['tb_avg_fitness']:.6f}",
+                      f"{s['ml_best_fitness']:.6f}",
+                      f"{s['tb_best_fitness']:.6f}",
+                      f"{s['ml_avg_time_sec']:.6f}",
+                      f"{s['tb_avg_time_sec']:.6f}",
+                      f"{s['gap_average_pct']:.6f}",
+                      f"{s['gap_best_pct']:.6f}",
+                      f"{s['gap_time_pct']:.6f}",
+                  ])
+
+              w.writerow([
+                  "overall",
+                  overall["dataset"],
+                  f"{overall['ml_avg_fitness']:.6f}",
+                  f"{overall['tb_avg_fitness']:.6f}",
+                  f"{overall['ml_best_fitness']:.6f}",
+                  f"{overall['tb_best_fitness']:.6f}",
+                  f"{overall['ml_avg_time_sec']:.6f}",
+                  f"{overall['tb_avg_time_sec']:.6f}",
+                  f"{overall['gap_average_pct']:.6f}",
+                  f"{overall['gap_best_pct']:.6f}",
+                  f"{overall['gap_time_pct']:.6f}",
+              ])
+
+          print("Done. CSV written:", OUT_CSV)
+          PY
+
+          python3 benchmark_runner.py
+
+      - name: Upload benchmark CSV
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-csv
+          path: benchmark_results.csv
