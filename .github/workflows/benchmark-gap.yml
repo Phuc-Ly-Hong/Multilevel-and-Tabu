@@ -8,7 +8,7 @@ on:
         required: false
         default: "3"
   push:
-    branches: [ main, master ]
+    branches: [ main, master, method_A ]
     paths:
       - "src/Multilevel.cpp"
       - "src/Tabu.cpp"
@@ -18,7 +18,7 @@ on:
       - "instances/RC101_3.txt"
       - ".github/workflows/benchmark-gap.yml"
   pull_request:
-    branches: [ main, master ]
+    branches: [ main, master, method_A ]
 
 jobs:
   benchmark:
