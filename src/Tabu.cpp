@@ -1203,6 +1203,8 @@ Solution tabu_search(){
     return best_sol;
 }
 
+void run_all_datasets();
+
 int main(int argc, char* argv[]){
     srand(time(nullptr));
 
