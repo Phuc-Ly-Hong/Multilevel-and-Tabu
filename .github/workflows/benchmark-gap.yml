@@ -44,6 +44,7 @@ jobs:
           REPEATS: ${{ github.event.inputs.repeats || '3' }}
         run: |
           cat > benchmark_runner.py << 'PY'
+          import os
           import csv
           import re
           import time
@@ -63,7 +64,7 @@ jobs:
               ("Tabu", "./tabu"),
           ]
 
-          REPEATS = int("${REPEATS}")
+          REPEATS = int(os.getenv("REPEATS", "3"))
           OUT_CSV = "benchmark_results.csv"
 
           fitness_pattern = re.compile(r"Fitness:\s*([+-]?\d+(?:\.\d+)?)")
