@@ -1284,7 +1284,7 @@ void run_all_datasets() {
             vehicles.push_back({ i, TRUCK_SPEED, false, 0.0 });
         }
         for (int i = 0; i < 3; ++i) {
-            vehicles.push_back({ 3 + i, DRONE_SPEED, true, 90.0 });
+            vehicles.push_back({ 3 + i, DRONE_SPEED, true, 120.0 });
         }
         
         auto start_time = chrono::high_resolution_clock::now();
