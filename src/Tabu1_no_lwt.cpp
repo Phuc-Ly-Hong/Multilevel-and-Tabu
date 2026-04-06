@@ -46,8 +46,8 @@ vector<Node> C1; // customers served only by technicians
 vector<Node> C2; // customers served by drones or technicians
 vector<VehicleFamily> vehicles;
 
-constexpr double TRUCK_SPEED = 0.58;
-constexpr double DRONE_SPEED = 0.83;
+constexpr double TRUCK_SPEED = 0.5;
+constexpr double DRONE_SPEED = 1.0;
 
 int depot_id = 0;
 int num_nodes = 0;
@@ -1216,38 +1216,10 @@ void run_all_datasets() {
         cout << "C1: " << C1.size() << ", C2: " << C2.size() << endl;
         cout << "MAX_ITER: " << MAX_ITER << endl;
         
-        // Khởi tạo xe - Dynamic allocation based on problem size
+        // Khởi tạo xe cố định cho benchmark
         vehicles.clear();
-        int customers = num_nodes - 1;
-        int num_techs = 0, num_drones = 0;
-        if (customers >= 6 && customers <= 12) {
-            num_techs = 1;
-            num_drones = 1;
-        }
-        else if (customers <= 20) {
-            num_techs = 2;
-            num_drones = 2;
-        }
-        else if (customers <= 50) {
-            num_techs = 3;
-            num_drones = 3;
-        }
-        else if (customers <= 100) {
-            num_techs = 4;
-            num_drones = 4;
-        }
-        else if (customers <= 200) {
-            num_techs = 10;
-            num_drones = 4;
-        }
-        else if (customers <= 500) {
-            num_techs = 10;
-            num_drones = 10;
-        }
-        else if (customers <= 1000) {
-            num_techs = 15;
-            num_drones = 15;
-        }
+        const int num_techs = 3;
+        const int num_drones = 3;
         
         for (int i = 0; i < num_techs; ++i) {
             vehicles.push_back({ i, TRUCK_SPEED, false, 0.0 });
@@ -1274,71 +1246,6 @@ void run_all_datasets() {
 
 int main(int argc, char* argv[]){
     srand(time(nullptr));
-    string dataset_path;
-
-    if (argc <= 1) {
-        run_all_datasets();
-        return 0;
-    }
-    
-    dataset_path = argv[1];
-
-    read_dataset(dataset_path);
-
-    if (argc > 2) {
-        int override_max_iter = atoi(argv[2]);
-        if (override_max_iter > 0) {
-            MAX_ITER = override_max_iter;
-        }
-    }
-
-    cout << "\n=== CONFIGURATION ===" << endl;
-    cout << "MAX_ITER: " << MAX_ITER << endl;
-
-    printf(" %d\n", MAX_ITER);
- 
-    // Khởi tạo danh sách xe 
-    vehicles.clear();
-    int customers = num_nodes-1;
-    int num_techs = 0, num_drones = 0;
-    if (customers >= 6 && customers <= 12) {
-        num_techs = 1;
-        num_drones = 1;
-    }
-    else if (customers <= 20) {
-        num_techs = 2;
-        num_drones = 2;
-    }
-    else if (customers <= 50) {
-        num_techs = 3;
-        num_drones = 3;
-    }
-    else if (customers <= 100) {
-        num_techs = 4;
-        num_drones = 4;
-    }
-    else if (customers <= 200) {
-        num_techs = 10;
-        num_drones = 4;
-    }
-    else if (customers <= 500) {
-        num_techs = 10;
-        num_drones = 10;
-    }
-    else if (customers <= 1000) {
-        num_techs = 15;
-        num_drones = 15;
-    }
-
-    for (int i = 0; i < num_techs; ++i) {
-        vehicles.push_back({ i+1, 0.58f, false, 0.0f }); // technician
-    }
-    for (int i = 0; i < num_drones; ++i) {
-        vehicles.push_back({ num_techs + i + 1, 0.83f, true, 120.0f }); // drone
-    }
-
-    Solution sol = tabu_search();
-    print_solution(sol);
-
+    run_all_datasets();
     return 0;
 }

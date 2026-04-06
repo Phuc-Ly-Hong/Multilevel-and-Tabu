@@ -77,8 +77,8 @@ vector<VehicleFamily> vehicles;
 map<int, MergedNodeInfo> merged_nodes_info;
 unordered_map<int, int> base_type_by_node;
 
-constexpr double TRUCK_SPEED = 0.58;
-constexpr double DRONE_SPEED = 0.83;
+constexpr double TRUCK_SPEED = 0.5;
+constexpr double DRONE_SPEED = 1.0;
 
 int depot_id = 0;
 int num_nodes = 0;
@@ -2160,38 +2160,10 @@ void run_all_datasets() {
         cout << "MERGE_RATIO: " << (MERGE_RATIO * 100.0) << "%" << endl;
         cout << "MAX_ITER: " << MAX_ITER << endl;
         
-        // Khởi tạo xe - Dynamic allocation based on problem size
+        // Khởi tạo xe cố định cho benchmark
         vehicles.clear();
-        int customers = num_nodes - 1;
-        int num_techs = 0, num_drones = 0;
-        if (customers >= 6 && customers <= 12) {
-            num_techs = 1;
-            num_drones = 1;
-        }
-        else if (customers <= 20) {
-            num_techs = 2;
-            num_drones = 2;
-        }
-        else if (customers <= 50) {
-            num_techs = 3;
-            num_drones = 3;
-        }
-        else if (customers <= 100) {
-            num_techs = 4;
-            num_drones = 4;
-        }
-        else if (customers <= 200) {
-            num_techs = 10;
-            num_drones = 4;
-        }
-        else if (customers <= 500) {
-            num_techs = 10;
-            num_drones = 10;
-        }
-        else if (customers <= 1000) {
-            num_techs = 15;
-            num_drones = 15;
-        }
+        const int num_techs = 3;
+        const int num_drones = 3;
         
         for (int i = 0; i < num_techs; ++i) {
             vehicles.push_back({ i, TRUCK_SPEED, false, 0.0 });
@@ -2218,92 +2190,6 @@ void run_all_datasets() {
 
 int main(int argc, char* argv[]) {
     srand(time(nullptr));
-    
-    if (argc <= 1) {
-        run_all_datasets();
-        return 0;
-    }
-
-    string dataset_path = argv[1];
-
-    if (argc > 2) {
-        MAX_LEVELS = max(1, atoi(argv[2]));
-        USE_MANUAL_SEGMENT_CONFIG = true;
-    }
-
-    if (argc > 5) {
-        double ratio_arg = atof(argv[5]);
-        if (ratio_arg > 1.0) {
-            ratio_arg /= 100.0;
-        }
-        MERGE_RATIO = min(0.95, max(0.01, ratio_arg));
-    }
-
-    read_dataset(dataset_path);
-
-    cout << "\n=== CONFIGURATION ===" << endl;
-    cout << "MAX_LEVELS: " << MAX_LEVELS << endl;
-    cout << "MERGE_RATIO: " << (MERGE_RATIO * 100.0) << "%" << endl;
-    cout << "MAX_ITER (= iter/segment * segments/level): " << MAX_ITER << endl;
-
-    printf("MAX_ITER: %d\n", MAX_ITER);
- 
-    // Khởi tạo danh sách xe 
-    vehicles.clear();
-    int customers = num_nodes-1;
-    int num_techs = 0, num_drones = 0;
-    if (customers >= 6 && customers <= 12) {
-        num_techs = 1;
-        num_drones = 1;
-    }
-    else if (customers <= 20) {
-        num_techs = 2;
-        num_drones = 2;
-    }
-    else if (customers <= 50) {
-        num_techs = 3;
-        num_drones = 3;
-    }
-    else if (customers <= 100) {
-        num_techs = 4;
-        num_drones = 4;
-    }
-    else if (customers <= 200) {
-        num_techs = 10;
-        num_drones = 4;
-    }
-    else if (customers <= 500) {
-        num_techs = 10;
-        num_drones = 10;
-    }
-    else if (customers <= 1000) {
-        num_techs = 15;
-        num_drones = 15;
-    }
-
-    for (int i = 0; i < num_techs; ++i) {
-        vehicles.push_back({ i+1, 0.58f, false, 0.0f }); // technician
-    }
-    for (int i = 0; i < num_drones; ++i) {
-        vehicles.push_back({ num_techs + i + 1, 0.83f, true, 120.0f }); // drone
-    }
-
-    /*vector<vector<int>> test_routes = {
-        // 3 Technicians
-        {0, 43, 49, 48, 15, 44, 34, 0},
-        {0, 30, 9, 16, 23, 12, 0},
-        {0, 8, 26, 1, 11, 38, 4, 14, 32, 0},
-        
-        // 3 Drones
-        {0, 37, 41, 40, 25, 42, 21, 13, 47, 31, 0},
-        {0, 19, 3, 18, 45, 22, 29, 5, 10, 33, 46, 17, 0, 24, 0},
-        {0, 2, 6, 28, 35, 20, 27, 39, 7, 36, 50, 0}
-    };*/
-
-    //Solution test_solution = create_test_solution_from_routes(test_routes);
-
-    Solution best_solution = multilevel_tabu_search();
-    print_solution(best_solution);
-
+    run_all_datasets();
     return 0;
 }
