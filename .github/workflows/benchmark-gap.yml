@@ -10,13 +10,13 @@ on:
   push:
     branches: [ main, master, method_A ]
     paths:
-            - "src/Multilevel_no_lwt.cpp"
-            - "src/Tabu1_no_lwt.cpp"
-      - "instances/C101_3.txt"
-      - "instances/C201_3.txt"
-      - "instances/R101_3.txt"
-      - "instances/RC101_3.txt"
-      - ".github/workflows/benchmark-gap.yml"
+    - "src/Multilevel_no_lwt.cpp"
+    - "src/Tabu1_no_lwt.cpp"
+    - "instances/C101_3.txt"
+    - "instances/C201_3.txt"
+    - "instances/R101_3.txt"
+    - "instances/RC101_3.txt"
+    - ".github/workflows/benchmark-gap.yml"
   pull_request:
     branches: [ main, master, method_A ]
 
