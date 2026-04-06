@@ -81,10 +81,23 @@ jobs:
               )
               elapsed = time.perf_counter() - t0
               out = p.stdout or ""
-              m = fitness_pattern.findall(out)
-              if not m:
+              fitness = None
+
+              # Ưu tiên lấy Fitness trong block RESULT cuối cùng để tránh dính log trung gian
+              if "RESULT:" in out:
+                  tail = out.rsplit("RESULT:", 1)[-1]
+                  m_tail = fitness_pattern.search(tail)
+                  if m_tail:
+                      fitness = float(m_tail.group(1))
+
+              # Fallback: lấy Fitness cuối cùng toàn bộ output
+              if fitness is None:
+                  m = fitness_pattern.findall(out)
+                  if m:
+                      fitness = float(m[-1])
+
+              if fitness is None:
                   raise RuntimeError(f"Cannot parse Fitness from output of {exe} on {dataset_path}\nOutput:\n{out[:2000]}")
-              fitness = float(m[-1])  # lấy Fitness cuối cùng
               return fitness, elapsed
 
           rows_runs = []

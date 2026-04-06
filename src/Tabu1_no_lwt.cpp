@@ -1260,6 +1260,42 @@ void run_all_datasets() {
 
 int main(int argc, char* argv[]){
     srand(time(nullptr));
+
+    // Nếu có argument, chạy single dataset; không thì chạy đủ 4 datasets
+    if (argc > 1) {
+        string dataset_path = argv[1];
+        read_dataset(dataset_path);
+
+        cout << "\n=== CONFIGURATION ===" << endl;
+        cout << "Nodes: " << num_nodes << " (1 depot + " << (num_nodes-1) << " customers)" << endl;
+        cout << "C1: " << C1.size() << ", C2: " << C2.size() << endl;
+        cout << "MAX_ITER: " << MAX_ITER << endl;
+
+        vehicles.clear();
+        const int num_techs = 3;
+        const int num_drones = 3;
+
+        for (int i = 0; i < num_techs; ++i) {
+            vehicles.push_back({ i, TRUCK_SPEED, false, 0.0 });
+        }
+        for (int i = 0; i < num_drones; ++i) {
+            vehicles.push_back({ num_techs + i, DRONE_SPEED, true, 120.0 });
+        }
+
+        auto start_time = chrono::high_resolution_clock::now();
+        Solution sol = tabu_search();
+        auto end_time = chrono::high_resolution_clock::now();
+        chrono::duration<double> elapsed = end_time - start_time;
+
+        cout << "\n📋 RESULT:" << endl;
+        cout << "Makespan: " << sol.makespan << " min" << endl;
+        cout << "Drone violation: " << sol.drone_violation << " min" << endl;
+        cout << "Fitness: " << sol.fitness << endl;
+        cout << "Feasible: " << (sol.is_feasible ? "✅ YES" : "❌ NO") << endl;
+        cout << "Time: " << elapsed.count() << " seconds" << endl;
+        return 0;
+    }
+
     run_all_datasets();
     return 0;
 }
