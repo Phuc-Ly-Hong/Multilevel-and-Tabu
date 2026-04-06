@@ -149,23 +149,38 @@ void read_dataset(const string &filename){
     C1.clear();
     C2.clear();
     base_type_by_node.clear();
+
     ifstream file(filename);
     if (!file.is_open()){
-        cerr << "Error opening file: " << filename <<endl;
+        cerr << "Error opening file: " << filename << endl;
         exit(1);
     }
-    nodes.push_back({depot_id,0.0,0.0,-1.0}); // depot
+
     string line;
-    while (getline(file,line)){
-        if (line.empty() || line[0] == '#'|| isalpha(line[0])) continue;
+    int id = 1;                // không dùng static
+    bool depot_found = false;  // tìm depot theo demand = 0
+
+    while (getline(file, line)){
+        if (line.empty() || line[0] == '#' || isalpha(line[0])) continue;
+
         istringstream ss(line);
-        double demand;
-        double x,y;
-        static int id = 1;
+        double x, y, demand;
         ss >> x >> y >> demand;
-        nodes.push_back({id++,x,y,demand});
+
+        if (demand == 0.0 && !depot_found) {
+            nodes.push_back({depot_id, x, y, -1.0});
+            depot_found = true;
+            cout << "✓ Depot: (" << x << ", " << y << ")" << endl;
+        } else {
+            nodes.push_back({id++, x, y, demand});
+        }
     }
     file.close();
+
+    if (!depot_found) {
+        cerr << "No depot (demand=0) found in: " << filename << endl;
+        exit(1);
+    }
 
     cout << "Read " << nodes.size() << " nodes (including depot)." << endl;
     if (nodes.size() > 1000) {
@@ -2140,10 +2155,10 @@ Solution multilevel_tabu_search() {
 
 void run_all_datasets() {
     vector<string> datasets = {
-        "instances/C101_3.txt",
-        "instances/C201_3.txt",
-        "instances/R101_3.txt",
-        "instances/RC101_3.txt"
+        "d:\\New folder\\instances/C101_3.txt",
+        "d:\\New folder\\instances/C201_3.txt",
+        "d:\\New folder\\instances/R101_3.txt",
+        "d:\\New folder\\instances/RC101_3.txt"
     };
     
     for (const auto& dataset_path : datasets) {
