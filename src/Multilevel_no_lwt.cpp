@@ -2155,10 +2155,10 @@ Solution multilevel_tabu_search() {
 
 void run_all_datasets() {
     vector<string> datasets = {
-        "d:\\New folder\\instances/C101_3.txt",
-        "d:\\New folder\\instances/C201_3.txt",
-        "d:\\New folder\\instances/R101_3.txt",
-        "d:\\New folder\\instances/RC101_3.txt"
+        "instances/C101_3.txt",
+        "instances/C201_3.txt",
+        "instances/R101_3.txt",
+        "instances/RC101_3.txt"
     };
     
     for (const auto& dataset_path : datasets) {
