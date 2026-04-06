@@ -38,6 +38,8 @@ jobs:
         run: |
           g++ -O2 -std=c++17 -o multilevel src/Multilevel.cpp
           g++ -O2 -std=c++17 -o tabu src/Tabu.cpp
+          g++ -O2 -std=c++17 -o multilevel_no_lwt src/Multilevel_no_lwt.cpp
+          g++ -O2 -std=c++17 -o tabu_no_lwt src/Tabu1_no_lwt.cpp
 
       - name: Run benchmark and build CSV
         env:
@@ -62,6 +64,8 @@ jobs:
           ALGS = [
               ("Multilevel", "./multilevel"),
               ("Tabu", "./tabu"),
+              ("Multilevel_NoLWT", "./multilevel_no_lwt"),
+              ("Tabu_NoLWT", "./tabu_no_lwt"),
           ]
 
           REPEATS = int(os.getenv("REPEATS", "3"))
@@ -112,17 +116,16 @@ jobs:
                       "avg_time": mean(times)
                   }
 
-          # Gap definitions (baseline = Tabu)
-          # Gap average (%) = (avg_fitness_tabu - avg_fitness_multilevel) / avg_fitness_tabu * 100
-          # Gap best (%)    = (best_fitness_tabu - best_fitness_multilevel) / best_fitness_tabu * 100
-          # Gap time (%)    = (avg_time_tabu - avg_time_multilevel) / avg_time_tabu * 100
-          # dương => Multilevel tốt hơn (nhỏ hơn) theo metric đó
+          # Gap definitions: Compare Multilevel vs Tabu (with LWT), and Multilevel_NoLWT vs Tabu_NoLWT
+          # Gap average (%) = (avg_fitness_baseline - avg_fitness_multilevel) / avg_fitness_baseline * 100
+          # Positive = Multilevel better (lower fitness), Negative = Tabu better
           summary_rows = []
           gap_avg_list = []
           gap_best_list = []
           gap_time_list = []
 
           for ds_name, v in per_dataset.items():
+              # WithLWT: Multilevel vs Tabu
               ml = v["Multilevel"]
               tb = v["Tabu"]
 
@@ -131,26 +134,54 @@ jobs:
                       return float("nan")
                   return (base - other) / base * 100.0
 
-              gap_avg = safe_gap(tb["avg_fitness"], ml["avg_fitness"])
-              gap_best = safe_gap(tb["best_fitness"], ml["best_fitness"])
-              gap_time = safe_gap(tb["avg_time"], ml["avg_time"])
+              gap_avg_lwt = safe_gap(tb["avg_fitness"], ml["avg_fitness"])
+              gap_best_lwt = safe_gap(tb["best_fitness"], ml["best_fitness"])
+              gap_time_lwt = safe_gap(tb["avg_time"], ml["avg_time"])
 
-              if not math.isnan(gap_avg): gap_avg_list.append(gap_avg)
-              if not math.isnan(gap_best): gap_best_list.append(gap_best)
-              if not math.isnan(gap_time): gap_time_list.append(gap_time)
+              if not math.isnan(gap_avg_lwt): gap_avg_list.append(gap_avg_lwt)
+              if not math.isnan(gap_best_lwt): gap_best_list.append(gap_best_lwt)
+              if not math.isnan(gap_time_lwt): gap_time_list.append(gap_time_lwt)
 
               summary_rows.append({
                   "dataset": ds_name,
+                  "variant": "LWT",
                   "ml_avg_fitness": ml["avg_fitness"],
                   "tb_avg_fitness": tb["avg_fitness"],
                   "ml_best_fitness": ml["best_fitness"],
                   "tb_best_fitness": tb["best_fitness"],
                   "ml_avg_time_sec": ml["avg_time"],
                   "tb_avg_time_sec": tb["avg_time"],
-                  "gap_average_pct": gap_avg,
-                  "gap_best_pct": gap_best,
-                  "gap_time_pct": gap_time
+                  "gap_average_pct": gap_avg_lwt,
+                  "gap_best_pct": gap_best_lwt,
+                  "gap_time_pct": gap_time_lwt
               })
+
+              # NoLWT: Multilevel_NoLWT vs Tabu_NoLWT
+              if "Multilevel_NoLWT" in v and "Tabu_NoLWT" in v:
+                  ml_no = v["Multilevel_NoLWT"]
+                  tb_no = v["Tabu_NoLWT"]
+                  
+                  gap_avg_no = safe_gap(tb_no["avg_fitness"], ml_no["avg_fitness"])
+                  gap_best_no = safe_gap(tb_no["best_fitness"], ml_no["best_fitness"])
+                  gap_time_no = safe_gap(tb_no["avg_time"], ml_no["avg_time"])
+                  
+                  if not math.isnan(gap_avg_no): gap_avg_list.append(gap_avg_no)
+                  if not math.isnan(gap_best_no): gap_best_list.append(gap_best_no)
+                  if not math.isnan(gap_time_no): gap_time_list.append(gap_time_no)
+                  
+                  summary_rows.append({
+                      "dataset": ds_name,
+                      "variant": "NoLWT",
+                      "ml_avg_fitness": ml_no["avg_fitness"],
+                      "tb_avg_fitness": tb_no["avg_fitness"],
+                      "ml_best_fitness": ml_no["best_fitness"],
+                      "tb_best_fitness": tb_no["best_fitness"],
+                      "ml_avg_time_sec": ml_no["avg_time"],
+                      "tb_avg_time_sec": tb_no["avg_time"],
+                      "gap_average_pct": gap_avg_no,
+                      "gap_best_pct": gap_best_no,
+                      "gap_time_pct": gap_time_no
+                  })
 
           overall = {
               "dataset": "OVERALL",
@@ -183,6 +214,7 @@ jobs:
               w.writerow([
                   "section",
                   "dataset",
+                  "variant",
                   "ml_avg_fitness", "tb_avg_fitness",
                   "ml_best_fitness", "tb_best_fitness",
                   "ml_avg_time_sec", "tb_avg_time_sec",
@@ -193,6 +225,7 @@ jobs:
                   w.writerow([
                       "per_dataset",
                       s["dataset"],
+                      s.get("variant", "LWT"),
                       f"{s['ml_avg_fitness']:.6f}",
                       f"{s['tb_avg_fitness']:.6f}",
                       f"{s['ml_best_fitness']:.6f}",
@@ -207,6 +240,7 @@ jobs:
               w.writerow([
                   "overall",
                   overall["dataset"],
+                  "COMBINED",
                   f"{overall['ml_avg_fitness']:.6f}",
                   f"{overall['tb_avg_fitness']:.6f}",
                   f"{overall['ml_best_fitness']:.6f}",
