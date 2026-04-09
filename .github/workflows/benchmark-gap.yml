@@ -1,0 +1,421 @@
+name: Benchmark NoLWT Only (Gap CSV)
+
+on:
+  workflow_dispatch:
+    inputs:
+      repeats:
+        description: "Runs per dataset per algorithm"
+        required: false
+        default: "3"
+  push:
+    branches: [ main, master, method_A ]
+    paths:
+      - "src/Multilevel_no_lwt.cpp"
+      - "src/Tabu1_no_lwt.cpp"
+      - "instances/C*.txt"
+      - "instances/R*.txt"
+      - "instances/RC*.txt"
+      - ".github/workflows/benchmark-gap.yml"
+  pull_request:
+    branches: [ main, master, method_A ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ python3
+
+      - name: Compile algorithms (once)
+        run: |
+          g++ -O2 -std=c++17 -o multilevel_no_lwt src/Multilevel_no_lwt.cpp
+          g++ -O2 -std=c++17 -o tabu_no_lwt src/Tabu1_no_lwt.cpp
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: nolwt-binaries
+          path: |
+            multilevel_no_lwt
+            tabu_no_lwt
+
+  benchmark:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: C
+            group_name: "job1-C1-C2"
+          - group: R
+            group_name: "job2-R1-R2"
+          - group: RC1
+            group_name: "job3-RC1"
+          - group: RC2
+            group_name: "job4-RC2"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install runtime deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3
+
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: nolwt-binaries
+          path: .
+
+      - name: Make binaries executable
+        run: |
+          chmod +x ./multilevel_no_lwt ./tabu_no_lwt
+
+      - name: Run benchmark and build CSV
+        env:
+          REPEATS: ${{ github.event.inputs.repeats || '3' }}
+          DATASET_GROUP: ${{ matrix.group }}
+        run: |
+          cat > benchmark_runner.py << 'PY'
+          import os
+          import csv
+          import re
+          import time
+          import math
+          import subprocess
+          from statistics import mean
+
+          REPEATS = int(os.getenv("REPEATS", "3"))
+          GROUP = os.getenv("DATASET_GROUP", "").strip().upper()
+          OUT_CSV = f"benchmark_results_{GROUP}.csv"
+
+          fitness_pattern = re.compile(r"Fitness:\s*([+-]?\d+(?:\.\d+)?)")
+
+          ALGS = [
+              ("Multilevel_NoLWT", "./multilevel_no_lwt"),
+              ("Tabu_NoLWT", "./tabu_no_lwt"),
+          ]
+
+          def discover_datasets(group):
+              files = []
+              for fn in os.listdir("instances"):
+                  if not fn.endswith(".txt"):
+                      continue
+                  if fn.endswith("_3.txt"):
+                      continue  # bo bo _3 theo yeu cau chay bo da chuyen
+
+                  if group == "C":
+                      if re.fullmatch(r"C[12]\d{2}\.txt", fn):
+                          files.append(fn)
+                  elif group == "R":
+                      if re.fullmatch(r"R[12]\d{2}\.txt", fn):
+                          files.append(fn)
+                  elif group == "RC1":
+                      if re.fullmatch(r"RC1\d{2}\.txt", fn):
+                          files.append(fn)
+                  elif group == "RC2":
+                      if re.fullmatch(r"RC2\d{2}\.txt", fn):
+                          files.append(fn)
+
+              files.sort()
+              return [(os.path.splitext(f)[0], f"instances/{f}") for f in files]
+
+          DATASETS = discover_datasets(GROUP)
+          if not DATASETS:
+              raise RuntimeError(f"No datasets found for group={GROUP}")
+
+          def run_once(exe, dataset_path):
+              t0 = time.perf_counter()
+              p = subprocess.run(
+                  [exe, dataset_path],
+                  stdout=subprocess.PIPE,
+                  stderr=subprocess.STDOUT,
+                  text=True,
+                  check=False,
+                  timeout=1800
+              )
+              elapsed = time.perf_counter() - t0
+              out = p.stdout or ""
+              fitness = None
+
+              if "RESULT:" in out:
+                  tail = out.rsplit("RESULT:", 1)[-1]
+                  m_tail = fitness_pattern.search(tail)
+                  if m_tail:
+                      fitness = float(m_tail.group(1))
+
+              if fitness is None:
+                  m = fitness_pattern.findall(out)
+                  if m:
+                      fitness = float(m[-1])
+
+              if fitness is None:
+                  raise RuntimeError(
+                      f"Cannot parse Fitness from output of {exe} on {dataset_path}\nOutput:\n{out[:2000]}"
+                  )
+              return fitness, elapsed
+
+          rows_runs = []
+          per_dataset = {}
+
+          for ds_name, ds_path in DATASETS:
+              per_dataset[ds_name] = {}
+              for alg_name, exe in ALGS:
+                  fits = []
+                  times = []
+                  for r in range(1, REPEATS + 1):
+                      f, t = run_once(exe, ds_path)
+                      fits.append(f)
+                      times.append(t)
+                      rows_runs.append({
+                          "dataset": ds_name,
+                          "algorithm": alg_name,
+                          "run_id": r,
+                          "fitness": f,
+                          "time_sec": t
+                      })
+                  per_dataset[ds_name][alg_name] = {
+                      "avg_fitness": mean(fits),
+                      "best_fitness": min(fits),
+                      "avg_time": mean(times)
+                  }
+
+          summary_rows = []
+          gap_avg_list = []
+          gap_best_list = []
+          gap_time_list = []
+
+          for ds_name, v in per_dataset.items():
+              ml = v["Multilevel_NoLWT"]
+              tb = v["Tabu_NoLWT"]
+
+              def safe_gap(base, other):
+                  if abs(base) < 1e-12:
+                      return float("nan")
+                  return (base - other) / base * 100.0
+
+              gap_avg = safe_gap(tb["avg_fitness"], ml["avg_fitness"])
+              gap_best = safe_gap(tb["best_fitness"], ml["best_fitness"])
+              gap_time = safe_gap(tb["avg_time"], ml["avg_time"])
+
+              if not math.isnan(gap_avg):
+                  gap_avg_list.append(gap_avg)
+              if not math.isnan(gap_best):
+                  gap_best_list.append(gap_best)
+              if not math.isnan(gap_time):
+                  gap_time_list.append(gap_time)
+
+              summary_rows.append({
+                  "dataset": ds_name,
+                  "ml_avg_fitness": ml["avg_fitness"],
+                  "tb_avg_fitness": tb["avg_fitness"],
+                  "ml_best_fitness": ml["best_fitness"],
+                  "tb_best_fitness": tb["best_fitness"],
+                  "ml_avg_time_sec": ml["avg_time"],
+                  "tb_avg_time_sec": tb["avg_time"],
+                  "gap_average_pct": gap_avg,
+                  "gap_best_pct": gap_best,
+                  "gap_time_pct": gap_time
+              })
+
+          overall = {
+              "dataset": "OVERALL",
+              "ml_avg_fitness": mean([s["ml_avg_fitness"] for s in summary_rows]),
+              "tb_avg_fitness": mean([s["tb_avg_fitness"] for s in summary_rows]),
+              "ml_best_fitness": min([s["ml_best_fitness"] for s in summary_rows]),
+              "tb_best_fitness": min([s["tb_best_fitness"] for s in summary_rows]),
+              "ml_avg_time_sec": mean([s["ml_avg_time_sec"] for s in summary_rows]),
+              "tb_avg_time_sec": mean([s["tb_avg_time_sec"] for s in summary_rows]),
+              "gap_average_pct": mean(gap_avg_list) if gap_avg_list else float("nan"),
+              "gap_best_pct": mean(gap_best_list) if gap_best_list else float("nan"),
+              "gap_time_pct": mean(gap_time_list) if gap_time_list else float("nan"),
+          }
+
+          with open(OUT_CSV, "w", newline="", encoding="utf-8") as f:
+              w = csv.writer(f)
+
+              w.writerow(["section", "dataset", "algorithm", "run_id", "fitness", "time_sec"])
+              for r in rows_runs:
+                  w.writerow([
+                      "raw_run",
+                      r["dataset"],
+                      r["algorithm"],
+                      r["run_id"],
+                      f"{r['fitness']:.6f}",
+                      f"{r['time_sec']:.6f}",
+                  ])
+
+              w.writerow([])
+              w.writerow([
+                  "section",
+                  "dataset",
+                  "ml_avg_fitness", "tb_avg_fitness",
+                  "ml_best_fitness", "tb_best_fitness",
+                  "ml_avg_time_sec", "tb_avg_time_sec",
+                  "gap_average_pct", "gap_best_pct", "gap_time_pct"
+              ])
+
+              for s in summary_rows:
+                  w.writerow([
+                      "per_dataset",
+                      s["dataset"],
+                      f"{s['ml_avg_fitness']:.6f}",
+                      f"{s['tb_avg_fitness']:.6f}",
+                      f"{s['ml_best_fitness']:.6f}",
+                      f"{s['tb_best_fitness']:.6f}",
+                      f"{s['ml_avg_time_sec']:.6f}",
+                      f"{s['tb_avg_time_sec']:.6f}",
+                      f"{s['gap_average_pct']:.6f}",
+                      f"{s['gap_best_pct']:.6f}",
+                      f"{s['gap_time_pct']:.6f}",
+                  ])
+
+              w.writerow([
+                  "overall",
+                  overall["dataset"],
+                  f"{overall['ml_avg_fitness']:.6f}",
+                  f"{overall['tb_avg_fitness']:.6f}",
+                  f"{overall['ml_best_fitness']:.6f}",
+                  f"{overall['tb_best_fitness']:.6f}",
+                  f"{overall['ml_avg_time_sec']:.6f}",
+                  f"{overall['tb_avg_time_sec']:.6f}",
+                  f"{overall['gap_average_pct']:.6f}",
+                  f"{overall['gap_best_pct']:.6f}",
+                  f"{overall['gap_time_pct']:.6f}",
+              ])
+
+          print("Done. CSV written:", OUT_CSV)
+          print("Datasets:", ", ".join([d[0] for d in DATASETS]))
+          PY
+
+          python3 benchmark_runner.py
+
+      - name: Upload benchmark CSV
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-${{ matrix.group_name }}
+          path: benchmark_results_${{ matrix.group }}.csv
+
+  merge_csv:
+    needs: benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all benchmark CSV artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: benchmark-results-*
+          merge-multiple: true
+          path: merged_inputs
+
+      - name: Merge per-group CSV files
+        run: |
+          python3 - << 'PY'
+          import csv
+          from pathlib import Path
+
+          in_dir = Path("merged_inputs")
+          files = sorted(in_dir.glob("benchmark_results_*.csv"))
+          if not files:
+              raise RuntimeError("No benchmark_results_*.csv found in merged_inputs")
+
+          out_file = Path("benchmark_results_final.csv")
+
+          raw_header = None
+          summary_header = None
+          raw_rows = []
+          per_dataset_rows = []
+
+          for f in files:
+              section = None
+              with f.open("r", encoding="utf-8") as fin:
+                  reader = csv.reader(fin)
+                  for row in reader:
+                      if not row:
+                          continue
+
+                      if row[0] == "section" and len(row) >= 6 and row[2] == "algorithm":
+                          if raw_header is None:
+                              raw_header = row
+                          section = "raw"
+                          continue
+
+                      if row[0] == "section" and len(row) >= 11 and row[2] == "ml_avg_fitness":
+                          if summary_header is None:
+                              summary_header = row
+                          section = "summary"
+                          continue
+
+                      if section == "raw" and row[0] == "raw_run":
+                          raw_rows.append(row)
+                      elif section == "summary" and row[0] == "per_dataset":
+                          per_dataset_rows.append(row)
+
+          if raw_header is None or summary_header is None:
+              raise RuntimeError("Input CSV format mismatch: missing expected headers")
+
+          # Build one overall row from merged per-dataset rows.
+          def to_float(x):
+              try:
+                  return float(x)
+              except Exception:
+                  return float("nan")
+
+          ml_avg_fitness_vals = [to_float(r[2]) for r in per_dataset_rows]
+          tb_avg_fitness_vals = [to_float(r[3]) for r in per_dataset_rows]
+          ml_best_fitness_vals = [to_float(r[4]) for r in per_dataset_rows]
+          tb_best_fitness_vals = [to_float(r[5]) for r in per_dataset_rows]
+          ml_avg_time_vals = [to_float(r[6]) for r in per_dataset_rows]
+          tb_avg_time_vals = [to_float(r[7]) for r in per_dataset_rows]
+          gap_avg_vals = [to_float(r[8]) for r in per_dataset_rows]
+          gap_best_vals = [to_float(r[9]) for r in per_dataset_rows]
+          gap_time_vals = [to_float(r[10]) for r in per_dataset_rows]
+
+          def mean(vals):
+              good = [v for v in vals if v == v]
+              return sum(good) / len(good) if good else float("nan")
+
+          def min_val(vals):
+              good = [v for v in vals if v == v]
+              return min(good) if good else float("nan")
+
+          overall_row = [
+              "overall",
+              "OVERALL",
+              f"{mean(ml_avg_fitness_vals):.6f}",
+              f"{mean(tb_avg_fitness_vals):.6f}",
+              f"{min_val(ml_best_fitness_vals):.6f}",
+              f"{min_val(tb_best_fitness_vals):.6f}",
+              f"{mean(ml_avg_time_vals):.6f}",
+              f"{mean(tb_avg_time_vals):.6f}",
+              f"{mean(gap_avg_vals):.6f}",
+              f"{mean(gap_best_vals):.6f}",
+              f"{mean(gap_time_vals):.6f}",
+          ]
+
+          with out_file.open("w", newline="", encoding="utf-8") as fout:
+              writer = csv.writer(fout)
+              writer.writerow(raw_header)
+              writer.writerows(raw_rows)
+              writer.writerow([])
+              writer.writerow(summary_header)
+              writer.writerows(per_dataset_rows)
+              writer.writerow(overall_row)
+
+          print(f"Merged {len(files)} files into {out_file}")
+          PY
+
+      - name: Upload final merged CSV
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-final
+          path: benchmark_results_final.csv
