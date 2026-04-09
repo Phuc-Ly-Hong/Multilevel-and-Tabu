@@ -2154,59 +2154,92 @@ Solution multilevel_tabu_search() {
 }*/
 
 void run_all_datasets() {
-    vector<string> datasets = {
-        "instances/C101_3.txt",
-        "instances/C201_3.txt",
-        "instances/R101_3.txt",
-        "instances/RC101_3.txt"
+    namespace fs = std::filesystem;
+    vector<string> datasets;
+    std::regex converted_pattern(R"(^(C|R|RC)\d{3}\.txt$)", std::regex::icase);
+
+    // Try a few common locations for instances/
+    vector<fs::path> candidates = {
+        fs::current_path() / "instances",
+        fs::current_path().parent_path() / "instances",
+        fs::current_path().parent_path().parent_path() / "instances"
     };
-    
+
+    fs::path instances_dir;
+    for (const auto& p : candidates) {
+        if (fs::exists(p) && fs::is_directory(p)) {
+            instances_dir = p;
+            break;
+        }
+    }
+
+    if (instances_dir.empty()) {
+        cerr << "instances directory not found.\n";
+        cerr << "Current working directory: " << fs::current_path() << "\n";
+        return;
+    }
+
+    try {
+        for (const auto& entry : fs::directory_iterator(instances_dir)) {
+            if (!entry.is_regular_file()) continue;
+            string name = entry.path().filename().string();
+            if (std::regex_match(name, converted_pattern)) {
+                datasets.push_back(entry.path().generic_string());
+            }
+        }
+    } catch (const fs::filesystem_error& e) {
+        cerr << "Filesystem error while scanning instances: " << e.what() << "\n";
+        cerr << "Resolved instances path: " << instances_dir << "\n";
+        return;
+    }
+
+    sort(datasets.begin(), datasets.end());
+    if (datasets.empty()) {
+        cerr << "No converted datasets found in " << instances_dir
+             << " (expected Cxxx.txt, Rxxx.txt, RCxxx.txt)\n";
+        return;
+    }
+
     for (const auto& dataset_path : datasets) {
         cout << "\n" << string(80, '=') << endl;
-        cout << "📊 RUNNING: " << dataset_path << endl;
+        cout << "RUNNING: " << dataset_path << endl;
         cout << string(80, '=') << endl;
-        
+
+        // Reset adaptive parameters
+        weights = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
+        scorePi = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+        used_count = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+
         read_dataset(dataset_path);
 
         cout << "\n=== CONFIGURATION ===" << endl;
-        cout << "Nodes: " << num_nodes << " (1 depot + " << (num_nodes-1) << " customers)" << endl;
+        cout << "Nodes: " << num_nodes << " (1 depot + " << (num_nodes - 1) << " customers)" << endl;
         cout << "C1: " << C1.size() << ", C2: " << C2.size() << endl;
-        cout << "MAX_LEVELS: " << MAX_LEVELS << endl;
-        cout << "MERGE_RATIO: " << (MERGE_RATIO * 100.0) << "%" << endl;
         cout << "MAX_ITER: " << MAX_ITER << endl;
-        
-        // Khởi tạo xe cố định cho benchmark
+
         vehicles.clear();
         const int num_techs = 3;
         const int num_drones = 3;
-        
-        for (int i = 0; i < num_techs; ++i) {
-            vehicles.push_back({ i, TRUCK_SPEED, false, 0.0 });
-        }
-        for (int i = 0; i < num_drones; ++i) {
-            vehicles.push_back({ num_techs + i, DRONE_SPEED, true, 120.0 });
-        }
-        
+        for (int i = 0; i < num_techs; ++i) vehicles.push_back({i, TRUCK_SPEED, false, 0.0});
+        for (int i = 0; i < num_drones; ++i) vehicles.push_back({num_techs + i, DRONE_SPEED, true, 120.0});
+
         auto start_time = chrono::high_resolution_clock::now();
-        Solution sol = multilevel_tabu_search();
+        auto sol = multilevel_tabu_search();
         auto end_time = chrono::high_resolution_clock::now();
         chrono::duration<double> elapsed = end_time - start_time;
-        
-        cout << "\n📋 RESULT:" << endl;
+
+        cout << "\nRESULT:" << endl;
         cout << "Makespan: " << sol.makespan << " min" << endl;
         cout << "Drone violation: " << sol.drone_violation << " min" << endl;
         cout << "Fitness: " << sol.fitness << endl;
-        cout << "Feasible: " << (sol.is_feasible ? "✅ YES" : "❌ NO") << endl;
+        cout << "Feasible: " << (sol.is_feasible ? "YES" : "NO") << endl;
         cout << "Time: " << elapsed.count() << " seconds" << endl;
-        
-        cout << "\n✅ Finished dataset" << endl;
     }
 }
 
 int main(int argc, char* argv[]) {
     srand(time(nullptr));
 
-    // Nếu có argument, chạy single dataset; không thì chạy đủ 4 datasets
     if (argc > 1) {
         string dataset_path = argv[1];
         read_dataset(dataset_path);

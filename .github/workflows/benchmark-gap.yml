@@ -10,21 +10,19 @@ on:
   push:
     branches: [ main, master, method_A ]
     paths:
-    - "src/Multilevel_no_lwt.cpp"
-    - "src/Tabu1_no_lwt.cpp"
-    - "instances/C101_3.txt"
-    - "instances/C201_3.txt"
-    - "instances/R101_3.txt"
-    - "instances/RC101_3.txt"
-    - ".github/workflows/benchmark-gap.yml"
+      - "src/Multilevel_no_lwt.cpp"
+      - "src/Tabu1_no_lwt.cpp"
+      - "instances/C*.txt"
+      - "instances/R*.txt"
+      - "instances/RC*.txt"
+      - ".github/workflows/benchmark-gap.yml"
   pull_request:
     branches: [ main, master, method_A ]
 
 jobs:
-  benchmark:
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
-
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,14 +32,59 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y g++ python3
 
-      - name: Compile algorithms
+      - name: Compile algorithms (once)
         run: |
           g++ -O2 -std=c++17 -o multilevel_no_lwt src/Multilevel_no_lwt.cpp
           g++ -O2 -std=c++17 -o tabu_no_lwt src/Tabu1_no_lwt.cpp
 
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: nolwt-binaries
+          path: |
+            multilevel_no_lwt
+            tabu_no_lwt
+
+  benchmark:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: C
+            group_name: "job1-C1-C2"
+          - group: R
+            group_name: "job2-R1-R2"
+          - group: RC1
+            group_name: "job3-RC1"
+          - group: RC2
+            group_name: "job4-RC2"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install runtime deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3
+
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: nolwt-binaries
+          path: .
+
+      - name: Make binaries executable
+        run: |
+          chmod +x ./multilevel_no_lwt ./tabu_no_lwt
+
       - name: Run benchmark and build CSV
         env:
           REPEATS: ${{ github.event.inputs.repeats || '3' }}
+          DATASET_GROUP: ${{ matrix.group }}
         run: |
           cat > benchmark_runner.py << 'PY'
           import os
@@ -52,22 +95,44 @@ jobs:
           import subprocess
           from statistics import mean
 
-          DATASETS = [
-              ("C101_3", "instances/C101_3.txt"),
-              ("C201_3", "instances/C201_3.txt"),
-              ("R101_3", "instances/R101_3.txt"),
-              ("RC101_3", "instances/RC101_3.txt"),
-          ]
+          REPEATS = int(os.getenv("REPEATS", "3"))
+          GROUP = os.getenv("DATASET_GROUP", "").strip().upper()
+          OUT_CSV = f"benchmark_results_{GROUP}.csv"
+
+          fitness_pattern = re.compile(r"Fitness:\s*([+-]?\d+(?:\.\d+)?)")
 
           ALGS = [
               ("Multilevel_NoLWT", "./multilevel_no_lwt"),
               ("Tabu_NoLWT", "./tabu_no_lwt"),
           ]
 
-          REPEATS = int(os.getenv("REPEATS", "3"))
-          OUT_CSV = "benchmark_results.csv"
+          def discover_datasets(group):
+              files = []
+              for fn in os.listdir("instances"):
+                  if not fn.endswith(".txt"):
+                      continue
+                  if fn.endswith("_3.txt"):
+                      continue  # bo bo _3 theo yeu cau chay bo da chuyen
 
-          fitness_pattern = re.compile(r"Fitness:\s*([+-]?\d+(?:\.\d+)?)")
+                  if group == "C":
+                      if re.fullmatch(r"C[12]\d{2}\.txt", fn):
+                          files.append(fn)
+                  elif group == "R":
+                      if re.fullmatch(r"R[12]\d{2}\.txt", fn):
+                          files.append(fn)
+                  elif group == "RC1":
+                      if re.fullmatch(r"RC1\d{2}\.txt", fn):
+                          files.append(fn)
+                  elif group == "RC2":
+                      if re.fullmatch(r"RC2\d{2}\.txt", fn):
+                          files.append(fn)
+
+              files.sort()
+              return [(os.path.splitext(f)[0], f"instances/{f}") for f in files]
+
+          DATASETS = discover_datasets(GROUP)
+          if not DATASETS:
+              raise RuntimeError(f"No datasets found for group={GROUP}")
 
           def run_once(exe, dataset_path):
               t0 = time.perf_counter()
@@ -83,21 +148,21 @@ jobs:
               out = p.stdout or ""
               fitness = None
 
-              # Ưu tiên lấy Fitness trong block RESULT cuối cùng để tránh dính log trung gian
               if "RESULT:" in out:
                   tail = out.rsplit("RESULT:", 1)[-1]
                   m_tail = fitness_pattern.search(tail)
                   if m_tail:
                       fitness = float(m_tail.group(1))
 
-              # Fallback: lấy Fitness cuối cùng toàn bộ output
               if fitness is None:
                   m = fitness_pattern.findall(out)
                   if m:
                       fitness = float(m[-1])
 
               if fitness is None:
-                  raise RuntimeError(f"Cannot parse Fitness from output of {exe} on {dataset_path}\nOutput:\n{out[:2000]}")
+                  raise RuntimeError(
+                      f"Cannot parse Fitness from output of {exe} on {dataset_path}\nOutput:\n{out[:2000]}"
+                  )
               return fitness, elapsed
 
           rows_runs = []
@@ -125,9 +190,6 @@ jobs:
                       "avg_time": mean(times)
                   }
 
-          # Gap definitions: Compare Multilevel_NoLWT vs Tabu_NoLWT
-          # Gap average (%) = (avg_fitness_baseline - avg_fitness_multilevel) / avg_fitness_baseline * 100
-          # Positive = Multilevel better (lower fitness), Negative = Tabu better
           summary_rows = []
           gap_avg_list = []
           gap_best_list = []
@@ -146,9 +208,12 @@ jobs:
               gap_best = safe_gap(tb["best_fitness"], ml["best_fitness"])
               gap_time = safe_gap(tb["avg_time"], ml["avg_time"])
 
-              if not math.isnan(gap_avg): gap_avg_list.append(gap_avg)
-              if not math.isnan(gap_best): gap_best_list.append(gap_best)
-              if not math.isnan(gap_time): gap_time_list.append(gap_time)
+              if not math.isnan(gap_avg):
+                  gap_avg_list.append(gap_avg)
+              if not math.isnan(gap_best):
+                  gap_best_list.append(gap_best)
+              if not math.isnan(gap_time):
+                  gap_time_list.append(gap_time)
 
               summary_rows.append({
                   "dataset": ds_name,
@@ -230,6 +295,7 @@ jobs:
               ])
 
           print("Done. CSV written:", OUT_CSV)
+          print("Datasets:", ", ".join([d[0] for d in DATASETS]))
           PY
 
           python3 benchmark_runner.py
@@ -237,5 +303,5 @@ jobs:
       - name: Upload benchmark CSV
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-results-csv
-          path: benchmark_results.csv
+          name: benchmark-results-${{ matrix.group_name }}
+          path: benchmark_results_${{ matrix.group }}.csv
