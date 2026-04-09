@@ -90,7 +90,7 @@ int TABU_TENURE;
 int MAX_NO_IMPROVE;
 double EPSILON = 1e-6;
 
-int MAX_LEVELS = 4;
+int MAX_LEVELS = 3;
 bool USE_MANUAL_SEGMENT_CONFIG = false;
 double MERGE_RATIO = 0.10;
 
