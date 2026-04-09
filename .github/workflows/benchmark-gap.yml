@@ -305,3 +305,117 @@ jobs:
         with:
           name: benchmark-results-${{ matrix.group_name }}
           path: benchmark_results_${{ matrix.group }}.csv
+
+  merge_csv:
+    needs: benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all benchmark CSV artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: benchmark-results-*
+          merge-multiple: true
+          path: merged_inputs
+
+      - name: Merge per-group CSV files
+        run: |
+          python3 - << 'PY'
+          import csv
+          from pathlib import Path
+
+          in_dir = Path("merged_inputs")
+          files = sorted(in_dir.glob("benchmark_results_*.csv"))
+          if not files:
+              raise RuntimeError("No benchmark_results_*.csv found in merged_inputs")
+
+          out_file = Path("benchmark_results_final.csv")
+
+          raw_header = None
+          summary_header = None
+          raw_rows = []
+          per_dataset_rows = []
+
+          for f in files:
+              section = None
+              with f.open("r", encoding="utf-8") as fin:
+                  reader = csv.reader(fin)
+                  for row in reader:
+                      if not row:
+                          continue
+
+                      if row[0] == "section" and len(row) >= 6 and row[2] == "algorithm":
+                          if raw_header is None:
+                              raw_header = row
+                          section = "raw"
+                          continue
+
+                      if row[0] == "section" and len(row) >= 11 and row[2] == "ml_avg_fitness":
+                          if summary_header is None:
+                              summary_header = row
+                          section = "summary"
+                          continue
+
+                      if section == "raw" and row[0] == "raw_run":
+                          raw_rows.append(row)
+                      elif section == "summary" and row[0] == "per_dataset":
+                          per_dataset_rows.append(row)
+
+          if raw_header is None or summary_header is None:
+              raise RuntimeError("Input CSV format mismatch: missing expected headers")
+
+          # Build one overall row from merged per-dataset rows.
+          def to_float(x):
+              try:
+                  return float(x)
+              except Exception:
+                  return float("nan")
+
+          ml_avg_fitness_vals = [to_float(r[2]) for r in per_dataset_rows]
+          tb_avg_fitness_vals = [to_float(r[3]) for r in per_dataset_rows]
+          ml_best_fitness_vals = [to_float(r[4]) for r in per_dataset_rows]
+          tb_best_fitness_vals = [to_float(r[5]) for r in per_dataset_rows]
+          ml_avg_time_vals = [to_float(r[6]) for r in per_dataset_rows]
+          tb_avg_time_vals = [to_float(r[7]) for r in per_dataset_rows]
+          gap_avg_vals = [to_float(r[8]) for r in per_dataset_rows]
+          gap_best_vals = [to_float(r[9]) for r in per_dataset_rows]
+          gap_time_vals = [to_float(r[10]) for r in per_dataset_rows]
+
+          def mean(vals):
+              good = [v for v in vals if v == v]
+              return sum(good) / len(good) if good else float("nan")
+
+          def min_val(vals):
+              good = [v for v in vals if v == v]
+              return min(good) if good else float("nan")
+
+          overall_row = [
+              "overall",
+              "OVERALL",
+              f"{mean(ml_avg_fitness_vals):.6f}",
+              f"{mean(tb_avg_fitness_vals):.6f}",
+              f"{min_val(ml_best_fitness_vals):.6f}",
+              f"{min_val(tb_best_fitness_vals):.6f}",
+              f"{mean(ml_avg_time_vals):.6f}",
+              f"{mean(tb_avg_time_vals):.6f}",
+              f"{mean(gap_avg_vals):.6f}",
+              f"{mean(gap_best_vals):.6f}",
+              f"{mean(gap_time_vals):.6f}",
+          ]
+
+          with out_file.open("w", newline="", encoding="utf-8") as fout:
+              writer = csv.writer(fout)
+              writer.writerow(raw_header)
+              writer.writerows(raw_rows)
+              writer.writerow([])
+              writer.writerow(summary_header)
+              writer.writerows(per_dataset_rows)
+              writer.writerow(overall_row)
+
+          print(f"Merged {len(files)} files into {out_file}")
+          PY
+
+      - name: Upload final merged CSV
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-final
+          path: benchmark_results_final.csv
