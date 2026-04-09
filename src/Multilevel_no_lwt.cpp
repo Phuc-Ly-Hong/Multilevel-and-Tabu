@@ -77,8 +77,8 @@ vector<VehicleFamily> vehicles;
 map<int, MergedNodeInfo> merged_nodes_info;
 unordered_map<int, int> base_type_by_node;
 
-constexpr double TRUCK_SPEED = 0.58;
-constexpr double DRONE_SPEED = 0.83;
+constexpr double TRUCK_SPEED = 0.5;
+constexpr double DRONE_SPEED = 1.0;
 
 int depot_id = 0;
 int num_nodes = 0;
