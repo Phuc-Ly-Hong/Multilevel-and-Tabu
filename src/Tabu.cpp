@@ -5,7 +5,7 @@ struct Node {
     int id;
     double x,y;
     double c1_or_c2;
-    double limit_wait = 120.0; // (phút)
+    double limit_wait = 60.0; // (phút)
 };
 
 struct VehicleFamily {
@@ -42,14 +42,9 @@ struct TabuMove {
 };
 
 vector<vector<double>> distances;
-vector<vector<double>> truck_times;
-vector<vector<double>> drone_times;
 vector<Node> C1; // customers served only by technicians
 vector<Node> C2; // customers served by drones or technicians
 vector<VehicleFamily> vehicles;
-
-constexpr double TRUCK_SPEED = 0.5;
-constexpr double DRONE_SPEED = 1.0;
 
 int depot_id = 0;
 int num_nodes = 0;
@@ -63,7 +58,6 @@ int MAX_NO_IMPROVE = 700000;
 double EPSILON = 1e-6;
 
 // Adaptive parameters
-int SEGMENT_LENGTH;
 vector<string> MOVE_SET = {"1-0", "1-1", "2-0", "2-1", "2-2", "2-opt"};
 vector<double> weights = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
 vector<double> scorePi = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
@@ -97,50 +91,23 @@ void update_weights(){
     }
 }
 
-void build_time_matrices_from_distance(const vector<vector<double>>& distance_matrix,
-                                       vector<vector<double>>& truck_time_matrix,
-                                       vector<vector<double>>& drone_time_matrix) {
-    const int n = static_cast<int>(distance_matrix.size());
-    truck_time_matrix.assign(n, vector<double>(n, 0.0));
-    drone_time_matrix.assign(n, vector<double>(n, 0.0));
-
-    for (int i = 0; i < n; i++) {
-        for (int j = 0; j < n; j++) {
-            if (i == j) continue;
-            truck_time_matrix[i][j] = distance_matrix[i][j] / TRUCK_SPEED;
-            drone_time_matrix[i][j] = distance_matrix[i][j] / DRONE_SPEED;
-        }
-    }
-}
-
 void read_dataset(const string &filename){
     vector<Node> nodes;
-    C1.clear();
-    C2.clear();
     ifstream file(filename);
     if (!file.is_open()){
         cerr << "Error opening file: " << filename <<endl;
         exit(1);
     }
-    
+    nodes.push_back({depot_id,0.0,0.0,-1.0,DBL_MAX}); // depot
     string line;
-    int id = 1;
-    bool depot_found = false;
-    
     while (getline(file,line)){
         if (line.empty() || line[0] == '#'|| isalpha(line[0])) continue;
         istringstream ss(line);
-        double x, y, demand;
+        double demand;
+        double x,y;
+        static int id = 1;
         ss >> x >> y >> demand;
-        
-        // Tìm depot (demand=0)
-        if (demand == 0.0 && !depot_found) {
-            nodes.push_back({depot_id, x, y, -1.0, DBL_MAX});
-            depot_found = true;
-            cout << "✓ Depot: (" << x << ", " << y << ")" << endl;
-        } else {
-            nodes.push_back({id++, x, y, demand});
-        }
+        nodes.push_back({id++,x,y,demand});
     }
     file.close();
 
@@ -148,38 +115,30 @@ void read_dataset(const string &filename){
     if (nodes.size() > 1000) {
         // Bộ rất lớn (> 1000)
         MAX_ITER = 50000;
-        SEGMENT_LENGTH = 5000;
     }
     else if (nodes.size() >= 1000) {
         // Bộ 1000 (501-1000)
         MAX_ITER = 200000;
-        SEGMENT_LENGTH = 2500;
     }
     else if (nodes.size() >= 500) {
         // Bộ 500 (201-500)
         MAX_ITER = 100000;
-        SEGMENT_LENGTH = 1250;
     }
     else if (nodes.size() >= 200) {
         // Bộ 200 (101-200)
         MAX_ITER = 48000;
-        SEGMENT_LENGTH = 600;
-        MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 100) {
         // Bộ 100 (100)
         MAX_ITER = 24000;
-        SEGMENT_LENGTH = 300;
     }
     else if (nodes.size() >= 50) {
         // Bộ 50 (50-99)
         MAX_ITER = 4000;
-        SEGMENT_LENGTH = 50;
     }
     else {
         // Bộ nhỏ (6-49)
         MAX_ITER = 4000;
-        SEGMENT_LENGTH = 50;
     }
     for (const auto& node : nodes) {
         if (node.id == depot_id) {
@@ -200,7 +159,6 @@ void read_dataset(const string &filename){
             }
         }
     }
-    build_time_matrices_from_distance(distances, truck_times, drone_times);
 
     // Phân loại khách hàng
     for (const auto& node : nodes){
@@ -255,7 +213,6 @@ void evaluate_solution(Solution &sol) {
     sol.is_feasible = true;
 
     for (size_t i = 0; i < sol.route.size(); i++){
-        const vector<vector<double>>& time_matrix = vehicles[i].is_drone ? drone_times : truck_times;
         int prev = depot_id;
         double current_time = 0;
         double depart_time = 0;
@@ -266,7 +223,8 @@ void evaluate_solution(Solution &sol) {
             
             if (cid == depot_id){
                 if (prev != depot_id){
-                    current_time += time_matrix[prev][depot_id];
+                    double travel_distance = distances[prev][depot_id];
+                    current_time += travel_distance / vehicles[i].speed;
                 }
                 
                 double arrival_depot = current_time;
@@ -297,12 +255,12 @@ void evaluate_solution(Solution &sol) {
                 prev = depot_id;
             } else {
                 // Di chuyển từ prev đến customer cid
-                double travel_time = time_matrix[prev][cid];
-                double entry_time = current_time + travel_time;
+                double travel_distance = distances[prev][cid];
+                double entry_time = current_time + (travel_distance / vehicles[i].speed);
                 
                 served_in_trip.push_back({cid, entry_time});
                 
-                current_time += travel_time;
+                current_time += travel_distance / vehicles[i].speed;
                 prev = cid;
             }
         }
@@ -369,14 +327,13 @@ Solution init_greedy_solution() {
 
     while (!unserved_C2.empty()) {
         for (size_t v = 0; v < vehicles.size(); v++) {
-            double best_time = DBL_MAX;
+            double best_dist = DBL_MAX;
             int best_idx = -1;
-            const vector<vector<double>>& time_matrix = vehicles[v].is_drone ? drone_times : truck_times;
             for (size_t i = 0; i < unserved_C2.size(); i++) {
                 int cid = unserved_C2[i];
-                double d = time_matrix[current_pos[v]][cid];
-                if (d < best_time) {
-                    best_time = d;
+                double d = distances[current_pos[v]][cid];
+                if (d < best_dist) {
+                    best_dist = d;
                     best_idx = i;
                 }
             }
@@ -1197,109 +1154,63 @@ Solution tabu_search(){
                 no_improve_count++;
             }
         } else no_improve_count++;
-
         update_weights();
     }
     return best_sol;
 }
 
-void run_all_datasets();
-
 int main(int argc, char* argv[]){
-    srand(time(nullptr));
-
-    // Nếu có argument, chạy single dataset; không thì chạy 4 datasets
+    string dataset_path;
     if (argc > 1) {
-        string dataset_path = argv[1];
-        int manual_iter_per_segment = -1;
-        int manual_total_segments = -1;
-
-        if (argc > 3) {
-            manual_iter_per_segment = max(1, atoi(argv[2]));
-            manual_total_segments = max(1, atoi(argv[3]));
-        }
-
-        read_dataset(dataset_path);
-
-        if (manual_iter_per_segment > 0 && manual_total_segments > 0) {
-            SEGMENT_LENGTH = manual_iter_per_segment;
-            MAX_ITER = manual_iter_per_segment * manual_total_segments;
-        }
-
-        cout << "\n=== CONFIGURATION ===" << endl;
-        cout << "ITER_PER_SEGMENT: " << SEGMENT_LENGTH << endl;
-        cout << "TOTAL_SEGMENTS: " << max(1, MAX_ITER / max(1, SEGMENT_LENGTH)) << endl;
-        cout << "MAX_ITER: " << MAX_ITER << endl;
-     
-        // Khởi tạo xe - LUÔN 3 TRUCK + 3 DRONE
-        vehicles.clear();
-        for (int i = 0; i < 3; ++i) {
-            vehicles.push_back({ i, TRUCK_SPEED, false, 0.0 });
-        }
-        for (int i = 0; i < 3; ++i) {
-            vehicles.push_back({ 3 + i, DRONE_SPEED, true, 120.0 });
-        }
-        cout << "\n🚛 Vehicles: 3 trucks (" << TRUCK_SPEED << " m/min) + 3 drones (" << DRONE_SPEED << " m/min, 90min limit)" << endl;
-
-        Solution sol = tabu_search();
-        print_solution(sol);
-
-        return 0;
+        dataset_path = argv[1];
     } else {
-        // Không có argument -> chạy loop 4 datasets
-        run_all_datasets();
-        return 0;
+        dataset_path = "D:\\New folder\\instances\\50.10.1.txt"; 
     }
-}
-
-void run_all_datasets() {
-    vector<string> datasets = {
-        "d:\\New folder\\instances\\C101_3.txt",
-        "d:\\New folder\\instances\\C201_3.txt",
-        "d:\\New folder\\instances\\R101_3.txt",
-        "d:\\New folder\\instances\\RC101_3.txt"
-    };
-    
-    for (const auto& dataset_path : datasets) {
-        cout << "\n" << string(80, '=') << endl;
-        cout << "📊 RUNNING: " << dataset_path << endl;
-        cout << string(80, '=') << endl;
-        
-        // Reset adaptive parameters
-        weights = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
-        scorePi = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-        used_count = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-        
-        read_dataset(dataset_path);
-
-        cout << "\n=== CONFIGURATION ===" << endl;
-        cout << "Nodes: " << num_nodes << " (1 depot + " << (num_nodes-1) << " customers)" << endl;
-        cout << "C1: " << C1.size() << ", C2: " << C2.size() << endl;
-        cout << "Parameters: TRUCK=" << TRUCK_SPEED << " m/min, DRONE=" << DRONE_SPEED << " m/min (limit 90min), wait=120min" << endl;
-        cout << "MAX_ITER: " << MAX_ITER << endl;
-        
-        // Khởi tạo xe - LUÔN 3 TRUCK + 3 DRONE
-        vehicles.clear();
-        for (int i = 0; i < 3; ++i) {
-            vehicles.push_back({ i, TRUCK_SPEED, false, 0.0 });
-        }
-        for (int i = 0; i < 3; ++i) {
-            vehicles.push_back({ 3 + i, DRONE_SPEED, true, 120.0 });
-        }
-        
-        auto start_time = chrono::high_resolution_clock::now();
-        Solution sol = tabu_search();
-        auto end_time = chrono::high_resolution_clock::now();
-        chrono::duration<double> elapsed = end_time - start_time;
-        
-        cout << "\n📋 RESULT:" << endl;
-        cout << "Makespan: " << sol.makespan << " min" << endl;
-        cout << "Drone violation: " << sol.drone_violation << " min" << endl;
-        cout << "Waiting violation: " << sol.waiting_violation << " min" << endl;
-        cout << "Fitness: " << sol.fitness << endl;
-        cout << "Feasible: " << (sol.is_feasible ? "✅ YES" : "❌ NO") << endl;
-        cout << "Time: " << elapsed.count() << " seconds" << endl;
-        
-        cout << "\n✅ Finished dataset" << endl;
+    read_dataset(dataset_path);
+    printf(" %d\n", MAX_ITER);
+ 
+    // Khởi tạo danh sách xe 
+    vehicles.clear();
+    int customers = num_nodes-1;
+    int num_techs = 0, num_drones = 0;
+    if (customers >= 6 && customers <= 12) {
+        num_techs = 1;
+        num_drones = 1;
     }
+    else if (customers <= 20) {
+        num_techs = 2;
+        num_drones = 2;
+    }
+    else if (customers <= 50) {
+        num_techs = 3;
+        num_drones = 3;
+    }
+    else if (customers <= 100) {
+        num_techs = 4;
+        num_drones = 4;
+    }
+    else if (customers <= 200) {
+        num_techs = 10;
+        num_drones = 4;
+    }
+    else if (customers <= 500) {
+        num_techs = 10;
+        num_drones = 10;
+    }
+    else if (customers <= 1000) {
+        num_techs = 15;
+        num_drones = 15;
+    }
+
+    for (int i = 0; i < num_techs; ++i) {
+        vehicles.push_back({ i+1, 0.58f, false, 0.0f }); // technician
+    }
+    for (int i = 0; i < num_drones; ++i) {
+        vehicles.push_back({ num_techs + i + 1, 0.83f, true, 120.0f }); // drone
+    }
+
+    Solution sol = tabu_search();
+    print_solution(sol);
+
+    return 0;
 }
