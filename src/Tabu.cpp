@@ -130,11 +130,11 @@ void read_dataset(const string &filename){
     }
     else if (nodes.size() >= 100) {
         // Bộ 100 (100)
-        MAX_ITER = 24000;
+        MAX_ITER = 6000;
     }
     else if (nodes.size() >= 50) {
         // Bộ 50 (50-99)
-        MAX_ITER = 4000;
+        MAX_ITER = 3000;
     }
     else {
         // Bộ nhỏ (6-49)
