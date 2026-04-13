@@ -12,9 +12,8 @@ on:
     paths:
       - "src/Multilevel_Tabu.cpp"
       - "src/Tabu.cpp"
-      - "instances/C*.txt"
-      - "instances/R*.txt"
-      - "instances/RC*.txt"
+      - "instances/50*.txt"
+      - "instances/100*.txt"
       - ".github/workflows/benchmark-gap-lwt.yml"
   pull_request:
     branches: [ main, master, method_A ]
@@ -53,14 +52,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - group: C
-            group_name: "job1-C1-C2"
-          - group: R
-            group_name: "job2-R1-R2"
-          - group: RC1
-            group_name: "job3-RC1"
-          - group: RC2
-            group_name: "job4-RC2"
+          - group: "50"
+            group_name: "job1-50"
+          - group: "100"
+            group_name: "job2-100"
 
     steps:
       - name: Checkout
@@ -114,17 +109,11 @@ jobs:
                   if fn.endswith("_3.txt"):
                       continue
 
-                  if group == "C":
-                      if re.fullmatch(r"C[12]\d{2}\.txt", fn):
+                  if group == "50":
+                      if re.fullmatch(r"50\.\d+\.\d+\.txt", fn):
                           files.append(fn)
-                  elif group == "R":
-                      if re.fullmatch(r"R[12]\d{2}\.txt", fn):
-                          files.append(fn)
-                  elif group == "RC1":
-                      if re.fullmatch(r"RC1\d{2}\.txt", fn):
-                          files.append(fn)
-                  elif group == "RC2":
-                      if re.fullmatch(r"RC2\d{2}\.txt", fn):
+                  elif group == "100":
+                      if re.fullmatch(r"100\.\d+\.\d+\.txt", fn):
                           files.append(fn)
 
               files.sort()
