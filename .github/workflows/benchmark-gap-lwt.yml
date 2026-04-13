@@ -6,9 +6,9 @@ on:
       repeats:
         description: "Runs per dataset per algorithm"
         required: false
-        default: "3"
+                default: "2"
   push:
-    branches: [ main, master, method_A ]
+    branches: [ main, master,  ]
     paths:
       - "src/Multilevel_Tabu.cpp"
       - "src/Tabu.cpp"
@@ -16,7 +16,7 @@ on:
       - "instances/100*.txt"
       - ".github/workflows/benchmark-gap-lwt.yml"
   pull_request:
-    branches: [ main, master, method_A ]
+    branches: [ main, master,  ]
 
 jobs:
   build:
@@ -47,7 +47,7 @@ jobs:
   benchmark:
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+        timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
