@@ -1160,6 +1160,7 @@ Solution tabu_search(){
 }
 
 int main(int argc, char* argv[]){
+    srand(time(nullptr));
     string dataset_path;
     if (argc > 1) {
         dataset_path = argv[1];
