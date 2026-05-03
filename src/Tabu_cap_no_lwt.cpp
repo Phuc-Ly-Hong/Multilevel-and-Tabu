@@ -285,7 +285,7 @@ void evaluate_solution(Solution &sol) {
                 served_in_trip.clear();
                 prev = depot_id;
             } else {
-                current_load += C2[cid-1].demand; // hoặc lấy từ nodes/id nếu bạn có map
+                current_load += C2[cid-1].demand; 
 
                 double travel_time = time_matrix[prev][cid];
                 double entry_time = current_time + travel_time;
