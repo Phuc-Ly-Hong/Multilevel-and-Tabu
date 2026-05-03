@@ -93,6 +93,7 @@ double Beta = 0.5; // tham số điều chỉnh hệ số hàm phạt
 int MAX_ITER;
 int TABU_TENURE;
 int MAX_NO_IMPROVE;
+double CAP;
 double EPSILON = 1e-6;
 
 int MAX_LEVELS = 4;
@@ -160,7 +161,7 @@ void read_dataset(const string &filename){
         cerr << "Error opening file: " << filename <<endl;
         exit(1);
     }
-    nodes.push_back({depot_id,0.0,0.0,-1.0}); // depot
+    nodes.push_back({depot_id,0.0,0.0,-1.0,0.0}); // depot
     string line;
     while (getline(file,line)){
         if (line.empty() || line[0] == '#'|| isalpha(line[0])) continue;
@@ -197,11 +198,13 @@ void read_dataset(const string &filename){
     else if (nodes.size() >= 100) {
         // Bộ 100 (100)
         MAX_ITER = 1000;
+        CAP = 500.0;
         MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 50) {
         // Bộ 50 (50-99)
         MAX_ITER = 500;
+        CAP = 300.0;
         MAX_NO_IMPROVE = 500000;
     }
     else {
@@ -257,6 +260,7 @@ void print_solution(const Solution &sol){
     }
     cout << "Makespan: " << sol.makespan << endl;
     cout << "Drone violation: " << sol.drone_violation << endl;
+    cout << "Capacity violation: " << sol.capacity_violation << endl;
     cout << "Fitness: " << sol.fitness << endl;
 }
 
@@ -342,6 +346,7 @@ void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) 
         int prev = depot_id;
         double current_time = 0;
         double depart_time = 0;
+        double current_load = 0.0;
 
         for (int j = 0; j < sol.route[i].size(); j++) {
             int cid = sol.route[i][j];
@@ -368,14 +373,19 @@ void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) 
                 if (vehicles[i].is_drone){
                     sol.drone_violation += max(0.0, flight_time - vehicles[i].limit_drone);
                 }
-                
-                if (sol.drone_violation > 0 ) {
+
+                sol.capacity_violation += max(0.0, current_load - vehicles[i].capacity);
+                current_load = 0.0;
+
+                if (sol.drone_violation > 0 || sol.capacity_violation > 0) {
                     sol.is_feasible = false;
                 }
                 
                 depart_time = current_time;
                 prev = depot_id;
             } else {
+                current_load += get_demand_for_node(cid, current_level);
+
                 double travel_time = 0.0;
                 double internal_time = 0.0;
                 
@@ -2183,7 +2193,7 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\10.10.1.txt"; 
+        dataset_path = "D:\\New folder\\instances\\50.10.1.txt"; 
     }
 
     if (argc > 2) {
@@ -2242,10 +2252,10 @@ int main(int argc, char* argv[]) {
     }
 
     for (int i = 0; i < num_techs; ++i) {
-        vehicles.push_back({ i+1, 0.58f, false, 0.0f }); // technician
+        vehicles.push_back({ i+1, 0.58f, false, 0.0f, CAP }); // technician
     }
     for (int i = 0; i < num_drones; ++i) {
-        vehicles.push_back({ num_techs + i + 1, 0.83f, true, 120.0f }); // drone
+        vehicles.push_back({ num_techs + i + 1, 0.83f, true, 120.0f, 2.7 }); // drone
     }
 
     /*vector<vector<int>> test_routes = {

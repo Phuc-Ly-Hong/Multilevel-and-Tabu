@@ -8,7 +8,7 @@ on:
         required: false
         default: "3"
   push:
-    branches: [ main, master, method_A ]
+    branches: [ main, master ]
     paths:
       - "src/Multilevel_no_lwt.cpp"
       - "src/Tabu1_no_lwt.cpp"
@@ -17,7 +17,7 @@ on:
       - "instances/RC*.txt"
       - ".github/workflows/benchmark-gap.yml"
   pull_request:
-    branches: [ main, master, method_A ]
+    branches: [ main, master ]
 
 jobs:
   build:

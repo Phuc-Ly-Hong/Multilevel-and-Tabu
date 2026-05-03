@@ -5,6 +5,7 @@ struct Node {
     int id;
     double x,y;
     double c1_or_c2;
+    double demand = 0;
 };
 
 struct VehicleFamily {
@@ -12,12 +13,14 @@ struct VehicleFamily {
     double speed;
     bool is_drone;
     double limit_drone; // (m/phút)
+    double capacity = 0.0;
 };
 
 struct Solution {
     vector<vector<int>> route; // danh sách các khách hàng trong route
     double makespan; // thời gian hoàn thành
     double drone_violation; // tổng số thời gian vi phạm thời gian bay của drone
+    double capacity_violation; // tổng số lượng vượt quá tải
     double fitness; // giá trị hàm mục tiêu
     bool is_feasible; // lời giải có hợp lệ không
 
@@ -57,6 +60,7 @@ double Beta = 0.5; // tham số điều chỉnh hệ số hàm phạt
 
 int MAX_ITER;
 int TABU_TENURE;
+double CAP;
 int MAX_NO_IMPROVE = 700000;
 double EPSILON = 1e-6;
 
@@ -120,7 +124,7 @@ void read_dataset(const string &filename){
         cerr << "Error opening file: " << filename <<endl;
         exit(1);
     }
-    nodes.push_back({depot_id,0.0,0.0,-1.0}); // depot
+    nodes.push_back({depot_id,0.0,0.0,-1.0,0.0}); // depot
     string line;
     while (getline(file,line)){
         if (line.empty() || line[0] == '#'|| isalpha(line[0])) continue;
@@ -129,7 +133,7 @@ void read_dataset(const string &filename){
         double x,y;
         static int id = 1;
         ss >> x >> y >> demand;
-        nodes.push_back({id++,x,y,demand});
+        nodes.push_back({id++,x,y,1.0,demand});
     }
     file.close();
 
@@ -159,16 +163,19 @@ void read_dataset(const string &filename){
         // Bộ 100 (100)
         MAX_ITER = 8000;
         SEGMENT_LENGTH = 100;
+        CAP = 500.0;
     }
     else if (nodes.size() >= 50) {
         // Bộ 50 (50-99)
         MAX_ITER = 4000;
         SEGMENT_LENGTH = 50;
+        CAP = 300.0;
     }
     else {
         // Bộ nhỏ (6-49)
         MAX_ITER = 4000;
         SEGMENT_LENGTH = 50;
+        CAP = 200.0;
     }
     for (const auto& node : nodes) {
         if (node.id == depot_id) {
@@ -215,6 +222,7 @@ void print_solution(const Solution &sol){
     }
     cout << "Makespan: " << sol.makespan << endl;
     cout << "Drone violation: " << sol.drone_violation << endl;
+    cout << "Capacity violation: " << sol.capacity_violation << endl;
     cout << "Fitness: " << sol.fitness << endl;
 }
 
@@ -239,6 +247,7 @@ void evaluate_solution(Solution &sol) {
 
     sol.makespan = 0;
     sol.drone_violation = 0;
+    sol.capacity_violation = 0;
     sol.fitness = 0;
     sol.is_feasible = true;
 
@@ -247,6 +256,7 @@ void evaluate_solution(Solution &sol) {
         int prev = depot_id;
         double current_time = 0;
         double depart_time = 0;
+        double current_load = 0.0;
         vector<pair<int, double>> served_in_trip;
 
         for (int j = 0; j < sol.route[i].size(); j++) {
@@ -260,23 +270,14 @@ void evaluate_solution(Solution &sol) {
                 double arrival_depot = current_time;
                 double flight_time = arrival_depot - depart_time;
                 
-                // Kiểm tra vi phạm thời gian bay của drone
                 if (vehicles[i].is_drone && flight_time > vehicles[i].limit_drone){
                     sol.drone_violation += (flight_time - vehicles[i].limit_drone);
                 }
-                
-                // Kiểm tra vi phạm thời gian chờ của các khách hàng đã phục vụ - DISABLED
-                /*for (auto &p : served_in_trip){
-                    int served_node_id = p.first;
-                    double time_arrived_at_node = p.second;
-                    
-                    double wait_time = arrival_depot - time_arrived_at_node;
-                    if (!C2.empty() && wait_time > C2[0].limit_wait) {
-                        sol.waiting_violation += (wait_time - C2[0].limit_wait);
-                    }
-                }*/
-                
-                if (sol.drone_violation > 0) {
+
+                sol.capacity_violation += max(0.0, current_load - vehicles[i].capacity);
+                current_load = 0.0;
+
+                if (sol.drone_violation > 0 || sol.capacity_violation > 0) {
                     sol.is_feasible = false;
                 }
                 
@@ -284,12 +285,13 @@ void evaluate_solution(Solution &sol) {
                 served_in_trip.clear();
                 prev = depot_id;
             } else {
-                // Di chuyển từ prev đến customer cid
+                current_load += C2[cid-1].demand; // hoặc lấy từ nodes/id nếu bạn có map
+
                 double travel_time = time_matrix[prev][cid];
                 double entry_time = current_time + travel_time;
                 
                 served_in_trip.push_back({cid, entry_time});
-                
+
                 current_time += travel_time;
                 prev = cid;
             }
@@ -297,7 +299,7 @@ void evaluate_solution(Solution &sol) {
         sol.makespan = max(sol.makespan, current_time);
     }
 
-    sol.fitness = sol.makespan + alpha1*sol.drone_violation; // + alpha2*sol.waiting_violation; // Removed waiting violation
+    sol.fitness = sol.makespan + alpha1*sol.drone_violation + alpha2*sol.capacity_violation;
 }
 
 Solution init_greedy_solution() {
@@ -1198,7 +1200,7 @@ int main(int argc, char* argv[]){
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\10.10.1.txt"; 
+        dataset_path = "D:\\New folder\\instances\\50.10.1.txt"; 
     }
 
     read_dataset(dataset_path);
@@ -1249,10 +1251,10 @@ int main(int argc, char* argv[]){
     }
 
     for (int i = 0; i < num_techs; ++i) {
-        vehicles.push_back({ i+1, 0.58f, false, 0.0f }); // technician
+        vehicles.push_back({ i+1, 0.58f, false, 0.0f, CAP }); // technician
     }
     for (int i = 0; i < num_drones; ++i) {
-        vehicles.push_back({ num_techs + i + 1, 0.83f, true, 120.0f }); // drone
+        vehicles.push_back({ num_techs + i + 1, 0.83f, true, 120.0f, 2.7 }); // drone
     }
 
     Solution sol = tabu_search();

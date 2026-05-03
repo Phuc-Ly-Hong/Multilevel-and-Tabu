@@ -1,10 +1,10 @@
-name: Run Tabu Search with Multilevel-like Config Matrix
+name: Run Tabu Capacity Search with Multilevel-like Config Matrix
 
 on:
   push:
-    branches: [ main, master,  ]
+    branches: [ main, master, method_A ]
   pull_request:
-    branches: [ main, master,  ]
+    branches: [ main, master, method_A ]
   workflow_dispatch:
 
 permissions:
@@ -26,14 +26,14 @@ jobs:
 
     - name: Compile executable
       run: |
-        g++ -O3 -std=c++17 -o tabu src/Tabu.cpp
-        chmod +x tabu
+        g++ -O3 -std=c++17 -o tabu_cap src/Tabu_cap_no_lwt.cpp
+        chmod +x tabu_cap
 
     - name: Upload executable
       uses: actions/upload-artifact@v4
       with:
-        name: tabu-executable
-        path: tabu
+        name: tabu-cap-executable
+        path: tabu_cap
         retention-days: 7
 
   run-50-ab:
@@ -60,17 +60,17 @@ jobs:
     - name: Download executable
       uses: actions/download-artifact@v4
       with:
-        name: tabu-executable
+        name: tabu-cap-executable
 
     - name: Run algorithm 5 times
       run: |
-        chmod +x tabu
+        chmod +x tabu_cap
         MAX_ITER_LEVEL=500
         TOTAL_ITER=$((2 * ${{ matrix.num_levels }} * MAX_ITER_LEVEL))
 
         for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 25m ./tabu instances/${{ matrix.instance }}.txt ${TOTAL_ITER} > output_run${run}.txt 2>&1
+          timeout 25m ./tabu_cap instances/${{ matrix.instance }}.txt ${TOTAL_ITER} > output_run${run}.txt 2>&1
           EXIT_CODE=$?
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
@@ -214,17 +214,17 @@ jobs:
     - name: Download executable
       uses: actions/download-artifact@v4
       with:
-        name: tabu-executable
+        name: tabu-cap-executable
 
     - name: Run algorithm 5 times
       run: |
-        chmod +x tabu
+        chmod +x tabu_cap
         MAX_ITER_LEVEL=500
         TOTAL_ITER=$((2 * ${{ matrix.num_levels }} * MAX_ITER_LEVEL))
 
         for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 25m ./tabu instances/${{ matrix.instance }}.txt ${TOTAL_ITER} > output_run${run}.txt 2>&1
+          timeout 25m ./tabu_cap instances/${{ matrix.instance }}.txt ${TOTAL_ITER} > output_run${run}.txt 2>&1
           EXIT_CODE=$?
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
@@ -368,17 +368,17 @@ jobs:
     - name: Download executable
       uses: actions/download-artifact@v4
       with:
-        name: tabu-executable
+        name: tabu-cap-executable
 
     - name: Run algorithm 5 times
       run: |
-        chmod +x tabu
+        chmod +x tabu_cap
         MAX_ITER_LEVEL=1000
         TOTAL_ITER=$((2 * ${{ matrix.num_levels }} * MAX_ITER_LEVEL))
 
         for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 20m ./tabu instances/${{ matrix.instance }}.txt ${TOTAL_ITER} > output_run${run}.txt 2>&1
+          timeout 20m ./tabu_cap instances/${{ matrix.instance }}.txt ${TOTAL_ITER} > output_run${run}.txt 2>&1
           EXIT_CODE=$?
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
@@ -522,17 +522,17 @@ jobs:
     - name: Download executable
       uses: actions/download-artifact@v4
       with:
-        name: tabu-executable
+        name: tabu-cap-executable
 
     - name: Run algorithm 5 times
       run: |
-        chmod +x tabu
+        chmod +x tabu_cap
         MAX_ITER_LEVEL=1000
         TOTAL_ITER=$((2 * ${{ matrix.num_levels }} * MAX_ITER_LEVEL))
 
         for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 20m ./tabu instances/${{ matrix.instance }}.txt ${TOTAL_ITER} > output_run${run}.txt 2>&1
+          timeout 20m ./tabu_cap instances/${{ matrix.instance }}.txt ${TOTAL_ITER} > output_run${run}.txt 2>&1
           EXIT_CODE=$?
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
