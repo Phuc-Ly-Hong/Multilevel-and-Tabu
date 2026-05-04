@@ -1702,7 +1702,7 @@ LevelInfo merge_customers(const LevelInfo& current_level,
     
     // thêm những node không bị merge vào next level
     for (const auto& node : current_level.nodes) {
-        if (node.id == depot_id) continue;
+        if (node.id == depot_id) continue; 
         if (merged_nodes.find(node.id) == merged_nodes.end()) {
             next_level.nodes.push_back(node);
             auto it = current_level.node_mapping.find(node.id);
