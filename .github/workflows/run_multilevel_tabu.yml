@@ -1,10 +1,10 @@
-name: Run Multilevel Tabu Search with Config Matrix
+name: Run Multilevel Tabu Capacity Search with Config Matrix
 
 on:
   push:
-    branches: [ main, master, Method_B ]
+    branches: [ main, master, method_A ]
   pull_request:
-    branches: [ main, master, Method_B ] 
+    branches: [ main, master, method_A ]
   workflow_dispatch:
 
 permissions:
@@ -24,13 +24,13 @@ jobs:
         sudo apt-get install -y g++ bc
     - name: Compile executable
       run: |
-        g++ -O3 -std=c++17 -o multilevel_tabu src/Multilevel_Tabu.cpp
-        chmod +x multilevel_tabu
+        g++ -O3 -std=c++17 -o multilevel_tabu_cap src/ML_cap_no_lwt.cpp
+        chmod +x multilevel_tabu_cap
     - name: Upload executable
       uses: actions/upload-artifact@v4
       with:
-        name: multilevel-tabu-executable
-        path: multilevel_tabu
+        name: multilevel-tabu-cap-executable
+        path: multilevel_tabu_cap
         retention-days: 7
 
   run-50-ab:
@@ -55,13 +55,13 @@ jobs:
     - name: Download executable
       uses: actions/download-artifact@v4
       with:
-        name: multilevel-tabu-executable
+        name: multilevel-tabu-cap-executable
     - name: Run algorithm 5 times
       run: |
-        chmod +x multilevel_tabu
+        chmod +x multilevel_tabu_cap
         for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 25m ./multilevel_tabu instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 1 1 ${{ matrix.merge_ratio }} > output_run${run}.txt 2>&1
+          timeout 25m ./multilevel_tabu_cap instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 1 1 ${{ matrix.merge_ratio }} > output_run${run}.txt 2>&1
           EXIT_CODE=$?
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
@@ -158,13 +158,13 @@ jobs:
     - name: Download executable
       uses: actions/download-artifact@v4
       with:
-        name: multilevel-tabu-executable
+        name: multilevel-tabu-cap-executable
     - name: Run algorithm 5 times
       run: |
-        chmod +x multilevel_tabu
+        chmod +x multilevel_tabu_cap
         for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 25m ./multilevel_tabu instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 1 1 ${{ matrix.merge_ratio }} > output_run${run}.txt 2>&1
+          timeout 25m ./multilevel_tabu_cap instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 1 1 ${{ matrix.merge_ratio }} > output_run${run}.txt 2>&1
           EXIT_CODE=$?
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
@@ -261,13 +261,13 @@ jobs:
     - name: Download executable
       uses: actions/download-artifact@v4
       with:
-        name: multilevel-tabu-executable
+        name: multilevel-tabu-cap-executable
     - name: Run algorithm 5 times
       run: |
-        chmod +x multilevel_tabu
+        chmod +x multilevel_tabu_cap
         for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 20m ./multilevel_tabu instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 1 1 ${{ matrix.merge_ratio }} > output_run${run}.txt 2>&1
+          timeout 20m ./multilevel_tabu_cap instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 1 1 ${{ matrix.merge_ratio }} > output_run${run}.txt 2>&1
           EXIT_CODE=$?
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
@@ -348,13 +348,13 @@ jobs:
     - name: Download executable
       uses: actions/download-artifact@v4
       with:
-        name: multilevel-tabu-executable
+        name: multilevel-tabu-cap-executable
     - name: Run algorithm 5 times
       run: |
-        chmod +x multilevel_tabu
+        chmod +x multilevel_tabu_cap
         for run in {1..5}; do
           START_TIME=$(date +%s.%N)
-          timeout 20m ./multilevel_tabu instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 1 1 ${{ matrix.merge_ratio }} > output_run${run}.txt 2>&1
+          timeout 20m ./multilevel_tabu_cap instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 1 1 ${{ matrix.merge_ratio }} > output_run${run}.txt 2>&1
           EXIT_CODE=$?
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
