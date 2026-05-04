@@ -66,6 +66,7 @@ struct MergedNodeInfo {
     int exit_node_original;                  // Node cuối cùng (exit point)
     int entry_node;
     int exit_node;
+    double merged_demand = 0.0;
     int level_id;
     
     MergedNodeInfo() : merged_node_id(-1), internal_truck_time(0.0), internal_drone_time(0.0), entry_node_original(-1), exit_node_original(-1), entry_node(-1), exit_node(-1), level_id(-1) {}
@@ -301,25 +302,15 @@ double get_demand_for_node(int node_id, const LevelInfo* current_level = nullptr
     if (node_id == depot_id) return 0.0;
 
     if (current_level != nullptr) {
-        auto it_map = current_level->node_mapping.find(node_id);
-        if (it_map != current_level->node_mapping.end()) {
-            double sum = 0.0;
-            for (int orig : it_map->second) {
-                auto it = base_demand_by_node.find(orig);
-                if (it != base_demand_by_node.end()) sum += it->second;
-            }
-            return sum;
+        int idx = find_node_index_fast(node_id);
+        if (idx != -1) {
+            return current_level->nodes[idx].demand;
         }
     }
 
     auto it_merge = merged_nodes_info.find(node_id);
     if (it_merge != merged_nodes_info.end()) {
-        double sum = 0.0;
-        for (int orig : it_merge->second.original_sequence) {
-            auto it = base_demand_by_node.find(orig);
-            if (it != base_demand_by_node.end()) sum += it->second;
-        }
-        return sum;
+        return it_merge->second.merged_demand;
     }
 
     auto it = base_demand_by_node.find(node_id);
@@ -1640,7 +1631,7 @@ LevelInfo merge_customers(const LevelInfo& current_level,
     // Đặt tên mới cho node
     int next_node_id = (next_level.level_id) * 1000;
     
-    next_level.nodes.push_back({depot_id, 0.0, 0.0, -1.0});
+    next_level.nodes.push_back({depot_id, 0.0, 0.0, -1.0, 0.0});
     next_level.node_mapping[depot_id] = {depot_id};
     
     for (const auto& group : merged_groups) {
@@ -1654,6 +1645,7 @@ LevelInfo merge_customers(const LevelInfo& current_level,
                 0.0,
                 0.0,
                 first_node.c1_or_c2,
+                0.0
             };
             next_level.nodes.push_back(merged_node);
 
@@ -1719,6 +1711,13 @@ LevelInfo merge_customers(const LevelInfo& current_level,
                 }
             }
             info.original_sequence = original_nodes;
+            double sum_demand = 0.0;
+            for (int orig : info.original_sequence) {
+                auto it = base_demand_by_node.find(orig);
+                if (it != base_demand_by_node.end()) sum_demand += it->second;
+            }
+            info.merged_demand = sum_demand;
+            next_level.nodes.back().demand = sum_demand;
             next_level.node_mapping[merged_node.id] = original_nodes;
             merged_nodes_info[merged_node.id] = info;
         }
