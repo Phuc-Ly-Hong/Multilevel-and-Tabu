@@ -2151,12 +2151,12 @@ Solution multilevel_tabu_search() {
         cout << "\n⚠️  VIOLATIONS DETECTED:" << endl;
         
         if (test_sol.drone_violation > 0) {
-            cout << "  🚁 Drone flight time exceeded by " << test_sol.drone_violation << " min" << endl;
+            cout << "  Drone flight time exceeded by " << test_sol.drone_violation << " min" << endl;
             cout << "     → Some drones flew > " << vehicles[3].limit_drone << " min without returning to depot" << endl;
         }
         
         if (test_sol.waiting_violation > 0) {
-            cout << "  ⏳ Customer waiting time exceeded by " << test_sol.waiting_violation << " min" << endl;
+            cout << " Customer waiting time exceeded by " << test_sol.waiting_violation << " min" << endl;
             cout << "     → Some customers waited > 60 min for drone to return" << endl;
         }
     } else {
