@@ -186,7 +186,7 @@ void read_dataset(const string &filename){
     }
     else if (nodes.size() >= 200) {
         // Bộ 200 (101-200)
-        MAX_ITER = 6000;
+        MAX_ITER = 2000;
         MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 100) {
@@ -2126,7 +2126,7 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\10.10.1.txt"; 
+        dataset_path = "D:\\New folder\\instances\\200.10.1.txt"; 
     }
 
     if (argc > 2) {
