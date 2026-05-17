@@ -245,6 +245,7 @@ void evaluate_solution(Solution &sol) {
         int prev = depot_id;
         double current_time = 0;
         double depart_time = 0;
+        vector<pair<int, double>> served_in_trip;
 
         for (int j = 0; j < sol.route[i].size(); j++) {
             int cid = sol.route[i][j];
@@ -278,11 +279,11 @@ void evaluate_solution(Solution &sol) {
                 }
                 
                 depart_time = current_time;
+                served_in_trip.clear();
                 prev = depot_id;
             } else {
                 // Di chuyển từ prev đến customer cid
-                double travel_time = time_matrix[prev][cid];
-                                
+                double travel_time = time_matrix[prev][cid];            
                 current_time += travel_time;
                 prev = cid;
             }
