@@ -181,7 +181,7 @@ void read_dataset(const string &filename){
     }
     else if (nodes.size() >= 500) {
         // Bộ 500 (201-500)
-        MAX_ITER = 12500;
+        MAX_ITER = 5000;
         MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 200) {

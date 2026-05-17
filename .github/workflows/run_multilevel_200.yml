@@ -1,4 +1,4 @@
-name: Run Multilevel Tabu - Size 200
+name: Run Multilevel Tabu - Size 500
 
 on:
   push:
@@ -33,12 +33,12 @@ jobs:
     - name: Upload executable
       uses: actions/upload-artifact@v4
       with:
-        name: multilevel-200-executable
+        name: multilevel-500-executable
         path: multilevel_tabu
         retention-days: 7
 
-  run-200-single:
-    name: 200-Single ${{ matrix.instance }}
+  run-500-single:
+    name: 500-Single ${{ matrix.instance }}
     needs: compile
     runs-on: ubuntu-latest
     timeout-minutes: 240  # 4 giờ
@@ -48,7 +48,7 @@ jobs:
       max-parallel: 1
       matrix:
         instance: [
-          "200.10.1"
+          "500.10.1"
         ]
     
     steps:
@@ -58,7 +58,7 @@ jobs:
     - name: Download executable
       uses: actions/download-artifact@v4
       with:
-        name: multilevel-200-executable
+        name: multilevel-500-executable
     
     - name: Run algorithm 1 time
       run: |
@@ -145,6 +145,6 @@ jobs:
     - name: Upload results
       uses: actions/upload-artifact@v4
       with:
-        name: multilevel-200-result-${{ matrix.instance }}
+        name: multilevel-500-result-${{ matrix.instance }}
         path: results.json
         retention-days: 30
