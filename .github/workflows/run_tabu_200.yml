@@ -70,7 +70,7 @@ jobs:
           echo "=== Run $run/1 for ${{ matrix.instance }} ==="
           START_TIME=$(date +%s.%N)
           
-          timeout 30m ./tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
+          timeout 90m ./tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
           EXIT_CODE=$?
           
           END_TIME=$(date +%s.%N)
@@ -103,7 +103,7 @@ jobs:
                 with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
                 
-                runtime = 1800.0  # 30 phút
+                runtime = 5400.0  # 90 phút
                 if os.path.exists(runtime_file):
                     with open(runtime_file, "r") as f:
                         runtime = float(f.read().strip())
@@ -191,7 +191,7 @@ jobs:
           echo "=== Run $run/1 for ${{ matrix.instance }} ==="
           START_TIME=$(date +%s.%N)
           
-          timeout 30m ./tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
+          timeout 90m ./tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
           EXIT_CODE=$?
           
           END_TIME=$(date +%s.%N)
@@ -224,7 +224,7 @@ jobs:
                 with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
                 
-                runtime = 1800.0  # 30 phút
+                runtime = 5400.0  # 90 phút
                 if os.path.exists(runtime_file):
                     with open(runtime_file, "r") as f:
                         runtime = float(f.read().strip())
@@ -312,7 +312,7 @@ jobs:
           echo "=== Run $run/1 for ${{ matrix.instance }} ==="
           START_TIME=$(date +%s.%N)
           
-          timeout 30m ./tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
+          timeout 90m ./tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
           EXIT_CODE=$?
           
           END_TIME=$(date +%s.%N)
@@ -345,7 +345,7 @@ jobs:
                 with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
                 
-                runtime = 1800.0  # 30 phút
+                runtime = 5400.0  # 90 phút
                 if os.path.exists(runtime_file):
                     with open(runtime_file, "r") as f:
                         runtime = float(f.read().strip())
@@ -433,7 +433,7 @@ jobs:
           echo "=== Run $run/1 for ${{ matrix.instance }} ==="
           START_TIME=$(date +%s.%N)
           
-          timeout 30m ./tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
+          timeout 90m ./tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
           EXIT_CODE=$?
           
           END_TIME=$(date +%s.%N)
@@ -466,7 +466,7 @@ jobs:
                 with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
                 
-                runtime = 1800.0  # 30 phút
+                runtime = 5400.0  # 90 phút
                 if os.path.exists(runtime_file):
                     with open(runtime_file, "r") as f:
                         runtime = float(f.read().strip())
