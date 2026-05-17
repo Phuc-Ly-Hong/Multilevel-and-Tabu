@@ -61,7 +61,6 @@ int MAX_NO_IMPROVE = 700000;
 double EPSILON = 1e-6;
 
 // Adaptive parameters
-int SEGMENT_LENGTH;
 vector<string> MOVE_SET = {"1-0", "1-1", "2-0", "2-1", "2-2", "2-opt"};
 vector<double> weights = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
 vector<double> scorePi = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
@@ -137,38 +136,37 @@ void read_dataset(const string &filename){
     if (nodes.size() > 1000) {
         // Bộ rất lớn (> 1000)
         MAX_ITER = 50000;
-        SEGMENT_LENGTH = 5000;
+        //SEGMENT_LENGTH = 5000;
     }
     else if (nodes.size() >= 1000) {
         // Bộ 1000 (501-1000)
         MAX_ITER = 200000;
-        SEGMENT_LENGTH = 2500;
+        //SEGMENT_LENGTH = 2500;
     }
     else if (nodes.size() >= 500) {
         // Bộ 500 (201-500)
-        MAX_ITER = 100000;
-        SEGMENT_LENGTH = 1250;
+        MAX_ITER = 40000;
+        //SEGMENT_LENGTH = 1250;
     }
     else if (nodes.size() >= 200) {
         // Bộ 200 (101-200)
-        MAX_ITER = 48000;
-        SEGMENT_LENGTH = 600;
-        MAX_NO_IMPROVE = 500000;
+        MAX_ITER = 16000;
+        //SEGMENT_LENGTH = 600;
     }
     else if (nodes.size() >= 100) {
         // Bộ 100 (100)
         MAX_ITER = 8000;
-        SEGMENT_LENGTH = 100;
+        //SEGMENT_LENGTH = 100;
     }
     else if (nodes.size() >= 50) {
         // Bộ 50 (50-99)
         MAX_ITER = 4000;
-        SEGMENT_LENGTH = 50;
+        //SEGMENT_LENGTH = 50;
     }
     else {
         // Bộ nhỏ (6-49)
         MAX_ITER = 4000;
-        SEGMENT_LENGTH = 50;
+        //SEGMENT_LENGTH = 50;
     }
     for (const auto& node : nodes) {
         if (node.id == depot_id) {
@@ -1194,30 +1192,23 @@ Solution tabu_search(){
 int main(int argc, char* argv[]){
     srand(time(nullptr));
     string dataset_path;
-    int manual_iter_per_segment = -1;
-    int manual_total_segments = -1;
 
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\50.40.1.txt"; 
-    }
-
-    if (argc > 3) {
-        manual_iter_per_segment = max(1, atoi(argv[2]));
-        manual_total_segments = max(1, atoi(argv[3]));
+        dataset_path = "D:\\New folder\\instances\\10.10.1.txt"; 
     }
 
     read_dataset(dataset_path);
 
-    if (manual_iter_per_segment > 0 && manual_total_segments > 0) {
-        SEGMENT_LENGTH = manual_iter_per_segment;
-        MAX_ITER = manual_iter_per_segment * manual_total_segments;
+    if (argc > 2) {
+        int override_max_iter = atoi(argv[2]);
+        if (override_max_iter > 0) {
+            MAX_ITER = override_max_iter;
+        }
     }
 
     cout << "\n=== CONFIGURATION ===" << endl;
-    cout << "ITER_PER_SEGMENT: " << SEGMENT_LENGTH << endl;
-    cout << "TOTAL_SEGMENTS: " << max(1, MAX_ITER / max(1, SEGMENT_LENGTH)) << endl;
     cout << "MAX_ITER: " << MAX_ITER << endl;
 
     printf(" %d\n", MAX_ITER);
