@@ -283,7 +283,8 @@ void evaluate_solution(Solution &sol) {
                 prev = depot_id;
             } else {
                 // Di chuyển từ prev đến customer cid
-                double travel_time = time_matrix[prev][cid];            
+                double travel_time = time_matrix[prev][cid];
+                double entry_time = current_time + travel_time;            
                 current_time += travel_time;
                 prev = cid;
             }
