@@ -20,6 +20,8 @@ struct Solution {
     double drone_violation; // tổng số thời gian vi phạm thời gian bay của drone
     double fitness; // giá trị hàm mục tiêu
     bool is_feasible; // lời giải có hợp lệ không
+    vector<double> route_time; // thời gian hoàn thành theo từng xe
+    vector<double> route_drone_violation; // vi phạm theo từng xe
 
     Solution(): makespan(0), drone_violation(0), fitness(DBL_MAX), is_feasible(true) {}
 };
@@ -39,12 +41,18 @@ struct TabuMove {
     int tenure; // số vòng lặp còn lại move này bị tabu
 };
 
+struct RouteEval {
+    double time;
+    double drone_violation;
+};
+
 vector<vector<double>> distances;
 vector<vector<double>> truck_times;
 vector<vector<double>> drone_times;
 vector<Node> C1; // customers served only by technicians
 vector<Node> C2; // customers served by drones or technicians
 vector<VehicleFamily> vehicles;
+vector<int> node_type; // 1 = C1, 2 = C2
 
 constexpr double TRUCK_SPEED = 0.58;
 constexpr double DRONE_SPEED = 0.83;
@@ -191,12 +199,15 @@ void read_dataset(const string &filename){
     build_time_matrices_from_distance(distances, truck_times, drone_times);
 
     // Phân loại khách hàng
+    node_type.assign(nodes.size(), -1);
     for (const auto& node : nodes){
         if (node.id == depot_id) continue;
         if (node.c1_or_c2 > 0){
             C2.push_back(node);
+            if (node.id >= 0 && node.id < (int)node_type.size()) node_type[node.id] = 2;
         } else if (node.c1_or_c2 == 0) {
             C1.push_back(node);
+            if (node.id >= 0 && node.id < (int)node_type.size()) node_type[node.id] = 1;
         }
     }
     cout << "C1 size: " << C1.size() << ", C2 size: " << C2.size() << endl;
@@ -216,6 +227,47 @@ void print_solution(const Solution &sol){
     cout << "Fitness: " << sol.fitness << endl;
 }
 
+void normalize_route(vector<int> &route);
+
+void print_drone_violation_details(const Solution &sol){
+    bool any = false;
+    cout << "Drone violation details:" << endl;
+    for (size_t v = 0; v < sol.route.size(); v++) {
+        if (!vehicles[v].is_drone) continue;
+        vector<int> route = sol.route[v];
+        normalize_route(route);
+        const vector<vector<double>>& time_matrix = drone_times;
+        int prev = depot_id;
+        double current_time = 0.0;
+        double depart_time = 0.0;
+        int trip_idx = 0;
+
+        for (int cid : route) {
+            if (cid == depot_id) {
+                if (prev != depot_id) current_time += time_matrix[prev][depot_id];
+                double arrival_depot = current_time;
+                double flight_time = arrival_depot - depart_time;
+                if (flight_time > vehicles[v].limit_drone + EPSILON) {
+                    any = true;
+                    cout << "Vehicle " << v
+                         << " trip " << trip_idx
+                         << " flight=" << flight_time
+                         << " limit=" << vehicles[v].limit_drone
+                         << " violation=" << (flight_time - vehicles[v].limit_drone)
+                         << endl;
+                }
+                depart_time = current_time;
+                prev = depot_id;
+                trip_idx++;
+            } else {
+                current_time += time_matrix[prev][cid];
+                prev = cid;
+            }
+        }
+    }
+    if (!any) cout << "No drone violations." << endl;
+}
+
 void normalize_route(vector<int> &route) {
     if (route.empty()) { route.push_back(depot_id); return; }
     vector<int> tmp;
@@ -232,6 +284,33 @@ void normalize_route(vector<int> &route) {
     route.swap(tmp);
 }
 
+RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle) {
+    normalize_route(route);
+    const vector<vector<double>>& time_matrix = vehicle.is_drone ? drone_times : truck_times;
+    int prev = depot_id;
+    double current_time = 0.0;
+    double depart_time = 0.0;
+    double violation = 0.0;
+
+    for (int cid : route) {
+        if (cid == depot_id) {
+            if (prev != depot_id) current_time += time_matrix[prev][depot_id];
+            double arrival_depot = current_time;
+            double flight_time = arrival_depot - depart_time;
+            if (vehicle.is_drone && flight_time > vehicle.limit_drone) {
+                violation += (flight_time - vehicle.limit_drone);
+            }
+            depart_time = current_time;
+            prev = depot_id;
+        } else {
+            current_time += time_matrix[prev][cid];
+            prev = cid;
+        }
+    }
+
+    return {current_time, violation};
+}
+
 void evaluate_solution(Solution &sol) {
     for (auto &route : sol.route) normalize_route(route);
 
@@ -240,59 +319,51 @@ void evaluate_solution(Solution &sol) {
     sol.fitness = 0;
     sol.is_feasible = true;
 
-    for (size_t i = 0; i < sol.route.size(); i++){
-        const vector<vector<double>>& time_matrix = vehicles[i].is_drone ? drone_times : truck_times;
-        int prev = depot_id;
-        double current_time = 0;
-        double depart_time = 0;
-        vector<pair<int, double>> served_in_trip;
+    sol.route_time.assign(sol.route.size(), 0.0);
+    sol.route_drone_violation.assign(sol.route.size(), 0.0);
 
-        for (int j = 0; j < sol.route[i].size(); j++) {
-            int cid = sol.route[i][j];
-            
-            if (cid == depot_id){
-                if (prev != depot_id){
-                    current_time += time_matrix[prev][depot_id];
-                }
-                
-                double arrival_depot = current_time;
-                double flight_time = arrival_depot - depart_time;
-                
-                // Kiểm tra vi phạm thời gian bay của drone
-                if (vehicles[i].is_drone && flight_time > vehicles[i].limit_drone){
-                    sol.drone_violation += (flight_time - vehicles[i].limit_drone);
-                }
-                
-                // Kiểm tra vi phạm thời gian chờ của các khách hàng đã phục vụ - DISABLED
-                /*for (auto &p : served_in_trip){
-                    int served_node_id = p.first;
-                    double time_arrived_at_node = p.second;
-                    
-                    double wait_time = arrival_depot - time_arrived_at_node;
-                    if (!C2.empty() && wait_time > C2[0].limit_wait) {
-                        sol.waiting_violation += (wait_time - C2[0].limit_wait);
-                    }
-                }*/
-                
-                if (sol.drone_violation > 0) {
-                    sol.is_feasible = false;
-                }
-                
-                depart_time = current_time;
-                served_in_trip.clear();
-                prev = depot_id;
-            } else {
-                // Di chuyển từ prev đến customer cid
-                double travel_time = time_matrix[prev][cid];
-                double entry_time = current_time + travel_time;            
-                current_time += travel_time;
-                prev = cid;
-            }
-        }
-        sol.makespan = max(sol.makespan, current_time);
+    for (size_t i = 0; i < sol.route.size(); i++){
+        RouteEval eval = evaluate_route(sol.route[i], vehicles[i]);
+        sol.route_time[i] = eval.time;
+        sol.route_drone_violation[i] = eval.drone_violation;
+        sol.makespan = max(sol.makespan, eval.time);
+        sol.drone_violation += eval.drone_violation;
     }
 
+    if (sol.drone_violation > 0) sol.is_feasible = false;
+
     sol.fitness = sol.makespan + alpha1*sol.drone_violation; // + alpha2*sol.waiting_violation; // Removed waiting violation
+}
+
+void recompute_solution_from_cache(Solution &sol) {
+    sol.makespan = 0.0;
+    sol.drone_violation = 0.0;
+    for (size_t i = 0; i < sol.route_time.size(); i++) {
+        sol.makespan = max(sol.makespan, sol.route_time[i]);
+        sol.drone_violation += sol.route_drone_violation[i];
+    }
+    sol.is_feasible = (sol.drone_violation <= EPSILON);
+    sol.fitness = sol.makespan + alpha1 * sol.drone_violation;
+}
+
+void recompute_solution_for_routes(Solution &sol, size_t v1, size_t v2, bool has_second) {
+    if (sol.route_time.size() != sol.route.size() || sol.route_drone_violation.size() != sol.route.size()) {
+        evaluate_solution(sol);
+        return;
+    }
+    RouteEval eval1 = evaluate_route(sol.route[v1], vehicles[v1]);
+    sol.route_time[v1] = eval1.time;
+    sol.route_drone_violation[v1] = eval1.drone_violation;
+    if (has_second && v2 != v1) {
+        RouteEval eval2 = evaluate_route(sol.route[v2], vehicles[v2]);
+        sol.route_time[v2] = eval2.time;
+        sol.route_drone_violation[v2] = eval2.drone_violation;
+    }
+    recompute_solution_from_cache(sol);
+}
+
+void recompute_solution_for_route(Solution &sol, size_t v1) {
+    recompute_solution_for_routes(sol, v1, v1, false);
 }
 
 Solution init_greedy_solution() {
@@ -391,8 +462,7 @@ bool contains_depot_in_range(const vector<int>& route, size_t start, size_t end)
 }
 
 int get_type(int nid) {
-    for (const auto& n : C1) if (n.id == nid) return 1;
-    for (const auto& n : C2) if (n.id == nid) return 2;
+    if (nid >= 0 && nid < (int)node_type.size()) return node_type[nid];
     return -1;
 }
 
@@ -491,7 +561,7 @@ Solution move_1_0(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
         new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2, cid);
     }
     
-    evaluate_solution(new_sol);
+    recompute_solution_for_routes(new_sol, v1, v2, true);
     return new_sol;
 }
 
@@ -501,7 +571,7 @@ Solution move_1_1(Solution current_sol, size_t v1, size_t node1, size_t v2, size
     int cid2 = new_sol.route[v2][node2];
     if (cid1 == depot_id || cid2 == depot_id) return current_sol; // không di chuyển depot
     swap(new_sol.route[v1][node1], new_sol.route[v2][node2]);
-    evaluate_solution(new_sol);
+    recompute_solution_for_routes(new_sol, v1, v2, true);
     return new_sol;
 }
 
@@ -538,7 +608,7 @@ Solution move_2_0(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
         new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2 + 1, cid2);
     }
 
-    evaluate_solution(new_sol);
+    recompute_solution_for_routes(new_sol, v1, v2, true);
     return new_sol;
 }
 
@@ -591,7 +661,7 @@ Solution move_2_1(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
     new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2, cid1);
     new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2 + 1, cid2);
 
-    evaluate_solution(new_sol);
+    recompute_solution_for_routes(new_sol, v1, v2, true);
     return new_sol;
 }
 
@@ -643,7 +713,7 @@ Solution move_2_2(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
     new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2, cid1);
     new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2 + 1, cid2);
 
-    evaluate_solution(new_sol);
+    recompute_solution_for_routes(new_sol, v1, v2, true);
     return new_sol;
 }
 
@@ -695,7 +765,11 @@ Solution move_2opt(Solution current_sol, size_t v1, size_t pos1, size_t v2, size
         
     }
 
-    evaluate_solution(new_sol);
+    if (v1 == v2) {
+        recompute_solution_for_route(new_sol, v1);
+    } else {
+        recompute_solution_for_routes(new_sol, v1, v2, true);
+    }
     return new_sol;
 }
 
@@ -1097,7 +1171,6 @@ Solution tabu_search(){
         
         if (should_apply_move) {
             current_sol = best_Neighbor_sol;
-            evaluate_solution(current_sol);
 
             /*cout << "Iter: " << iter << " Move: " << move_type 
                  << " current makespan: " << current_sol.makespan 
@@ -1193,7 +1266,7 @@ int main(int argc, char* argv[]){
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\10.10.1.txt"; 
+        dataset_path = "D:\\New folder\\instances\\50.10.1.txt"; 
     }
 
     read_dataset(dataset_path);
@@ -1252,6 +1325,9 @@ int main(int argc, char* argv[]){
 
     Solution sol = tabu_search();
     print_solution(sol);
+    if (sol.drone_violation > EPSILON) {
+        print_drone_violation_details(sol);
+    }
 
     return 0;
 }
