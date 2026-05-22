@@ -108,6 +108,7 @@ vector<double> weights = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
 vector<double> scorePi = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 vector<double> used_count = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 
+
 const double delta1 = 0.3;
 const double delta2 = 0.2;
 const double delta3 = 0.1;
@@ -212,15 +213,7 @@ void read_dataset(const string &filename){
         MAX_NO_IMPROVE = 500000;
     }
 
-    for (const auto& node : nodes) {
-        if (node.id == depot_id) {
-            cout << "Node id: " << node.id << " (depot), x: " << node.x << ", y: " << node.y << endl;
-            continue;
-        } else {
-            cout << "Node id: " << node.id << ", x: " << node.x << ", y: " << node.y
-                 << ", type: " << (node.c1_or_c2 > 0 ? "C2" : "C1") << endl;
-        }
-    }
+    // Node detail logging removed for performance.
 
     // Tính ma trận khoảng cách hình học để suy ra ma trận thời gian.
     base_distance_matrix.resize(nodes.size(), vector<double>(nodes.size(), 0));
@@ -265,6 +258,7 @@ unordered_map<int, int> node_id_to_index_cache;
 
 void update_node_index_cache(const LevelInfo& level) {
     node_id_to_index_cache.clear();
+    node_id_to_index_cache.reserve(level.nodes.size() * 2);
     for (size_t i = 0; i < level.nodes.size(); i++) {
         node_id_to_index_cache[level.nodes[i].id] = i; 
     }
@@ -486,12 +480,7 @@ Solution init_greedy_solution() {
         if (v < extra_customers) vehicle_quota[v]++; 
     }
 
-    cout << "\n📊 CUSTOMER ALLOCATION:" << endl;
-    for (size_t v = 0; v < vehicles.size(); v++) {
-        cout << "Vehicle " << v << " (" 
-             << (vehicles[v].is_drone ? "Drone" : "Tech") 
-             << "): " << vehicle_quota[v] << " customers" << endl;
-    }
+    // Customer allocation logging removed for performance.
 
     vector<int> current_pos(vehicles.size());
     vector<int> assigned_count(vehicles.size(), 0);
@@ -913,6 +902,23 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
     Solution best_sol = initial_sol;
     Solution current_sol = initial_sol;
 
+    unordered_map<int, int> level_type_cache;
+    if (current_level != nullptr) {
+        level_type_cache.reserve(current_level->nodes.size() * 2);
+        for (const auto& node : current_level->nodes) {
+            if (node.id == depot_id) continue;
+            level_type_cache[node.id] = (node.c1_or_c2 > 0) ? 2 : 1;
+        }
+    }
+    auto get_type_fast = [&](int nid) -> int {
+        if (current_level != nullptr) {
+            auto it = level_type_cache.find(nid);
+            return (it != level_type_cache.end()) ? it->second : -1;
+        }
+        auto it = base_type_by_node.find(nid);
+        return (it != base_type_by_node.end()) ? it->second : -1;
+    };
+
     vector<TabuMove> tabu_list; // danh sách các move bị tabu
     int no_improve_count = 0;
     int last_depot_opt_iter = 0;
@@ -920,7 +926,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
     const int max_no_improve_segment = 8;
 
     vector<string> move_types = {"1-0", "1-1", "2-0", "2-1", "2-2", "2-opt"};
-    
+
     for (int iter = 0; iter < MAX_ITER && no_improve_count < MAX_NO_IMPROVE; iter++){
         double best_Neighbor_fitness = DBL_MAX;
         Solution best_Neighbor_sol = current_sol;
@@ -935,13 +941,22 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
         string move_type = MOVE_SET[move_type_idx];
         used_count[move_type_idx]++;
 
+        vector<int> customer_count_per_vehicle(current_sol.route.size(), 0);
+        for (size_t v = 0; v < current_sol.route.size(); v++) {
+            int count = 0;
+            for (int node : current_sol.route[v]) {
+                if (node != depot_id) count++;
+            }
+            customer_count_per_vehicle[v] = count;
+        }
+
         // move 1-0
         if (move_type == "1-0") {
             for (size_t v1 = 0; v1 < current_sol.route.size(); v1++) {
                 for (size_t pos1 = 1; pos1 < current_sol.route[v1].size()-1; pos1++) {
                     int n1 = current_sol.route[v1][pos1];
                     if (n1 == depot_id) continue;
-                    int customer_count_v1 = count_customers_in_vehicle(current_sol, v1);
+                    int customer_count_v1 = customer_count_per_vehicle[v1];
                     if (customer_count_v1 <= 1) continue; 
 
                     for (size_t v2 = 0; v2 < current_sol.route.size(); v2++) {
@@ -949,12 +964,12 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                         for (size_t pos2 = 1; pos2 <= current_sol.route[v2].size(); pos2++) {
                             if (pos2 == current_sol.route[v2].size()){
                                 if (!vehicles[v2].is_drone) continue;
-                                if (get_type(n1, current_level) == 1) continue;
+                                if (get_type_fast(n1) == 1) continue;
                                 if (v1 == v2) continue;
                             } else {
                                 if (v1 == v2) continue;
                                 if (pos2 == current_sol.route[v2].size() - 1) continue;
-                                if (get_type(n1, current_level) == 1 && vehicles[v2].is_drone) continue;
+                                if (get_type_fast(n1) == 1 && vehicles[v2].is_drone) continue;
                             }
 
                             Solution new_sol = move_1_0(current_sol, v1, pos1, v2, pos2, current_level);
@@ -996,7 +1011,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                     for (size_t v2 = 0; v2 < vehicles.size(); v2++) {
                         for (size_t pos2 = 1; pos2 < current_sol.route[v2].size()-1; pos2++) {
                             int n2 = current_sol.route[v2][pos2];
-                            if (n2 == depot_id || n1 == n2 || get_type(n1, current_level) != get_type(n2, current_level) || ((abs(int(pos1)-int(pos2)) <= 1) && (v1 == v2))) continue;
+                            if (n2 == depot_id || n1 == n2 || get_type_fast(n1) != get_type_fast(n2) || ((abs(int(pos1)-int(pos2)) <= 1) && (v1 == v2))) continue;
 
                             Solution new_sol = move_1_1(current_sol, v1, pos1, v2, pos2, current_level);
                             TabuMove move = {"1-1", n1, -1, n2, -1, (int)v1, (int)v2, (int)pos1, -1, (int)pos2, -1, TABU_TENURE};
@@ -1034,9 +1049,10 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                     int n1 = current_sol.route[v1][pos1];
                     int n2 = current_sol.route[v1][pos1+1];
                     if (n1 == depot_id || n2 == depot_id) continue;
+                    if (customer_count_per_vehicle[v1] <= 2) continue;
                     for (size_t v2 = 0; v2 < vehicles.size(); v2++){
                         if (v1 == v2) continue;
-                        if ((get_type(n1, current_level) == 1 || get_type(n2, current_level) == 1) && vehicles[v2].is_drone) continue;
+                        if ((get_type_fast(n1) == 1 || get_type_fast(n2) == 1) && vehicles[v2].is_drone) continue;
                         for (size_t pos2 = 1; pos2 <= current_sol.route[v2].size(); pos2++){
                             if (pos2 == current_sol.route[v2].size() && !vehicles[v2].is_drone) {
                                 continue;
@@ -1079,14 +1095,16 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                     int n1 = current_sol.route[v1][pos1];
                     int n2 = current_sol.route[v1][pos1+1];
                     if (n1 == depot_id || n2 == depot_id) continue;
+                    if (customer_count_per_vehicle[v1] <= 2) continue;
                     for (size_t v2 = 0; v2 < vehicles.size(); v2++){
                         if (v1 == v2) continue;
+                        if (customer_count_per_vehicle[v2] <= 1) continue;
                         for (size_t pos2 = 1; pos2 < current_sol.route[v2].size()-1; pos2++){
                             int n3 = current_sol.route[v2][pos2];
                             if (n3 == depot_id) continue;
                             if (v1 == v2 && (abs(int(pos1)-int(pos2)) <= 2)) continue;
-                            if ((get_type(n1, current_level) == 1 || get_type(n2, current_level) == 1) && vehicles[v2].is_drone) continue;
-                            if (get_type(n3, current_level) == 1 && vehicles[v1].is_drone) continue;
+                            if ((get_type_fast(n1) == 1 || get_type_fast(n2) == 1) && vehicles[v2].is_drone) continue;
+                            if (get_type_fast(n3) == 1 && vehicles[v1].is_drone) continue;
                             Solution new_sol = move_2_1(current_sol, v1, pos1, v2, pos2, current_level);
                             TabuMove move = {"2-1", n1, n2, n3, -1, (int)v1, (int)v2, (int)pos1, (int)pos1+1, (int)pos2, -1, TABU_TENURE};
                             bool tabu = is_tabu(tabu_list, move);
@@ -1122,14 +1140,16 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                     int n1 = current_sol.route[v1][pos1];
                     int n2 = current_sol.route[v1][pos1+1];
                     if (n1 == depot_id || n2 == depot_id) continue;
+                    if (customer_count_per_vehicle[v1] <= 2) continue;
                     for (size_t v2 = 0; v2 < vehicles.size(); v2++){
                         if (v1 == v2) continue;
+                        if (customer_count_per_vehicle[v2] <= 2) continue;
                         for (size_t pos2 = 1; pos2 < current_sol.route[v2].size() - 2; pos2++){
                             int n3 = current_sol.route[v2][pos2];
                             int n4 = current_sol.route[v2][pos2+1];
                             if (n3 == depot_id || n4 == depot_id) continue;
-                            if ((get_type(n1, current_level) == 1 || get_type(n2, current_level) == 1) && vehicles[v2].is_drone) continue;
-                            if ((get_type(n3, current_level) == 1 || get_type(n4, current_level) == 1) && vehicles[v1].is_drone) continue;
+                            if ((get_type_fast(n1) == 1 || get_type_fast(n2) == 1) && vehicles[v2].is_drone) continue;
+                            if ((get_type_fast(n3) == 1 || get_type_fast(n4) == 1) && vehicles[v1].is_drone) continue;
 
                             Solution new_sol = move_2_2(current_sol, v1, pos1, v2, pos2, current_level);
                             TabuMove move = {"2-2", n1, n2, n3, n4, int(v1), int(v2), int(pos1), int(pos1+1), int(pos2), int(pos2+1), TABU_TENURE};
@@ -1212,7 +1232,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                             if (vehicles[v2].is_drone) {
                                 for (size_t i = pos1; i < current_sol.route[v1].size() - 1; i++) {
                                     int cid = current_sol.route[v1][i];
-                                    if (cid != depot_id && get_type(cid, current_level) == 1) {  
+                                    if (cid != depot_id && get_type_fast(cid) == 1) {  
                                         invalid_move = true;
                                         break;
                                     }
@@ -1222,7 +1242,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                             if (!invalid_move && vehicles[v1].is_drone) {
                                 for (size_t i = pos2; i < current_sol.route[v2].size() - 1; i++) {
                                     int cid = current_sol.route[v2][i];
-                                    if (cid != depot_id && get_type(cid, current_level) == 1) {  
+                                    if (cid != depot_id && get_type_fast(cid) == 1) {  
                                         invalid_move = true;
                                         break;
                                     }
@@ -1498,8 +1518,12 @@ LevelInfo merge_customers(const LevelInfo& current_level,
     
     //cout << "\n=== MERGING " << num_to_merge << " / " << candidates.size() << " EDGES (20%) ===" << endl;
     
-    set<int> merged_nodes;
+    unordered_set<int> merged_nodes;
+    merged_nodes.reserve(candidates.size() * 2);
     vector<vector<int>> merged_groups;
+    merged_groups.reserve(num_to_merge);
+    unordered_map<int, int> node_to_group;
+    node_to_group.reserve(candidates.size() * 2);
     
     for (int i = 0; i < num_to_merge && i < candidates.size(); i++) {
         double distance = get<0>(candidates[i]);
@@ -1510,78 +1534,78 @@ LevelInfo merge_customers(const LevelInfo& current_level,
             continue;
         }
         
-        bool already_merged_together = false;
-        for (const auto& group : merged_groups) {
-            bool has_a = (find(group.begin(), group.end(), node_a) != group.end());
-            bool has_b = (find(group.begin(), group.end(), node_b) != group.end());
-            if (has_a && has_b) {
-                already_merged_together = true;
-                break;
-            }
-        }
-        
-        if (already_merged_together) {
+        int group_idx_a = -1;
+        int group_idx_b = -1;
+        auto it_a = node_to_group.find(node_a);
+        if (it_a != node_to_group.end()) group_idx_a = it_a->second;
+        auto it_b = node_to_group.find(node_b);
+        if (it_b != node_to_group.end()) group_idx_b = it_b->second;
+
+        if (group_idx_a != -1 && group_idx_a == group_idx_b) {
             continue;
-        }
-        
-        // Tìm hoặc tạo group chứa node_a và node_b
-        int group_idx_a = -1, group_idx_b = -1;
-        
-        for (size_t g = 0; g < merged_groups.size(); g++) {
-            if (find(merged_groups[g].begin(), merged_groups[g].end(), node_a) != merged_groups[g].end()) {
-                group_idx_a = g;
-            }
-            if (find(merged_groups[g].begin(), merged_groups[g].end(), node_b) != merged_groups[g].end()) {
-                group_idx_b = g;
-            }
         }
         
         // Case 1: Cả 2 đều chưa có trong group nào -> Tạo group mới
         if (group_idx_a == -1 && group_idx_b == -1) {
             merged_groups.push_back({node_a, node_b});
+            int new_idx = static_cast<int>(merged_groups.size() - 1);
+            node_to_group[node_a] = new_idx;
+            node_to_group[node_b] = new_idx;
             merged_nodes.insert(node_a);
             merged_nodes.insert(node_b);
             // Merge logging removed for performance.
         }
         // Case 2: node_a đã có group, node_b chưa -> Thêm node_b vào group của node_a
         else if (group_idx_a != -1 && group_idx_b == -1) {
+            auto& group = merged_groups[group_idx_a];
+            if (group.empty()) continue;
             // Kiểm tra node a ở đầu hay cuối group
-            if (merged_groups[group_idx_a].back() == node_a){
-                merged_groups[group_idx_a].push_back(node_b);
-            } else if (merged_groups[group_idx_a].front() == node_a){
-                merged_groups[group_idx_a].insert(merged_groups[group_idx_a].begin(), node_b);
+            if (group.back() == node_a){
+                group.push_back(node_b);
+            } else if (group.front() == node_a){
+                group.insert(group.begin(), node_b);
             } else {
                 // Không nên xảy ra
                 cout << " Warning: node " << node_a << " not at group ends!" << endl;
                 continue;
             }
+            node_to_group[node_b] = group_idx_a;
             merged_nodes.insert(node_b);
               // Merge logging removed for performance.
         }
         // Case 3: node_b đã có group, node_a chưa -> Thêm node_a vào group của node_b
         else if (group_idx_a == -1 && group_idx_b != -1) {
-            if (merged_groups[group_idx_b].front() == node_b){
-                merged_groups[group_idx_b].insert(merged_groups[group_idx_b].begin(), node_a);
-            } else if (merged_groups[group_idx_b].back() == node_b){
-                merged_groups[group_idx_b].push_back(node_a);
+            auto& group = merged_groups[group_idx_b];
+            if (group.empty()) continue;
+            if (group.front() == node_b){
+                group.insert(group.begin(), node_a);
+            } else if (group.back() == node_b){
+                group.push_back(node_a);
             } else {
                 // Không nên xảy ra
                 continue;
             }
+            node_to_group[node_a] = group_idx_b;
             merged_nodes.insert(node_a);
               // Merge logging removed for performance.
         }
         // Case 4: Cả 2 đã có group khác nhau → Merge 2 groups
         else if (group_idx_a != group_idx_b) {
             // Chỉ nối nếu node_a ở cuối group_a VÀ node_b ở đầu group_b
-            if (merged_groups[group_idx_a].back() == node_a && merged_groups[group_idx_b].front() == node_b) {
+            auto& group_a = merged_groups[group_idx_a];
+            auto& group_b = merged_groups[group_idx_b];
+            if (group_a.empty() || group_b.empty()) continue;
+            if (group_a.back() == node_a && group_b.front() == node_b) {
                 // Nối group_b vào cuối group_a
-                merged_groups[group_idx_a].insert(
-                    merged_groups[group_idx_a].end(),
-                    merged_groups[group_idx_b].begin(),
-                    merged_groups[group_idx_b].end()
+                group_a.insert(
+                    group_a.end(),
+                    group_b.begin(),
+                    group_b.end()
                 );
-                merged_groups.erase(merged_groups.begin() + group_idx_b);
+                for (int node : group_b) {
+                    node_to_group[node] = group_idx_a;
+                }
+                group_b.clear();
                 // Merge logging removed for performance.
             } else {
                 // Merge logging removed for performance.
@@ -1600,6 +1624,7 @@ LevelInfo merge_customers(const LevelInfo& current_level,
     next_level.node_mapping[depot_id] = {depot_id};
     
     for (const auto& group : merged_groups) {
+        if (group.empty()) continue;
         int first_node_id = group[0];
         int idx = find_node_index_fast(first_node_id);
         
@@ -1661,18 +1686,17 @@ LevelInfo merge_customers(const LevelInfo& current_level,
             
             // ánh xạ node merge về toàn bộ node gốc
             vector<int> original_nodes;
+            original_nodes.reserve(group.size());
+            unordered_set<int> seen_originals;
+            seen_originals.reserve(group.size() * 2);
             for (int node_id : group) {
                 auto it = current_level.node_mapping.find(node_id);
                 if (it != current_level.node_mapping.end()) {
                     for (int orig : it->second) {
-                        if (find(original_nodes.begin(), original_nodes.end(), orig) == original_nodes.end()) {
-                            original_nodes.push_back(orig);
-                        }
+                        if (seen_originals.insert(orig).second) original_nodes.push_back(orig);
                     }
                 } else {
-                    if (find(original_nodes.begin(), original_nodes.end(), node_id) == original_nodes.end()) {
-                        original_nodes.push_back(node_id);
-                    }
+                    if (seen_originals.insert(node_id).second) original_nodes.push_back(node_id);
                 }
             }
             info.original_sequence = original_nodes;
@@ -1762,50 +1786,47 @@ Solution project_solution_to_next_level(const Solution& old_sol, const LevelInfo
     Solution new_sol;
     new_sol.route.resize(old_sol.route.size());
     update_node_index_cache(next_level);
+
+    unordered_map<int, int> original_to_new;
+    original_to_new.reserve(next_level.node_mapping.size() * 4);
+    original_to_new[depot_id] = depot_id;
+
+    for (const auto& entry : next_level.node_mapping) {
+        int new_node_id = entry.first;
+        if (new_node_id == depot_id) continue;
+        for (int orig : entry.second) {
+            original_to_new.emplace(orig, new_node_id);
+        }
+    }
     
-    map<int, int> old_to_new_mapping;
+    unordered_map<int, int> old_to_new_mapping;
+    old_to_new_mapping.reserve(old_level.nodes.size() * 2);
     old_to_new_mapping[depot_id] = depot_id;
     
     for (const auto& old_node : old_level.nodes) {
         int old_node_id = old_node.id;
         if (old_node_id == depot_id) continue;
-        bool found = false;
-        
-        for (const auto& next_node : next_level.nodes) {
-            int new_node_id = next_node.id;
-            
-            if (new_node_id == depot_id) continue;
-            
-            auto it = next_level.node_mapping.find(new_node_id);
-            if (it != next_level.node_mapping.end()) {
-                const vector<int>& next_original_nodes = it->second;
-                
-                auto old_it = old_level.node_mapping.find(old_node_id);
-                if (old_it != old_level.node_mapping.end()) {
-                    const vector<int>& old_original_nodes = old_it->second;
-                    
-                    bool has_overlap = false;
-                    for (int old_orig : old_original_nodes) {
-                        for (int next_orig : next_original_nodes) {
-                            if (old_orig == next_orig) {
-                                has_overlap = true;
-                                break;
-                            }
-                        }
-                        if (has_overlap) break;
-                    }
-                    
-                    if (has_overlap) {
-                        old_to_new_mapping[old_node_id] = new_node_id;
-                        found = true;
-                        
-                        break;
-                    }
+
+        int mapped = -1;
+        auto old_it = old_level.node_mapping.find(old_node_id);
+        if (old_it != old_level.node_mapping.end()) {
+            for (int old_orig : old_it->second) {
+                auto map_it = original_to_new.find(old_orig);
+                if (map_it != original_to_new.end()) {
+                    mapped = map_it->second;
+                    break;
                 }
             }
+        } else {
+            auto map_it = original_to_new.find(old_node_id);
+            if (map_it != original_to_new.end()) {
+                mapped = map_it->second;
+            }
         }
-        
-        if (!found) {
+
+        if (mapped != -1) {
+            old_to_new_mapping[old_node_id] = mapped;
+        } else {
             cerr << "WARNING: Old node " << old_node_id << " not mapped to any next level node!" << endl;
         }
     }
@@ -1846,12 +1867,14 @@ Solution unmerge_solution_to_previous_level(const Solution& coarse_sol, const Le
     Solution fine_sol;
     fine_sol.route.resize(coarse_sol.route.size());
 
-    set<int> fine_level_node_ids;
+    unordered_set<int> fine_level_node_ids;
+    fine_level_node_ids.reserve(fine_level.nodes.size() * 2);
     for (const auto& node : fine_level.nodes) {
         fine_level_node_ids.insert(node.id);
     }
     
-    map<int, vector<int>> coarse_to_fine;
+    unordered_map<int, vector<int>> coarse_to_fine;
+    coarse_to_fine.reserve(coarse_level.nodes.size() * 2);
     coarse_to_fine[depot_id] = {depot_id};
     
     for (const auto& coarse_node : coarse_level.nodes) {
@@ -1916,7 +1939,6 @@ Solution unmerge_solution_to_previous_level(const Solution& coarse_sol, const Le
 }
 
 Solution multilevel_tabu_search() {
-    auto total_start = chrono::high_resolution_clock::now();
     Solution s = init_greedy_solution();
 
     LevelInfo current_level;
@@ -1968,7 +1990,6 @@ Solution multilevel_tabu_search() {
         double merge_time = chrono::duration<double>(merge_end - merge_start).count();
         int reduction = all_levels[L].nodes.size() - next_level.nodes.size();
         if (reduction < 1) {
-            cout << "Insufficient reduction, stopping coarsening" << endl;
             break;
         }
         all_levels.push_back(next_level);
@@ -2031,7 +2052,6 @@ Solution multilevel_tabu_search() {
             auto refine_start = chrono::high_resolution_clock::now();
             
             s = tabu_search(s, nullptr);
-            
             evaluate_solution(s, nullptr);
             
             auto refine_end = chrono::high_resolution_clock::now();
@@ -2130,7 +2150,7 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\50.40.1.txt"; 
+        dataset_path = "D:\\New folder\\instances\\50.10.1.txt"; 
     }
 
     if (argc > 2) {
