@@ -23,6 +23,8 @@ struct Solution {
     double capacity_violation; // tổng số lượng vượt quá tải
     double fitness; // giá trị hàm mục tiêu
     bool is_feasible; // lời giải có hợp lệ không
+    vector<double> route_time; // thời gian hoàn thành theo từng xe
+    vector<double> route_drone_violation; // vi phạm theo từng xe
 
     Solution(): makespan(0), drone_violation(0), capacity_violation(0), fitness(DBL_MAX), is_feasible(true) {}
 };
@@ -40,6 +42,11 @@ struct TabuMove {
     int pos3; // vị trí trong route của xe đến
     int pos4; // vị trí trong route của xe đến (thứ 2)
     int tenure; // số vòng lặp còn lại move này bị tabu
+};
+
+struct RouteEval {
+    double time;
+    double drone_violation;
 };
 
 struct LevelInfo {
