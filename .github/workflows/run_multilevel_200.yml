@@ -2,9 +2,9 @@ name: Run Multilevel Tabu - Size 200
 
 on:
   push:
-    branches: [ main, master, Method_Ba ]
+    branches: [ main, master, Method_B ]
   pull_request:
-    branches: [ main, master, Method_Ba ]
+    branches: [ main, master, Method_B ]
   workflow_dispatch:
 
 permissions:
@@ -495,4 +495,67 @@ jobs:
       with:
         name: multilevel-200-result-${{ matrix.instance }}
         path: results.json
+        retention-days: 30
+
+  summarize:
+    name: Multilevel-200 Summary CSV
+    needs: [run-200-batch1, run-200-batch2, run-200-batch3, run-200-batch4]
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Download all results
+      uses: actions/download-artifact@v4
+      with:
+        pattern: multilevel-200-result-*
+        path: results
+        merge-multiple: true
+
+    - name: Build summary CSV
+      run: |
+        python3 <<'EOF'
+        import csv, glob, json
+
+        rows = []
+        for path in sorted(glob.glob("results/**/*.json", recursive=True)):
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            instance = data.get("instance", "")
+            for run in data.get("runs", []):
+                rows.append({
+                    "instance": instance,
+                    "run": run.get("run", ""),
+                    "runtime": run.get("runtime", ""),
+                    "makespan": run.get("makespan", ""),
+                    "drone_violation": run.get("drone_violation", ""),
+                    "waiting_violation": run.get("waiting_violation", ""),
+                    "fitness": run.get("fitness", ""),
+                    "feasible": run.get("feasible", "")
+                })
+
+        out_file = "summary_200.csv"
+        with open(out_file, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(
+                f,
+                fieldnames=[
+                    "instance",
+                    "run",
+                    "runtime",
+                    "makespan",
+                    "drone_violation",
+                    "waiting_violation",
+                    "fitness",
+                    "feasible"
+                ]
+            )
+            writer.writeheader()
+            writer.writerows(rows)
+
+        print(f"Wrote {out_file} with {len(rows)} rows")
+        EOF
+
+    - name: Upload summary CSV
+      uses: actions/upload-artifact@v4
+      with:
+        name: multilevel-200-summary
+        path: summary_200.csv
         retention-days: 30
