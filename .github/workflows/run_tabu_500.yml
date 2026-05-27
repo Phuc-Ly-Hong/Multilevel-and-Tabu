@@ -1,0 +1,232 @@
+name: Run Tabu Search - Size 500
+
+on:
+  push:
+    branches: [main, master, Method_B]
+  pull_request:
+    branches: [main, master, Method_B]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  compile:
+    name: Compile Tabu
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ bc
+
+      - name: Compile executable
+        run: |
+          g++ -O3 -std=c++17 -o tabu src/Tabu_no_lwt.cpp
+          chmod +x tabu
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: tabu-500-executable
+          path: tabu
+          retention-days: 7
+
+  run-500:
+    name: Tabu-500 ${{ matrix.instance }} run${{ matrix.run_id }}
+    needs: compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        instance: [
+          "500.10.1","500.10.2","500.10.3","500.10.4",
+          "500.20.1","500.20.2","500.20.3","500.20.4",
+          "500.30.1","500.30.2","500.30.3","500.30.4",
+          "500.40.1","500.40.2","500.40.3","500.40.4"
+        ]
+        run_id: [1, 2, 3]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download executable
+        uses: actions/download-artifact@v4
+        with:
+          name: tabu-500-executable
+
+      - name: Run algorithm 1 time
+        run: |
+          chmod +x tabu
+
+          echo "=== Run ${{ matrix.run_id }}/3 for ${{ matrix.instance }} ==="
+          START_TIME=$(date +%s.%N)
+
+          timeout 350m ./tabu instances/${{ matrix.instance }}.txt > output.txt 2>&1
+          EXIT_CODE=$?
+
+          END_TIME=$(date +%s.%N)
+          RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
+          echo "$RUNTIME" > runtime.txt
+
+          if [ $EXIT_CODE -eq 124 ]; then
+            echo "TIMEOUT" >> output.txt
+            echo "TIMEOUT"
+          elif [ $EXIT_CODE -ne 0 ]; then
+            echo "ERROR_EXIT_CODE_$EXIT_CODE" >> output.txt
+            echo "ERROR (exit code $EXIT_CODE)"
+          else
+            echo "SUCCESS in ${RUNTIME}s"
+          fi
+
+      - name: Parse results
+        run: |
+          python3 <<'EOF'
+          import re, json, os
+
+          instance = "${{ matrix.instance }}"
+          run_id = int("${{ matrix.run_id }}")
+
+          def find_metric_last(pattern, content):
+            matches = re.findall(pattern, content)
+            return float(matches[-1]) if matches else 0.0
+
+          def parse_output(output_file, runtime_file):
+            try:
+              with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+
+              runtime = 21000.0  # 350 minutes
+              if os.path.exists(runtime_file):
+                with open(runtime_file, "r") as f:
+                  runtime = float(f.read().strip())
+
+              if "TIMEOUT" in content:
+                status = "TIMEOUT"
+              elif "ERROR_EXIT_CODE" in content:
+                status = "CRASH"
+              elif not content or "Fitness:" not in content:
+                status = "CRASH" if runtime < 1.0 else "NO_OUTPUT"
+              else:
+                makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
+                drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
+                waiting_viol = find_metric_last(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
+                fitness = find_metric_last(r'Fitness:\s*([0-9.+\-eE]+)', content)
+
+                if makespan == 0.0 and fitness == 0.0:
+                  status = "INVALID"
+                else:
+                  feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
+                  return {
+                    "runtime": round(runtime, 3),
+                    "makespan": round(makespan, 4),
+                    "drone_violation": round(drone_viol, 4),
+                    "waiting_violation": round(waiting_viol, 4),
+                    "fitness": round(fitness, 4),
+                    "feasible": feasible
+                  }
+
+              return {
+                "runtime": round(runtime, 3),
+                "makespan": 0.0,
+                "drone_violation": 0.0,
+                "waiting_violation": 0.0,
+                "fitness": float('inf'),
+                "feasible": status
+              }
+            except:
+              return {
+                "runtime": 0,
+                "makespan": 0,
+                "drone_violation": 0,
+                "waiting_violation": 0,
+                "fitness": float('inf'),
+                "feasible": "PARSE_ERROR"
+              }
+
+          result = parse_output("output.txt", "runtime.txt")
+          result["run"] = run_id
+
+          with open("results.json", "w") as f:
+            json.dump({"instance": instance, "runs": [result]}, f, indent=2)
+
+          print(f"Run {run_id}: fitness={result['fitness']}, runtime={result['runtime']}s, feasible={result['feasible']}")
+          EOF
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: tabu-500-result-${{ matrix.instance }}-run${{ matrix.run_id }}
+          path: results.json
+          retention-days: 30
+
+  summarize:
+    name: Tabu-500 Summary CSV
+    needs: [run-500]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: tabu-500-result-*
+          path: results
+
+      - name: Build summary CSV
+        run: |
+          python3 <<'EOF'
+          import csv, glob, json
+
+          rows = []
+          for path in sorted(glob.glob("results/**/*.json", recursive=True)):
+            with open(path, "r", encoding="utf-8") as f:
+              data = json.load(f)
+            instance = data.get("instance", "")
+            for run in data.get("runs", []):
+              rows.append({
+                "instance": instance,
+                "run": run.get("run", ""),
+                "runtime": run.get("runtime", ""),
+                "makespan": run.get("makespan", ""),
+                "drone_violation": run.get("drone_violation", ""),
+                "waiting_violation": run.get("waiting_violation", ""),
+                "fitness": run.get("fitness", ""),
+                "feasible": run.get("feasible", "")
+              })
+
+          out_file = "summary_500.csv"
+          with open(out_file, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(
+              f,
+              fieldnames=[
+                "instance",
+                "run",
+                "runtime",
+                "makespan",
+                "drone_violation",
+                "waiting_violation",
+                "fitness",
+                "feasible"
+              ]
+            )
+            writer.writeheader()
+            writer.writerows(rows)
+
+          print(f"Wrote {out_file} with {len(rows)} rows")
+          EOF
+
+      - name: Upload summary CSV
+        uses: actions/upload-artifact@v4
+        with:
+          name: tabu-500-summary
+          path: summary_500.csv
+          retention-days: 30
