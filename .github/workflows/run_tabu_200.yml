@@ -532,7 +532,6 @@ jobs:
       with:
         pattern: tabu-200-result-*
         path: results
-        merge-multiple: true
 
     - name: Build summary CSV
       run: |
