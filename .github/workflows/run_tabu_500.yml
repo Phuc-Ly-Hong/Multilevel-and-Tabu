@@ -2,9 +2,9 @@ name: Run Tabu Search - Size 500
 
 on:
   push:
-    branches: [main, master, Method_B]
+    branches: [main, master, Method_Ba]
   pull_request:
-    branches: [main, master, Method_B]
+    branches: [main, master, Method_Ba]
   workflow_dispatch:
 
 permissions:
@@ -27,7 +27,7 @@ jobs:
 
       - name: Compile executable
         run: |
-          g++ -O3 -std=c++17 -o tabu src/Tabu_no_lwt.cpp
+          g++ -O3 -std=c++17 -o tabu src/Tabu_random_no_lwt.cpp
           chmod +x tabu
 
       - name: Upload executable

@@ -221,6 +221,7 @@ void read_dataset(const string &filename){
     else {
         // Bộ nhỏ (6-49)
         MAX_ITER = 500;
+        CAP = 300.0;
         MAX_NO_IMPROVE = 500000;
     }
 
@@ -353,7 +354,7 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const
     double current_time = 0.0;
     double depart_time = 0.0;
     double drone_violation = 0.0;
-    double capacity_violation = 0.0;
+    double capacity_violation = 0.0; 
     double trip_load = 0.0;
 
     for (int cid : route) {
@@ -363,46 +364,46 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const
                 if (current_level != nullptr) {
                     int prev_idx = find_node_index_fast(prev);
                     int depot_idx = find_node_index_fast(depot_id);
-                    if (prev_idx != -1 && depot_idx != -1) {
+                    if (prev_idx != -1 && depot_idx != -1)
                         travel_time = active_time_matrix[prev_idx][depot_idx];
-                    }
                 } else {
                     travel_time = active_time_matrix[prev][depot_id];
                 }
                 current_time += travel_time;
             }
 
-            double arrival_depot = current_time;
-            double flight_time = arrival_depot - depart_time;
-            if (is_drone) {
+            double flight_time = current_time - depart_time;
+            if (is_drone)
                 drone_violation += max(0.0, flight_time - vehicle.limit_drone);
-            }
+
+            if (vehicle.capacity > 0 && trip_load > vehicle.capacity + EPSILON)
+                capacity_violation += trip_load - vehicle.capacity;
+
             depart_time = current_time;
+            trip_load = 0.0;
             prev = depot_id;
         } else {
             double travel_time = 0.0;
             if (current_level != nullptr) {
                 int prev_idx = find_node_index_fast(prev);
-                int cid_idx = find_node_index_fast(cid);
+                int cid_idx  = find_node_index_fast(cid);
                 if (prev_idx != -1 && cid_idx != -1) {
                     travel_time = active_time_matrix[prev_idx][cid_idx];
                     auto info_it = merged_nodes_info.find(cid);
-                    if (info_it != merged_nodes_info.end()) {
-                        double internal_time = is_drone ? info_it->second.internal_drone_time
-                                                        : info_it->second.internal_truck_time;
-                        travel_time += internal_time;
-                    }
+                    if (info_it != merged_nodes_info.end())
+                        travel_time += is_drone ? info_it->second.internal_drone_time
+                                                : info_it->second.internal_truck_time;
                 }
             } else {
                 travel_time = active_time_matrix[prev][cid];
             }
-
             current_time += travel_time;
+            trip_load += get_demand_for_node(cid, current_level); 
             prev = cid;
         }
     }
 
-    return {current_time, drone_violation};
+    return {current_time, drone_violation, capacity_violation};
 }
 
 void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) {
@@ -410,48 +411,59 @@ void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) 
 
     sol.makespan = 0;
     sol.drone_violation = 0;
+    sol.capacity_violation = 0;
     sol.fitness = 0;
     sol.is_feasible = true;
 
     sol.route_time.assign(sol.route.size(), 0.0);
     sol.route_drone_violation.assign(sol.route.size(), 0.0);
+    sol.route_capacity_violation.assign(sol.route.size(), 0.0); 
 
-    for (size_t i = 0; i < sol.route.size(); i++){
+    for (size_t i = 0; i < sol.route.size(); i++) {
         RouteEval eval = evaluate_route(sol.route[i], vehicles[i], current_level);
-        sol.route_time[i] = eval.time;
-        sol.route_drone_violation[i] = eval.drone_violation;
+        sol.route_time[i]              = eval.time;
+        sol.route_drone_violation[i]   = eval.drone_violation;
+        sol.route_capacity_violation[i] = eval.capacity_violation; 
         sol.makespan = max(sol.makespan, eval.time);
-        sol.drone_violation += eval.drone_violation;
+        sol.drone_violation    += eval.drone_violation;
+        sol.capacity_violation += eval.capacity_violation; 
     }
 
-    if (sol.drone_violation > EPSILON) sol.is_feasible = false;
+    if (sol.drone_violation    > EPSILON) sol.is_feasible = false;
+    if (sol.capacity_violation > EPSILON) sol.is_feasible = false;
 
-    sol.fitness = sol.makespan + alpha1*sol.drone_violation ;
+    sol.fitness = sol.makespan + alpha1 * sol.drone_violation + alpha2 * sol.capacity_violation;
 }
 
 void recompute_solution_from_cache(Solution &sol) {
     sol.makespan = 0.0;
     sol.drone_violation = 0.0;
+    sol.capacity_violation = 0.0;
     for (size_t i = 0; i < sol.route_time.size(); i++) {
         sol.makespan = max(sol.makespan, sol.route_time[i]);
-        sol.drone_violation += sol.route_drone_violation[i];
+        sol.drone_violation    += sol.route_drone_violation[i];
+        sol.capacity_violation += sol.route_capacity_violation[i];
     }
-    sol.is_feasible = (sol.drone_violation <= EPSILON);
-    sol.fitness = sol.makespan + alpha1 * sol.drone_violation;
+    sol.is_feasible = (sol.drone_violation <= EPSILON && sol.capacity_violation <= EPSILON);
+    sol.fitness = sol.makespan + alpha1 * sol.drone_violation + alpha2 * sol.capacity_violation; 
 }
 
 void recompute_solution_for_routes(Solution &sol, size_t v1, size_t v2, bool has_second, const LevelInfo *current_level) {
-    if (sol.route_time.size() != sol.route.size() || sol.route_drone_violation.size() != sol.route.size()) {
+    if (sol.route_time.size()              != sol.route.size() ||
+        sol.route_drone_violation.size()   != sol.route.size() ||
+        sol.route_capacity_violation.size()!= sol.route.size()) {
         evaluate_solution(sol, current_level);
         return;
     }
     RouteEval eval1 = evaluate_route(sol.route[v1], vehicles[v1], current_level);
-    sol.route_time[v1] = eval1.time;
-    sol.route_drone_violation[v1] = eval1.drone_violation;
+    sol.route_time[v1]               = eval1.time;
+    sol.route_drone_violation[v1]    = eval1.drone_violation;
+    sol.route_capacity_violation[v1] = eval1.capacity_violation;
     if (has_second && v2 != v1) {
         RouteEval eval2 = evaluate_route(sol.route[v2], vehicles[v2], current_level);
-        sol.route_time[v2] = eval2.time;
-        sol.route_drone_violation[v2] = eval2.drone_violation;
+        sol.route_time[v2]               = eval2.time;
+        sol.route_drone_violation[v2]    = eval2.drone_violation;
+        sol.route_capacity_violation[v2] = eval2.capacity_violation; 
     }
     recompute_solution_from_cache(sol);
 }
@@ -2203,10 +2215,10 @@ int main(int argc, char* argv[]) {
     }
 
     for (int i = 0; i < num_techs; ++i) {
-        vehicles.push_back({ i+1, 0.58f, false, 0.0f }); // technician
+        vehicles.push_back({ i+1, 0.58f, false, 0.0f, CAP }); // technician
     }
     for (int i = 0; i < num_drones; ++i) {
-        vehicles.push_back({ num_techs + i + 1, 0.83f, true, 120.0f }); // drone
+        vehicles.push_back({ num_techs + i + 1, 0.83f, true, 120.0f, 2.7 }); // drone
     }
 
     /*vector<vector<int>> test_routes = {
