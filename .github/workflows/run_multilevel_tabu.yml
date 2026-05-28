@@ -1,10 +1,10 @@
-name: Run Multilevel Tabu Capacity Search with Config Matrix
+name: Run Multilevel Tabu Capacity
 
 on:
   push:
-    branches: [ main, master, Method_ ]
+    branches: [ main, master, Method_B ]
   pull_request:
-    branches: [ main, master, Method_ ]
+    branches: [ main, master, Method_B ]
   workflow_dispatch:
 
 permissions:
@@ -16,25 +16,25 @@ jobs:
     name: Compile Multilevel Tabu
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y g++ bc
-    - name: Compile executable
-      run: |
-        g++ -O3 -std=c++17 -o multilevel_tabu_cap src/ML_cap_no_lwt.cpp
-        chmod +x multilevel_tabu_cap
-    - name: Upload executable
-      uses: actions/upload-artifact@v4
-      with:
-        name: multilevel-tabu-cap-executable
-        path: multilevel_tabu_cap
-        retention-days: 7
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ bc
+      - name: Compile executable
+        run: |
+          g++ -O3 -std=c++17 -o multilevel_tabu_cap src/ML_cap_no_lwt.cpp
+          chmod +x multilevel_tabu_cap
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: multilevel-tabu-cap-executable
+          path: multilevel_tabu_cap
+          retention-days: 7
 
   run-50-ab:
-    name: 50ab ${{ matrix.instance }}_S${{ matrix.segments_per_level }}_L${{ matrix.num_levels }}_R${{ matrix.merge_ratio }}
+    name: 50ab ${{ matrix.instance }}
     needs: compile
     runs-on: ubuntu-latest
     timeout-minutes: 180
@@ -42,102 +42,102 @@ jobs:
       fail-fast: false
       max-parallel: 20
       matrix:
-        segments_per_level: [1]
-        num_levels: [3, 4, 5]
-        merge_ratio: [5, 10]
         instance: [
           "50.10.1", "50.10.2", "50.20.1", "50.20.2",
           "50.30.1", "50.30.2", "50.40.1", "50.40.2"
         ]
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    - name: Download executable
-      uses: actions/download-artifact@v4
-      with:
-        name: multilevel-tabu-cap-executable
-    - name: Run algorithm 5 times
-      run: |
-        chmod +x multilevel_tabu_cap
-        for run in {1..5}; do
-          START_TIME=$(date +%s.%N)
-          timeout 25m ./multilevel_tabu_cap instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 1 1 ${{ matrix.merge_ratio }} > output_run${run}.txt 2>&1
-          EXIT_CODE=$?
-          END_TIME=$(date +%s.%N)
-          echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
-          if [ $EXIT_CODE -eq 124 ]; then
-            echo "TIMEOUT" >> output_run${run}.txt
-          elif [ $EXIT_CODE -ne 0 ]; then
-            echo "ERROR_EXIT_CODE_$EXIT_CODE" >> output_run${run}.txt
-          fi
-        done
-    - name: Parse results
-      run: |
-        python3 <<'EOF'
-        import re, json, os
-        instance = "${{ matrix.instance }}"
-        segments = ${{ matrix.segments_per_level }}
-        levels = ${{ matrix.num_levels }}
-        merge_ratio = ${{ matrix.merge_ratio }}
-        iter_per_seg = int(instance.split(".")[0])
-        max_iter_level = int(instance.split(".")[0]) * 10
-        total_iter = 2 * levels * max_iter_level
-        def find_metric_last(pattern, content):
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Download executable
+        uses: actions/download-artifact@v4
+        with:
+          name: multilevel-tabu-cap-executable
+      - name: Run algorithm 5 times
+        run: |
+          chmod +x multilevel_tabu_cap
+          for run in {1..5}; do
+            START_TIME=$(date +%s.%N)
+            timeout 25m ./multilevel_tabu_cap instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
+            EXIT_CODE=$?
+            END_TIME=$(date +%s.%N)
+            echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
+            if [ $EXIT_CODE -eq 124 ]; then
+              echo "TIMEOUT" >> output_run${run}.txt
+            elif [ $EXIT_CODE -ne 0 ]; then
+              echo "ERROR_EXIT_CODE_$EXIT_CODE" >> output_run${run}.txt
+            fi
+          done
+      - name: Parse results
+        run: |
+          python3 <<'EOF'
+          import re, json, os
+          instance = "${{ matrix.instance }}"
+
+          def find_metric_last(pattern, content):
             matches = re.findall(pattern, content)
-            if not matches: return 0.0
-            try: return float(matches[-1])
-            except: return 0.0
-        def parse_output(output_file, runtime_file):
+            if not matches:
+              return 0.0
             try:
-                if not os.path.exists(output_file):
-                    return {"runtime": 0, "makespan": 0, "drone_violation": 0,
-                            "waiting_violation": 0, "fitness": float('inf'), "feasible": "NO_OUTPUT",
-                            "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
-                with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
-                    content = f.read()
-                runtime = 1500.0
-                if os.path.exists(runtime_file):
-                    with open(runtime_file, "r") as f:
-                        try: runtime = float(f.read().strip())
-                        except: pass
-                if "TIMEOUT" in content:
-                    return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
-                            "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "TIMEOUT",
-                            "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
-                if "ERROR_EXIT_CODE" in content or not content or "Fitness:" not in content:
-                    return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
-                            "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "ERROR",
-                            "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
-                makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
-                drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
-                waiting_viol = find_metric_last(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
-                fitness = find_metric_last(r'Fitness:\s*([0-9.+\-eE]+)', content)
-                feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
-                return {"runtime": round(runtime, 3), "makespan": round(makespan, 4),
-                        "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
-                        "fitness": round(fitness, 4), "feasible": feasible,
-                        "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
-            except Exception as e:
+              return float(matches[-1])
+            except:
+              return 0.0
+
+          def parse_output(output_file, runtime_file):
+            try:
+              if not os.path.exists(output_file):
                 return {"runtime": 0, "makespan": 0, "drone_violation": 0,
-                        "waiting_violation": 0, "fitness": float('inf'), "feasible": "PARSE_ERROR",
-                        "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
-        runs = []
-        for run in range(1, 6):
+                        "waiting_violation": 0, "fitness": float('inf'), "feasible": "NO_OUTPUT"}
+
+              with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+
+              runtime = 1500.0
+              if os.path.exists(runtime_file):
+                with open(runtime_file, "r") as f:
+                  try:
+                    runtime = float(f.read().strip())
+                  except:
+                    pass
+
+              if "TIMEOUT" in content:
+                return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
+                        "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "TIMEOUT"}
+
+              if "ERROR_EXIT_CODE" in content or not content or "Fitness:" not in content:
+                return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
+                        "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "ERROR"}
+
+              makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
+              drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
+              waiting_viol = find_metric_last(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
+              fitness = find_metric_last(r'Fitness:\s*([0-9.+\-eE]+)', content)
+              feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
+
+              return {"runtime": round(runtime, 3), "makespan": round(makespan, 4),
+                      "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
+                      "fitness": round(fitness, 4), "feasible": feasible}
+            except Exception:
+              return {"runtime": 0, "makespan": 0, "drone_violation": 0,
+                      "waiting_violation": 0, "fitness": float('inf'), "feasible": "PARSE_ERROR"}
+
+          runs = []
+          for run in range(1, 6):
             result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
             result["run"] = run
             runs.append(result)
-        with open("results.json", "w") as f:
-          json.dump({"instance": instance, "segments_per_level": segments, "num_levels": levels, "merge_ratio": merge_ratio, "iter_per_segment": iter_per_seg, "total_iter": total_iter, "runs": runs}, f, indent=2)
-        EOF
-    - name: Upload results
-      uses: actions/upload-artifact@v4
-      with:
-        name: multilevel-result-${{ matrix.instance }}-S${{ matrix.segments_per_level }}-L${{ matrix.num_levels }}-R${{ matrix.merge_ratio }}
-        path: results.json
-        retention-days: 30
+          with open("results.json", "w") as f:
+            json.dump({"instance": instance, "runs": runs}, f, indent=2)
+          EOF
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: multilevel-result-${{ matrix.instance }}
+          path: results.json
+          retention-days: 30
 
   run-50-cd:
-    name: 50cd ${{ matrix.instance }}_S${{ matrix.segments_per_level }}_L${{ matrix.num_levels }}_R${{ matrix.merge_ratio }}
+    name: 50cd ${{ matrix.instance }}
     needs: compile
     runs-on: ubuntu-latest
     timeout-minutes: 180
@@ -145,102 +145,102 @@ jobs:
       fail-fast: false
       max-parallel: 20
       matrix:
-        segments_per_level: [1]
-        num_levels: [3, 4, 5]
-        merge_ratio: [5, 10]
         instance: [
           "50.10.3", "50.10.4", "50.20.3", "50.20.4",
           "50.30.3", "50.30.4", "50.40.3", "50.40.4"
         ]
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    - name: Download executable
-      uses: actions/download-artifact@v4
-      with:
-        name: multilevel-tabu-cap-executable
-    - name: Run algorithm 5 times
-      run: |
-        chmod +x multilevel_tabu_cap
-        for run in {1..5}; do
-          START_TIME=$(date +%s.%N)
-          timeout 25m ./multilevel_tabu_cap instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 1 1 ${{ matrix.merge_ratio }} > output_run${run}.txt 2>&1
-          EXIT_CODE=$?
-          END_TIME=$(date +%s.%N)
-          echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
-          if [ $EXIT_CODE -eq 124 ]; then
-            echo "TIMEOUT" >> output_run${run}.txt
-          elif [ $EXIT_CODE -ne 0 ]; then
-            echo "ERROR_EXIT_CODE_$EXIT_CODE" >> output_run${run}.txt
-          fi
-        done
-    - name: Parse results
-      run: |
-        python3 <<'EOF'
-        import re, json, os
-        instance = "${{ matrix.instance }}"
-        segments = ${{ matrix.segments_per_level }}
-        levels = ${{ matrix.num_levels }}
-        merge_ratio = ${{ matrix.merge_ratio }}
-        iter_per_seg = int(instance.split(".")[0])
-        max_iter_level = int(instance.split(".")[0]) * 10
-        total_iter = 2 * levels * max_iter_level
-        def find_metric_last(pattern, content):
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Download executable
+        uses: actions/download-artifact@v4
+        with:
+          name: multilevel-tabu-cap-executable
+      - name: Run algorithm 5 times
+        run: |
+          chmod +x multilevel_tabu_cap
+          for run in {1..5}; do
+            START_TIME=$(date +%s.%N)
+            timeout 25m ./multilevel_tabu_cap instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
+            EXIT_CODE=$?
+            END_TIME=$(date +%s.%N)
+            echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
+            if [ $EXIT_CODE -eq 124 ]; then
+              echo "TIMEOUT" >> output_run${run}.txt
+            elif [ $EXIT_CODE -ne 0 ]; then
+              echo "ERROR_EXIT_CODE_$EXIT_CODE" >> output_run${run}.txt
+            fi
+          done
+      - name: Parse results
+        run: |
+          python3 <<'EOF'
+          import re, json, os
+          instance = "${{ matrix.instance }}"
+
+          def find_metric_last(pattern, content):
             matches = re.findall(pattern, content)
-            if not matches: return 0.0
-            try: return float(matches[-1])
-            except: return 0.0
-        def parse_output(output_file, runtime_file):
+            if not matches:
+              return 0.0
             try:
-                if not os.path.exists(output_file):
-                    return {"runtime": 0, "makespan": 0, "drone_violation": 0,
-                            "waiting_violation": 0, "fitness": float('inf'), "feasible": "NO_OUTPUT",
-                            "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
-                with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
-                    content = f.read()
-                runtime = 1500.0
-                if os.path.exists(runtime_file):
-                    with open(runtime_file, "r") as f:
-                        try: runtime = float(f.read().strip())
-                        except: pass
-                if "TIMEOUT" in content:
-                    return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
-                            "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "TIMEOUT",
-                            "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
-                if "ERROR_EXIT_CODE" in content or not content or "Fitness:" not in content:
-                    return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
-                            "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "ERROR",
-                            "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
-                makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
-                drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
-                waiting_viol = find_metric_last(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
-                fitness = find_metric_last(r'Fitness:\s*([0-9.+\-eE]+)', content)
-                feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
-                return {"runtime": round(runtime, 3), "makespan": round(makespan, 4),
-                        "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
-                        "fitness": round(fitness, 4), "feasible": feasible,
-                        "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
-            except Exception as e:
+              return float(matches[-1])
+            except:
+              return 0.0
+
+          def parse_output(output_file, runtime_file):
+            try:
+              if not os.path.exists(output_file):
                 return {"runtime": 0, "makespan": 0, "drone_violation": 0,
-                        "waiting_violation": 0, "fitness": float('inf'), "feasible": "PARSE_ERROR",
-                        "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
-        runs = []
-        for run in range(1, 6):
+                        "waiting_violation": 0, "fitness": float('inf'), "feasible": "NO_OUTPUT"}
+
+              with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+
+              runtime = 1500.0
+              if os.path.exists(runtime_file):
+                with open(runtime_file, "r") as f:
+                  try:
+                    runtime = float(f.read().strip())
+                  except:
+                    pass
+
+              if "TIMEOUT" in content:
+                return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
+                        "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "TIMEOUT"}
+
+              if "ERROR_EXIT_CODE" in content or not content or "Fitness:" not in content:
+                return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
+                        "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "ERROR"}
+
+              makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
+              drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
+              waiting_viol = find_metric_last(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
+              fitness = find_metric_last(r'Fitness:\s*([0-9.+\-eE]+)', content)
+              feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
+
+              return {"runtime": round(runtime, 3), "makespan": round(makespan, 4),
+                      "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
+                      "fitness": round(fitness, 4), "feasible": feasible}
+            except Exception:
+              return {"runtime": 0, "makespan": 0, "drone_violation": 0,
+                      "waiting_violation": 0, "fitness": float('inf'), "feasible": "PARSE_ERROR"}
+
+          runs = []
+          for run in range(1, 6):
             result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
             result["run"] = run
             runs.append(result)
-        with open("results.json", "w") as f:
-          json.dump({"instance": instance, "segments_per_level": segments, "num_levels": levels, "merge_ratio": merge_ratio, "iter_per_segment": iter_per_seg, "total_iter": total_iter, "runs": runs}, f, indent=2)
-        EOF
-    - name: Upload results
-      uses: actions/upload-artifact@v4
-      with:
-        name: multilevel-result-${{ matrix.instance }}-S${{ matrix.segments_per_level }}-L${{ matrix.num_levels }}-R${{ matrix.merge_ratio }}
-        path: results.json
-        retention-days: 30
+          with open("results.json", "w") as f:
+            json.dump({"instance": instance, "runs": runs}, f, indent=2)
+          EOF
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: multilevel-result-${{ matrix.instance }}
+          path: results.json
+          retention-days: 30
 
   run-100-ab:
-    name: 100ab ${{ matrix.instance }}_S${{ matrix.segments_per_level }}_L${{ matrix.num_levels }}_R${{ matrix.merge_ratio }}
+    name: 100ab ${{ matrix.instance }}
     needs: compile
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -248,86 +248,82 @@ jobs:
       fail-fast: false
       max-parallel: 15
       matrix:
-        segments_per_level: [1]
-        num_levels: [3, 4, 5]
-        merge_ratio: [5, 10]
         instance: [
           "100.10.1", "100.10.2", "100.20.1", "100.20.2",
           "100.30.1", "100.30.2", "100.40.1", "100.40.2"
         ]
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    - name: Download executable
-      uses: actions/download-artifact@v4
-      with:
-        name: multilevel-tabu-cap-executable
-    - name: Run algorithm 5 times
-      run: |
-        chmod +x multilevel_tabu_cap
-        for run in {1..5}; do
-          START_TIME=$(date +%s.%N)
-          timeout 20m ./multilevel_tabu_cap instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 1 1 ${{ matrix.merge_ratio }} > output_run${run}.txt 2>&1
-          EXIT_CODE=$?
-          END_TIME=$(date +%s.%N)
-          echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
-          if [ $EXIT_CODE -eq 124 ]; then
-            echo "TIMEOUT" >> output_run${run}.txt
-          elif [ $EXIT_CODE -ne 0 ]; then
-            echo "ERROR_EXIT_CODE_$EXIT_CODE" >> output_run${run}.txt
-          fi
-        done
-    - name: Parse results
-      run: |
-        python3 <<'EOF'
-        import re, json, os
-        instance = "${{ matrix.instance }}"
-        segments = ${{ matrix.segments_per_level }}
-        levels = ${{ matrix.num_levels }}
-        merge_ratio = ${{ matrix.merge_ratio }}
-        iter_per_seg = int(instance.split(".")[0])
-        max_iter_level = int(instance.split(".")[0]) * 10
-        total_iter = 2 * levels * max_iter_level
-        def find_metric_last(pattern, content):
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Download executable
+        uses: actions/download-artifact@v4
+        with:
+          name: multilevel-tabu-cap-executable
+      - name: Run algorithm 5 times
+        run: |
+          chmod +x multilevel_tabu_cap
+          for run in {1..5}; do
+            START_TIME=$(date +%s.%N)
+            timeout 20m ./multilevel_tabu_cap instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
+            EXIT_CODE=$?
+            END_TIME=$(date +%s.%N)
+            echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
+            if [ $EXIT_CODE -eq 124 ]; then
+              echo "TIMEOUT" >> output_run${run}.txt
+            elif [ $EXIT_CODE -ne 0 ]; then
+              echo "ERROR_EXIT_CODE_$EXIT_CODE" >> output_run${run}.txt
+            fi
+          done
+      - name: Parse results
+        run: |
+          python3 <<'EOF'
+          import re, json, os
+          instance = "${{ matrix.instance }}"
+
+          def find_metric_last(pattern, content):
             matches = re.findall(pattern, content)
             return float(matches[-1]) if matches else 0.0
-        def parse_output(output_file, runtime_file):
+
+          def parse_output(output_file, runtime_file):
             try:
-                with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
-                    content = f.read()
-                runtime = 2700.0
-                if os.path.exists(runtime_file):
-                    with open(runtime_file, "r") as f: runtime = float(f.read().strip())
-                if "TIMEOUT" in content or "ERROR_EXIT_CODE" in content or not content or "Fitness:" not in content:
-                    return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
-                            "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "TIMEOUT",
-                            "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
-                makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
-                drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
-                waiting_viol = find_metric_last(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
-                fitness = find_metric_last(r'Fitness:\s*([0-9.+\-eE]+)', content)
-                feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
-                return {"runtime": round(runtime, 3), "makespan": round(makespan, 4),
-                        "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
-                        "fitness": round(fitness, 4), "feasible": feasible,
-                        "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
-            except:
-                return {"runtime": 0, "makespan": 0, "drone_violation": 0,
-                        "waiting_violation": 0, "fitness": float('inf'), "feasible": "ERROR",
-                        "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
-        runs = [parse_output(f"output_run{i}.txt", f"runtime_run{i}.txt") | {"run": i} for i in range(1, 6)]
-        with open("results.json", "w") as f:
-          json.dump({"instance": instance, "segments_per_level": segments, "num_levels": levels, "merge_ratio": merge_ratio, "iter_per_segment": iter_per_seg, "total_iter": total_iter, "runs": runs}, f, indent=2)
-        EOF
-    - name: Upload results
-      uses: actions/upload-artifact@v4
-      with:
-        name: multilevel-result-${{ matrix.instance }}-S${{ matrix.segments_per_level }}-L${{ matrix.num_levels }}-R${{ matrix.merge_ratio }}
-        path: results.json
-        retention-days: 30
+              with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+              runtime = 2700.0
+              if os.path.exists(runtime_file):
+                with open(runtime_file, "r") as f:
+                  runtime = float(f.read().strip())
+              if "TIMEOUT" in content or "ERROR_EXIT_CODE" in content or not content or "Fitness:" not in content:
+                return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
+                        "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "TIMEOUT"}
+              makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
+              drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
+              waiting_viol = find_metric_last(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
+              fitness = find_metric_last(r'Fitness:\s*([0-9.+\-eE]+)', content)
+              feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
+              return {"runtime": round(runtime, 3), "makespan": round(makespan, 4),
+                      "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
+                      "fitness": round(fitness, 4), "feasible": feasible}
+            except Exception:
+              return {"runtime": 0, "makespan": 0, "drone_violation": 0,
+                      "waiting_violation": 0, "fitness": float('inf'), "feasible": "ERROR"}
+
+          runs = []
+          for run in range(1, 6):
+            result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
+            result["run"] = run
+            runs.append(result)
+          with open("results.json", "w") as f:
+            json.dump({"instance": instance, "runs": runs}, f, indent=2)
+          EOF
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: multilevel-result-${{ matrix.instance }}
+          path: results.json
+          retention-days: 30
 
   run-100-cd:
-    name: 100cd ${{ matrix.instance }}_S${{ matrix.segments_per_level }}_L${{ matrix.num_levels }}_R${{ matrix.merge_ratio }}
+    name: 100cd ${{ matrix.instance }}
     needs: compile
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -335,83 +331,79 @@ jobs:
       fail-fast: false
       max-parallel: 15
       matrix:
-        segments_per_level: [1]
-        num_levels: [3, 4, 5]
-        merge_ratio: [5, 10]
         instance: [
           "100.10.3", "100.10.4", "100.20.3", "100.20.4",
           "100.30.3", "100.30.4", "100.40.3", "100.40.4"
         ]
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    - name: Download executable
-      uses: actions/download-artifact@v4
-      with:
-        name: multilevel-tabu-cap-executable
-    - name: Run algorithm 5 times
-      run: |
-        chmod +x multilevel_tabu_cap
-        for run in {1..5}; do
-          START_TIME=$(date +%s.%N)
-          timeout 20m ./multilevel_tabu_cap instances/${{ matrix.instance }}.txt ${{ matrix.num_levels }} 1 1 ${{ matrix.merge_ratio }} > output_run${run}.txt 2>&1
-          EXIT_CODE=$?
-          END_TIME=$(date +%s.%N)
-          echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
-          if [ $EXIT_CODE -eq 124 ]; then
-            echo "TIMEOUT" >> output_run${run}.txt
-          elif [ $EXIT_CODE -ne 0 ]; then
-            echo "ERROR_EXIT_CODE_$EXIT_CODE" >> output_run${run}.txt
-          fi
-        done
-    - name: Parse results
-      run: |
-        python3 <<'EOF'
-        import re, json, os
-        instance = "${{ matrix.instance }}"
-        segments = ${{ matrix.segments_per_level }}
-        levels = ${{ matrix.num_levels }}
-        merge_ratio = ${{ matrix.merge_ratio }}
-        iter_per_seg = int(instance.split(".")[0])
-        max_iter_level = int(instance.split(".")[0]) * 10
-        total_iter = 2 * levels * max_iter_level
-        def find_metric_last(pattern, content):
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Download executable
+        uses: actions/download-artifact@v4
+        with:
+          name: multilevel-tabu-cap-executable
+      - name: Run algorithm 5 times
+        run: |
+          chmod +x multilevel_tabu_cap
+          for run in {1..5}; do
+            START_TIME=$(date +%s.%N)
+            timeout 20m ./multilevel_tabu_cap instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
+            EXIT_CODE=$?
+            END_TIME=$(date +%s.%N)
+            echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
+            if [ $EXIT_CODE -eq 124 ]; then
+              echo "TIMEOUT" >> output_run${run}.txt
+            elif [ $EXIT_CODE -ne 0 ]; then
+              echo "ERROR_EXIT_CODE_$EXIT_CODE" >> output_run${run}.txt
+            fi
+          done
+      - name: Parse results
+        run: |
+          python3 <<'EOF'
+          import re, json, os
+          instance = "${{ matrix.instance }}"
+
+          def find_metric_last(pattern, content):
             matches = re.findall(pattern, content)
             return float(matches[-1]) if matches else 0.0
-        def parse_output(output_file, runtime_file):
+
+          def parse_output(output_file, runtime_file):
             try:
-                with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
-                    content = f.read()
-                runtime = 2700.0
-                if os.path.exists(runtime_file):
-                    with open(runtime_file, "r") as f: runtime = float(f.read().strip())
-                if "TIMEOUT" in content or "ERROR_EXIT_CODE" in content or not content or "Fitness:" not in content:
-                    return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
-                            "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "TIMEOUT",
-                            "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
-                makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
-                drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
-                waiting_viol = find_metric_last(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
-                fitness = find_metric_last(r'Fitness:\s*([0-9.+\-eE]+)', content)
-                feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
-                return {"runtime": round(runtime, 3), "makespan": round(makespan, 4),
-                        "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
-                        "fitness": round(fitness, 4), "feasible": feasible,
-                        "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
-            except:
-                return {"runtime": 0, "makespan": 0, "drone_violation": 0,
-                        "waiting_violation": 0, "fitness": float('inf'), "feasible": "ERROR",
-                        "segments_per_level": segments, "num_levels": levels, "iter_per_segment": iter_per_seg, "total_iter": total_iter}
-        runs = [parse_output(f"output_run{i}.txt", f"runtime_run{i}.txt") | {"run": i} for i in range(1, 6)]
-        with open("results.json", "w") as f:
-          json.dump({"instance": instance, "segments_per_level": segments, "num_levels": levels, "merge_ratio": merge_ratio, "iter_per_segment": iter_per_seg, "total_iter": total_iter, "runs": runs}, f, indent=2)
-        EOF
-    - name: Upload results
-      uses: actions/upload-artifact@v4
-      with:
-        name: multilevel-result-${{ matrix.instance }}-S${{ matrix.segments_per_level }}-L${{ matrix.num_levels }}-R${{ matrix.merge_ratio }}
-        path: results.json
-        retention-days: 30
+              with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+              runtime = 2700.0
+              if os.path.exists(runtime_file):
+                with open(runtime_file, "r") as f:
+                  runtime = float(f.read().strip())
+              if "TIMEOUT" in content or "ERROR_EXIT_CODE" in content or not content or "Fitness:" not in content:
+                return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
+                        "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "TIMEOUT"}
+              makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
+              drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
+              waiting_viol = find_metric_last(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
+              fitness = find_metric_last(r'Fitness:\s*([0-9.+\-eE]+)', content)
+              feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
+              return {"runtime": round(runtime, 3), "makespan": round(makespan, 4),
+                      "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
+                      "fitness": round(fitness, 4), "feasible": feasible}
+            except Exception:
+              return {"runtime": 0, "makespan": 0, "drone_violation": 0,
+                      "waiting_violation": 0, "fitness": float('inf'), "feasible": "ERROR"}
+
+          runs = []
+          for run in range(1, 6):
+            result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
+            result["run"] = run
+            runs.append(result)
+          with open("results.json", "w") as f:
+            json.dump({"instance": instance, "runs": runs}, f, indent=2)
+          EOF
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: multilevel-result-${{ matrix.instance }}
+          path: results.json
+          retention-days: 30
 
   aggregate:
     name: Create Multilevel Summary
@@ -419,79 +411,68 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
-    - name: Download all results
-      uses: actions/download-artifact@v4
-      continue-on-error: true
-      with:
-        pattern: multilevel-result-*
-        merge-multiple: false
-    - name: Create summary CSV
-      run: |
-        python3 <<'EOF'
-        import csv
-        import glob
-        import json
-        import os
+      - name: Download all results
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: multilevel-result-*
+          merge-multiple: false
+      - name: Create summary CSV
+        run: |
+          python3 <<'EOF'
+          import csv
+          import glob
+          import json
+          import os
 
-        all_data = []
-        for result_dir in glob.glob("multilevel-result-*"):
+          all_data = []
+          for result_dir in glob.glob("multilevel-result-*"):
             json_file = os.path.join(result_dir, "results.json")
             if os.path.exists(json_file):
-                with open(json_file) as f:
-                    all_data.append(json.load(f))
+              with open(json_file) as f:
+                all_data.append(json.load(f))
 
-        if not all_data:
+          if not all_data:
             print("⚠️  No results found.")
 
-        all_data.sort(key=lambda x: (
-            tuple(map(int, x["instance"].split("."))),
-            x["num_levels"],
-            x.get("merge_ratio", 0),
-            x.get("total_iter", 0),
-        ))
+          all_data.sort(key=lambda x: tuple(map(int, x["instance"].split("."))))
 
-        with open("MULTILEVEL_TABU_RESULTS.csv", "w", newline="") as f:
+          with open("MULTILEVEL_TABU_RESULTS.csv", "w", newline="") as f:
             cols = [
-                "Instance", "Size", "Replica", "Num_Levels", "Merge_Ratio", "Total_Iter", "Run",
-                "Runtime_s", "Makespan", "Drone_Violation", "Waiting_Violation", "Fitness", "Feasible",
+              "Instance", "Size", "Replica", "Run", "Runtime_s", "Makespan",
+              "Drone_Violation", "Waiting_Violation", "Fitness", "Feasible",
             ]
             writer = csv.DictWriter(f, fieldnames=cols)
             writer.writeheader()
 
             for data in all_data:
-                parts = data["instance"].split(".")
-                instance = data["instance"]
-                size = int(parts[0])
-                replica = int(parts[2])
-                levels = data["num_levels"]
-                merge_ratio = data.get("merge_ratio", "")
-                total_iter = data.get("total_iter", 2 * levels * (size * 10))
+              parts = data["instance"].split(".")
+              instance = data["instance"]
+              size = int(parts[0])
+              replica = int(parts[2])
 
-                for run_data in data["runs"]:
-                    writer.writerow({
-                        "Instance": instance,
-                        "Size": size,
-                        "Replica": replica,
-                        "Num_Levels": levels,
-                        "Merge_Ratio": merge_ratio,
-                        "Total_Iter": total_iter,
-                        "Run": run_data["run"],
-                        "Runtime_s": run_data["runtime"],
-                        "Makespan": run_data["makespan"],
-                        "Drone_Violation": run_data["drone_violation"],
-                        "Waiting_Violation": run_data["waiting_violation"],
-                        "Fitness": run_data["fitness"],
-                        "Feasible": run_data["feasible"],
-                    })
+              for run_data in data["runs"]:
+                writer.writerow({
+                  "Instance": instance,
+                  "Size": size,
+                  "Replica": replica,
+                  "Run": run_data["run"],
+                  "Runtime_s": run_data["runtime"],
+                  "Makespan": run_data["makespan"],
+                  "Drone_Violation": run_data["drone_violation"],
+                  "Waiting_Violation": run_data["waiting_violation"],
+                  "Fitness": run_data["fitness"],
+                  "Feasible": run_data["feasible"],
+                })
 
-        if all_data:
-            print(f"✅ CSV created: {len(all_data)} config-instance combinations")
-        else:
+          if all_data:
+            print(f"✅ CSV created: {len(all_data)} instances")
+          else:
             print("✅ Empty CSV created")
-        EOF
-    - name: Upload CSV
-      uses: actions/upload-artifact@v4
-      with:
-        name: multilevel-tabu-results
-        path: MULTILEVEL_TABU_RESULTS.csv
-        retention-days: 90
+          EOF
+      - name: Upload CSV
+        uses: actions/upload-artifact@v4
+        with:
+          name: multilevel-tabu-results
+          path: MULTILEVEL_TABU_RESULTS.csv
+          retention-days: 90
