@@ -240,6 +240,7 @@ void print_solution(const Solution &sol){
 }
 
 void normalize_route(vector<int> &route);
+double get_limit_wait_for_node(int node_id);
 
 void print_drone_violation_details(const Solution &sol){
     bool any = false;
