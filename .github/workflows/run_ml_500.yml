@@ -2,9 +2,9 @@ name: Run Multilevel Tabu - Size 500
 
 on:
   push:
-    branches: [main, master, Method_Ba]
+    branches: [main, master, Method_B]
   pull_request:
-    branches: [main, master, Method_Ba]
+    branches: [main, master, Method_B]
   workflow_dispatch:
 
 permissions:
@@ -45,7 +45,7 @@ jobs:
 
     strategy:
       fail-fast: false
-      max-parallel: 2
+      max-parallel: 4
       matrix:
         instance: [
           "500.10.1","500.10.2","500.10.3","500.10.4",
