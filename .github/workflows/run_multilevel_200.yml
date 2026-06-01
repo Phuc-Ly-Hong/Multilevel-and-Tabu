@@ -2,9 +2,9 @@ name: Run Multilevel Tabu - Size 200
 
 on:
   push:
-    branches: [ main, master, Method_Ba ]
+    branches: [ main, master, Method_B ]
   pull_request:
-    branches: [ main, master, Method_Ba ]
+    branches: [ main, master, Method_B ]
   workflow_dispatch:
 
 permissions:
@@ -27,7 +27,7 @@ jobs:
     
     - name: Compile executable
       run: |
-        g++ -O3 -std=c++17 -o multilevel_tabu src/Multilevel_Tabu.cpp
+        g++ -O3 -std=c++17 -o multilevel_tabu src/Multilevel_Tabu_no_lwt.cpp
         chmod +x multilevel_tabu
     
     - name: Upload executable

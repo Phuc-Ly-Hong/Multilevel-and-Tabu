@@ -2,9 +2,9 @@ name: Run Tabu Search - Size 500
 
 on:
   push:
-    branches: [main, master, Method_B]
+    branches: [main, master, Method_Baa]
   pull_request:
-    branches: [main, master, Method_B]
+    branches: [main, master, Method_Baa]
   workflow_dispatch:
 
 permissions:
