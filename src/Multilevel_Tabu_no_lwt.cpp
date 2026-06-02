@@ -46,6 +46,13 @@ struct RouteEval {
     double drone_violation;
 };
 
+struct MoveEvalResult {
+    bool feasible;
+    double fitness;
+    double makespan;
+    double drone_violation;
+};
+
 struct LevelInfo {
     vector<Node> nodes;
     vector<Node> C1_level, C2_level; // customers ở level này
@@ -408,6 +415,46 @@ void recompute_solution_for_route(Solution &sol, size_t v1, const LevelInfo *cur
     recompute_solution_for_routes(sol, v1, v1, false, current_level);
 }
 
+MoveEvalResult evaluate_move_routes_delta(const Solution& current_sol,
+                                         size_t v1,
+                                         size_t v2,
+                                         vector<int> route_v1,
+                                         vector<int> route_v2,
+                                         const LevelInfo* current_level) {
+    RouteEval eval1 = evaluate_route(route_v1, vehicles[v1], current_level);
+    RouteEval eval2 = (v2 == v1) ? eval1 : evaluate_route(route_v2, vehicles[v2], current_level);
+
+    if (current_sol.route_time.size() != current_sol.route.size() ||
+        current_sol.route_drone_violation.size() != current_sol.route.size()) {
+        Solution tmp = current_sol;
+        tmp.route[v1] = route_v1;
+        tmp.route[v2] = route_v2;
+        evaluate_solution(tmp, current_level);
+        return {tmp.is_feasible, tmp.fitness, tmp.makespan, tmp.drone_violation};
+    }
+
+    double new_drone_violation = current_sol.drone_violation
+        - current_sol.route_drone_violation[v1]
+        + eval1.drone_violation;
+    if (v2 != v1) {
+        new_drone_violation = new_drone_violation
+            - current_sol.route_drone_violation[v2]
+            + eval2.drone_violation;
+    }
+
+    double new_makespan = 0.0;
+    for (size_t i = 0; i < current_sol.route_time.size(); i++) {
+        double t = current_sol.route_time[i];
+        if (i == v1) t = eval1.time;
+        if (i == v2) t = eval2.time;
+        if (t > new_makespan) new_makespan = t;
+    }
+
+    bool feasible = (new_drone_violation <= EPSILON);
+    double fitness = new_makespan + alpha1 * new_drone_violation;
+    return {feasible, fitness, new_makespan, new_drone_violation};
+}
+
 int get_type(int nid, const LevelInfo *current_level = nullptr) {
     if (current_level != nullptr) {
         // Dùng level hiện tại
@@ -720,7 +767,7 @@ Solution move_2_1(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
     
     if (pos1 == 0 || pos2 == 0 || pos2 >= new_sol.route[v2].size() - 1) {
         return current_sol;
-    }
+    } 
     
     if (pos1 + 1 >= new_sol.route[v1].size() - 1) {
         return current_sol;
@@ -926,10 +973,11 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
     const int max_no_improve_segment = 8;
 
     vector<string> move_types = {"1-0", "1-1", "2-0", "2-1", "2-2", "2-opt"};
-
+    
     for (int iter = 0; iter < MAX_ITER && no_improve_count < MAX_NO_IMPROVE; iter++){
         double best_Neighbor_fitness = DBL_MAX;
         Solution best_Neighbor_sol = current_sol;
+        bool best_neighbor_ready = false;
         double current_fitness = current_sol.fitness;
         TabuMove best_move;
         int best_move_node1 = -1, best_move_node2 = -1, best_move_node3 = -1, best_move_node4 = -1;
@@ -937,7 +985,6 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
         //string move_type = "2-2";
 
         int move_type_idx = select_move_type();
-        //int move_type_idx = rand() % MOVE_SET.size();
         string move_type = MOVE_SET[move_type_idx];
         used_count[move_type_idx]++;
 
@@ -972,28 +1019,43 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                                 if (get_type_fast(n1) == 1 && vehicles[v2].is_drone) continue;
                             }
 
-                            Solution new_sol = move_1_0(current_sol, v1, pos1, v2, pos2, current_level);
+                            vector<int> route_v1 = current_sol.route[v1];
+                            vector<int> route_v2 = current_sol.route[v2];
+                            int cid = route_v1[pos1];
+
+                            if (pos2 == route_v2.size() && vehicles[v2].is_drone) {
+                                route_v1.erase(route_v1.begin() + pos1);
+                                route_v2.push_back(cid);
+                                if (!route_v2.empty() && route_v2.back() != depot_id) {
+                                    route_v2.push_back(depot_id);
+                                }
+                            } else {
+                                route_v1.erase(route_v1.begin() + pos1);
+                                route_v2.insert(route_v2.begin() + pos2, cid);
+                            }
+
+                            MoveEvalResult eval = evaluate_move_routes_delta(current_sol, v1, v2, route_v1, route_v2, current_level);
                             TabuMove move = {"1-0", n1, -1, -1, -1, (int)v1, (int)v2, (int)pos1, -1, (int)pos2, -1, TABU_TENURE};
                             bool tabu = is_tabu(tabu_list, move);
 
-                            if (new_sol.is_feasible && (new_sol.fitness < best_sol.fitness - EPSILON)) {
-                                best_Neighbor_fitness = new_sol.fitness;
-                                best_Neighbor_sol = new_sol;
+                            if (eval.feasible && (eval.fitness < best_sol.fitness - EPSILON)) {
+                                best_Neighbor_fitness = eval.fitness;
                                 best_move = move;
                                 best_move_node1 = n1;
                                 best_move_node2 = -1;
                                 best_move_node3 = -1;
                                 best_move_node4 = -1;
+                                best_neighbor_ready = false;
                                 improved = true;
                             } else if (improved == false) {
-                                if (!tabu && (new_sol.fitness < best_Neighbor_fitness - EPSILON)) {
-                                    best_Neighbor_fitness = new_sol.fitness;
-                                    best_Neighbor_sol = new_sol;
+                                if (!tabu && (eval.fitness < best_Neighbor_fitness - EPSILON)) {
+                                    best_Neighbor_fitness = eval.fitness;
                                     best_move = move;
                                     best_move_node1 = n1;   
                                     best_move_node2 = -1;
                                     best_move_node3 = -1;
                                     best_move_node4 = -1;
+                                    best_neighbor_ready = false;
                                 }
                             }
                         }
@@ -1013,28 +1075,32 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                             int n2 = current_sol.route[v2][pos2];
                             if (n2 == depot_id || n1 == n2 || get_type_fast(n1) != get_type_fast(n2) || ((abs(int(pos1)-int(pos2)) <= 1) && (v1 == v2))) continue;
 
-                            Solution new_sol = move_1_1(current_sol, v1, pos1, v2, pos2, current_level);
+                            vector<int> route_v1 = current_sol.route[v1];
+                            vector<int> route_v2 = current_sol.route[v2];
+                            swap(route_v1[pos1], route_v2[pos2]);
+
+                            MoveEvalResult eval = evaluate_move_routes_delta(current_sol, v1, v2, route_v1, route_v2, current_level);
                             TabuMove move = {"1-1", n1, -1, n2, -1, (int)v1, (int)v2, (int)pos1, -1, (int)pos2, -1, TABU_TENURE};
                             bool tabu = is_tabu(tabu_list, move);
 
-                            if (new_sol.is_feasible && (new_sol.fitness < best_sol.fitness - EPSILON)) {
-                                best_Neighbor_fitness = new_sol.fitness;
-                                best_Neighbor_sol = new_sol;
+                            if (eval.feasible && (eval.fitness < best_sol.fitness - EPSILON)) {
+                                best_Neighbor_fitness = eval.fitness;
                                 best_move = move;
                                 best_move_node1 = n1;
                                 best_move_node2 = -1;
                                 best_move_node3 = n2;
                                 best_move_node4 = -1;
+                                best_neighbor_ready = false;
                                 improved = true;
                             } else if (improved == false) {
-                                if (!tabu && (new_sol.fitness < best_Neighbor_fitness - EPSILON)) {
-                                    best_Neighbor_fitness = new_sol.fitness;
-                                    best_Neighbor_sol = new_sol;
+                                if (!tabu && (eval.fitness < best_Neighbor_fitness - EPSILON)) {
+                                    best_Neighbor_fitness = eval.fitness;
                                     best_move = move;
                                     best_move_node1 = n1;
                                     best_move_node2 = -1;
                                     best_move_node3 = n2;
                                     best_move_node4 = -1;
+                                    best_neighbor_ready = false;
                                 }
                             }
                         }
@@ -1049,7 +1115,6 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                     int n1 = current_sol.route[v1][pos1];
                     int n2 = current_sol.route[v1][pos1+1];
                     if (n1 == depot_id || n2 == depot_id) continue;
-                    if (customer_count_per_vehicle[v1] <= 2) continue;
                     for (size_t v2 = 0; v2 < vehicles.size(); v2++){
                         if (v1 == v2) continue;
                         if ((get_type_fast(n1) == 1 || get_type_fast(n2) == 1) && vehicles[v2].is_drone) continue;
@@ -1065,6 +1130,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                             if (new_sol.is_feasible && (new_sol.fitness < best_sol.fitness - EPSILON)) {
                                 best_Neighbor_fitness = new_sol.fitness;
                                 best_Neighbor_sol = new_sol;
+                                best_neighbor_ready = true;
                                 best_move = move;
                                 best_move_node1 = n1;
                                 best_move_node2 = n2;
@@ -1075,6 +1141,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                                 if (!tabu && (new_sol.fitness < best_Neighbor_fitness - EPSILON)) {
                                     best_Neighbor_fitness = new_sol.fitness;
                                     best_Neighbor_sol = new_sol;
+                                    best_neighbor_ready = true;
                                     best_move = move;
                                     best_move_node1 = n1;
                                     best_move_node2 = n2;
@@ -1095,10 +1162,8 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                     int n1 = current_sol.route[v1][pos1];
                     int n2 = current_sol.route[v1][pos1+1];
                     if (n1 == depot_id || n2 == depot_id) continue;
-                    if (customer_count_per_vehicle[v1] <= 2) continue;
                     for (size_t v2 = 0; v2 < vehicles.size(); v2++){
                         if (v1 == v2) continue;
-                        if (customer_count_per_vehicle[v2] <= 1) continue;
                         for (size_t pos2 = 1; pos2 < current_sol.route[v2].size()-1; pos2++){
                             int n3 = current_sol.route[v2][pos2];
                             if (n3 == depot_id) continue;
@@ -1111,6 +1176,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                             if (new_sol.is_feasible && (new_sol.fitness < best_sol.fitness - EPSILON)) {
                                 best_Neighbor_fitness = new_sol.fitness;
                                 best_Neighbor_sol = new_sol;
+                                best_neighbor_ready = true;
                                 best_move = move;
                                 best_move_node1 = n1;
                                 best_move_node2 = n2;
@@ -1121,6 +1187,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                                 if (!tabu && (new_sol.fitness < best_Neighbor_fitness - EPSILON)) {
                                     best_Neighbor_fitness = new_sol.fitness;
                                     best_Neighbor_sol = new_sol;
+                                    best_neighbor_ready = true;
                                     best_move = move;
                                     best_move_node1 = n1;
                                     best_move_node2 = n2;
@@ -1140,10 +1207,8 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                     int n1 = current_sol.route[v1][pos1];
                     int n2 = current_sol.route[v1][pos1+1];
                     if (n1 == depot_id || n2 == depot_id) continue;
-                    if (customer_count_per_vehicle[v1] <= 2) continue;
                     for (size_t v2 = 0; v2 < vehicles.size(); v2++){
                         if (v1 == v2) continue;
-                        if (customer_count_per_vehicle[v2] <= 2) continue;
                         for (size_t pos2 = 1; pos2 < current_sol.route[v2].size() - 2; pos2++){
                             int n3 = current_sol.route[v2][pos2];
                             int n4 = current_sol.route[v2][pos2+1];
@@ -1157,6 +1222,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                             if (new_sol.is_feasible && (new_sol.fitness < best_sol.fitness - EPSILON)) {
                                 best_Neighbor_fitness = new_sol.fitness;
                                 best_Neighbor_sol = new_sol;
+                                best_neighbor_ready = true;
                                 best_move = move;
                                 best_move_node1 = n1;
                                 best_move_node2 = n2;
@@ -1167,6 +1233,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                                 if (!tabu && (new_sol.fitness < best_Neighbor_fitness - EPSILON)) {
                                     best_Neighbor_fitness = new_sol.fitness;
                                     best_Neighbor_sol = new_sol;
+                                    best_neighbor_ready = true;
                                     best_move = move;
                                     best_move_node1 = n1;
                                     best_move_node2 = n2;
@@ -1199,6 +1266,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                         if (new_sol.is_feasible && (new_sol.fitness < best_sol.fitness - EPSILON)) {
                             best_Neighbor_fitness = new_sol.fitness;
                             best_Neighbor_sol = new_sol;
+                            best_neighbor_ready = true;
                             best_move = move;
                             best_move_node1 = customer_at_pos1;
                             best_move_node2 = -1;
@@ -1209,6 +1277,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                             if (!tabu && (new_sol.fitness < best_Neighbor_fitness - EPSILON)) {
                                 best_Neighbor_fitness = new_sol.fitness;
                                 best_Neighbor_sol = new_sol;
+                                best_neighbor_ready = true;
                                 best_move = move;
                                 best_move_node1 = customer_at_pos1;
                                 best_move_node2 = -1;
@@ -1261,6 +1330,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                             if (new_sol.is_feasible && (new_sol.fitness < best_sol.fitness - EPSILON)) {
                                 best_Neighbor_fitness = new_sol.fitness;
                                 best_Neighbor_sol = new_sol;
+                                best_neighbor_ready = true;
                                 best_move = move;
                                 best_move_node1 = customer_at_pos1;
                                 best_move_node2 = -1;
@@ -1271,6 +1341,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                                 if (!tabu && (new_sol.fitness < best_Neighbor_fitness - EPSILON)) {
                                     best_Neighbor_fitness = new_sol.fitness;
                                     best_Neighbor_sol = new_sol;
+                                    best_neighbor_ready = true;
                                     best_move = move;
                                     best_move_node1 = customer_at_pos1;
                                     best_move_node2 = -1;
@@ -1306,7 +1377,15 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
         }
         
         if (should_apply_move) {
-            current_sol = best_Neighbor_sol;
+            if (best_neighbor_ready) {
+                current_sol = best_Neighbor_sol;
+            } else if (move_type == "1-0") {
+                current_sol = move_1_0(current_sol, best_move.vehicle1, best_move.pos1, best_move.vehicle2, best_move.pos3, current_level);
+            } else if (move_type == "1-1") {
+                current_sol = move_1_1(current_sol, best_move.vehicle1, best_move.pos1, best_move.vehicle2, best_move.pos3, current_level);
+            } else {
+                current_sol = best_Neighbor_sol;
+            }
 
             /*cout << "Iter: " << iter << " Move: " << move_type 
                  << " current makespan: " << current_sol.makespan 
@@ -1571,7 +1650,7 @@ LevelInfo merge_customers(const LevelInfo& current_level,
             }
             node_to_group[node_b] = group_idx_a;
             merged_nodes.insert(node_b);
-              // Merge logging removed for performance.
+            // Merge logging removed for performance.
         }
         // Case 3: node_b đã có group, node_a chưa -> Thêm node_a vào group của node_b
         else if (group_idx_a == -1 && group_idx_b != -1) {
@@ -1587,7 +1666,6 @@ LevelInfo merge_customers(const LevelInfo& current_level,
             }
             node_to_group[node_a] = group_idx_b;
             merged_nodes.insert(node_a);
-              // Merge logging removed for performance.
         }
         // Case 4: Cả 2 đã có group khác nhau → Merge 2 groups
         else if (group_idx_a != group_idx_b) {
@@ -1806,7 +1884,6 @@ Solution project_solution_to_next_level(const Solution& old_sol, const LevelInfo
     for (const auto& old_node : old_level.nodes) {
         int old_node_id = old_node.id;
         if (old_node_id == depot_id) continue;
-
         int mapped = -1;
         auto old_it = old_level.node_mapping.find(old_node_id);
         if (old_it != old_level.node_mapping.end()) {
@@ -2052,6 +2129,7 @@ Solution multilevel_tabu_search() {
             auto refine_start = chrono::high_resolution_clock::now();
             
             s = tabu_search(s, nullptr);
+            
             evaluate_solution(s, nullptr);
             
             auto refine_end = chrono::high_resolution_clock::now();
@@ -2061,8 +2139,6 @@ Solution multilevel_tabu_search() {
         }
         // CASE 2: LEVEL 1, 2, 3... - VẪN DÙNG MULTILEVEL
         else {
-            // Refinement logging removed for performance.
-            
             // CLEAR MERGED INFO CỦA LEVEL CAO HƠN
             auto it = merged_nodes_info.begin();
             while (it != merged_nodes_info.end()) {
@@ -2090,58 +2166,6 @@ Solution multilevel_tabu_search() {
     return best_overall;
 }
 
-/*Solution create_test_solution_from_routes(const vector<vector<int>>& test_routes) {
-    Solution test_sol;
-    test_sol.route = test_routes;
-    
-    cout << "\n" << string(70, '=') << endl;
-    cout << "🧪 TESTING WITH PREDEFINED ROUTES" << endl;
-    cout << string(70, '=') << "\n" << endl;
-    
-    for (size_t v = 0; v < test_routes.size(); v++) {
-        cout << "Vehicle " << v << " (" 
-             << (vehicles[v].is_drone ? "🚁 Drone" : "🚚 Technician") 
-             << ", speed=" << vehicles[v].speed << " m/min";
-        if (vehicles[v].is_drone) {
-            cout << ", limit=" << vehicles[v].limit_drone << " min";
-        }
-        cout << "): ";
-        
-        for (int cid : test_routes[v]) {
-            cout << cid << " ";
-        }
-        cout << endl;
-    }
-    
-    evaluate_solution(test_sol, nullptr);
-    
-    cout << "\n" << string(70, '=') << endl;
-    cout << " TEST RESULTS" << endl;
-    cout << string(70, '=') << "\n" << endl;
-    
-    cout << "Makespan: " << test_sol.makespan << " min" << endl;
-    cout << "Drone violation: " << test_sol.drone_violation << " min" << endl;
-    cout << "Fitness: " << test_sol.fitness << endl;
-    cout << "Is feasible: " << (test_sol.is_feasible ? "YES ✅" : "NO ❌") << endl;
-    
-    if (!test_sol.is_feasible) {
-        cout << "\n⚠️  VIOLATIONS DETECTED:" << endl;
-        
-        if (test_sol.drone_violation > 0) {
-            cout << "  🚁 Drone flight time exceeded by " << test_sol.drone_violation << " min" << endl;
-            cout << "     → Some drones flew > " << vehicles[3].limit_drone << " min without returning to depot" << endl;
-        }
-        
-        if (test_sol.waiting_violation > 0) {
-            cout << "  ⏳ Customer waiting time exceeded by " << test_sol.waiting_violation << " min" << endl;
-            cout << "     → Some customers waited > 60 min for drone to return" << endl;
-        }
-    } else {
-        cout << "\n ALL CONSTRAINTS SATISFIED!" << endl;
-    }
-    
-    return test_sol;
-}*/
 
 int main(int argc, char* argv[]) {
     srand(time(nullptr));
@@ -2167,10 +2191,8 @@ int main(int argc, char* argv[]) {
     }
 
     read_dataset(dataset_path);
-
-    // Configuration logging removed for performance.
  
-    // Khởi tạo danh sách xe
+    // Khởi tạo danh sách xe 
     vehicles.clear();
     int customers = num_nodes-1;
     int num_techs = 0, num_drones = 0;
