@@ -69,6 +69,7 @@ struct MergedNodeInfo {
     vector<int> current_sequence;   // Sequence ở level hiện tại
     double internal_truck_time;     // Tổng thời gian truck bên trong
     double internal_drone_time;     // Tổng thời gian drone bên trong
+    double precomputed_demand = 0.0;
     vector<double> cumulative_truck_times;
     vector<double> cumulative_drone_times;
     int entry_node_original;                 // Node đầu tiên (entry point)
@@ -76,8 +77,9 @@ struct MergedNodeInfo {
     int entry_node;
     int exit_node;
     int level_id;
-    
-    MergedNodeInfo() : merged_node_id(-1), internal_truck_time(0.0), internal_drone_time(0.0), entry_node_original(-1), exit_node_original(-1), entry_node(-1), exit_node(-1), level_id(-1) {}
+
+
+    MergedNodeInfo() : merged_node_id(-1), internal_truck_time(0.0), internal_drone_time(0.0), precomputed_demand(0.0), entry_node_original(-1), exit_node_original(-1), entry_node(-1), exit_node(-1), level_id(-1) {}
 };
 
 vector<vector<double>> base_distance_matrix;
@@ -326,12 +328,7 @@ double get_demand_for_node(int node_id, const LevelInfo* current_level = nullptr
 
     auto it_merge = merged_nodes_info.find(node_id);
     if (it_merge != merged_nodes_info.end()) {
-        double sum = 0.0;
-        for (int orig : it_merge->second.original_sequence) {
-            auto it = base_demand_by_node.find(orig);
-            if (it != base_demand_by_node.end()) sum += it->second;
-        }
-        return sum;
+        return it_merge->second.precomputed_demand;
     }
 
     auto it = base_demand_by_node.find(node_id);
@@ -1713,6 +1710,12 @@ LevelInfo merge_customers(const LevelInfo& current_level,
                 }
             }
             info.original_sequence = original_nodes;
+            double total_demand = 0.0;
+            for (int orig : info.original_sequence) {
+                auto it = base_demand_by_node.find(orig);
+                if (it != base_demand_by_node.end()) total_demand += it->second;
+            }
+            info.precomputed_demand = total_demand;
             next_level.node_mapping[merged_node.id] = original_nodes;
             merged_nodes_info[merged_node.id] = info;
         }

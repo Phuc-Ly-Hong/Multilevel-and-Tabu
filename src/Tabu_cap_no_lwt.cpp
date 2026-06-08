@@ -57,7 +57,8 @@ vector<vector<double>> drone_times;
 vector<Node> C1; // customers served only by technicians
 vector<Node> C2; // customers served by drones or technicians
 vector<VehicleFamily> vehicles;
-vector<int> node_type; // 1 = C1, 2 = C2
+unordered_map<int, int> base_type_by_node;
+unordered_map<int, double> demand_map;
 
 constexpr double TRUCK_SPEED = 0.58;
 constexpr double DRONE_SPEED = 0.83;
@@ -129,6 +130,8 @@ void read_dataset(const string &filename){
     vector<Node> nodes;
     C1.clear();
     C2.clear();
+    base_type_by_node.clear();
+    demand_map.clear();
     ifstream file(filename);
     if (!file.is_open()){
         cerr << "Error opening file: " << filename <<endl;
@@ -213,10 +216,13 @@ void read_dataset(const string &filename){
     // Phân loại khách hàng
     for (const auto& node : nodes){
         if (node.id == depot_id) continue;
+        demand_map[node.id] = node.demand;
         if (node.c1_or_c2 > 0){
             C2.push_back(node);
+            base_type_by_node[node.id] = 2;
         } else if (node.c1_or_c2 == 0) {
             C1.push_back(node);
+            base_type_by_node[node.id] = 1;
         }
     }
     cout << "C1 size: " << C1.size() << ", C2 size: " << C2.size() << endl;
@@ -319,12 +325,8 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle) {
         } else {
             current_time += time_matrix[prev][cid];
             // Cộng demand của khách hàng vào trip_load
-            for (const auto& n : C2) {
-                if (n.id == cid) { trip_load += n.demand; break; }
-            }
-            for (const auto& n : C1) {
-                if (n.id == cid) { trip_load += n.demand; break; }
-            }
+            auto it = demand_map.find(cid);
+            if (it != demand_map.end()) trip_load += it->second;
             prev = cid;
         }
     }
@@ -493,7 +495,8 @@ bool contains_depot_in_range(const vector<int>& route, size_t start, size_t end)
 }
 
 int get_type(int nid) {
-    if (nid >= 0 && nid < (int)node_type.size()) return node_type[nid];
+    auto it = base_type_by_node.find(nid);
+    if (it != base_type_by_node.end()) return it->second;
     return -1;
 }
 
