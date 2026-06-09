@@ -58,7 +58,7 @@ vector<Node> C1; // customers served only by technicians
 vector<Node> C2; // customers served by drones or technicians
 vector<VehicleFamily> vehicles;
 unordered_map<int, int> base_type_by_node;
-unordered_map<int, double> demand_map;
+vector<double> demand_map;
 
 constexpr double TRUCK_SPEED = 0.58;
 constexpr double DRONE_SPEED = 0.83;
@@ -204,6 +204,7 @@ void read_dataset(const string &filename){
     }
 
     build_time_matrices_from_distance(distances, truck_times, drone_times);
+    demand_map.assign(nodes.size(), 0.0);
 
     // Phân loại khách hàng
     for (const auto& node : nodes){
@@ -317,8 +318,7 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle) {
         } else {
             current_time += time_matrix[prev][cid];
             // Cộng demand của khách hàng vào trip_load
-            auto it = demand_map.find(cid);
-            if (it != demand_map.end()) trip_load += it->second;
+            if (cid < (int)demand_map.size()) trip_load += demand_map[cid];
             prev = cid;
         }
     }
