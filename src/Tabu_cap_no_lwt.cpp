@@ -76,7 +76,6 @@ int MAX_NO_IMPROVE = 700000;
 double EPSILON = 1e-6;
 
 // Adaptive parameters
-int SEGMENT_LENGTH;
 vector<string> MOVE_SET = {"1-0", "1-1", "2-0", "2-1", "2-2", "2-opt"};
 vector<double> weights = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
 vector<double> scorePi = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
@@ -154,41 +153,34 @@ void read_dataset(const string &filename){
     if (nodes.size() > 1000) {
         // Bộ rất lớn (> 1000)
         MAX_ITER = 50000;
-        SEGMENT_LENGTH = 5000;
     }
     else if (nodes.size() >= 1000) {
         // Bộ 1000 (501-1000)
         MAX_ITER = 200000;
-        SEGMENT_LENGTH = 2500;
     }
     else if (nodes.size() >= 500) {
         // Bộ 500 (201-500)
         MAX_ITER = 40000;
-        SEGMENT_LENGTH = 1250;
         CAP = 500.0;
     }
     else if (nodes.size() >= 200) {
         // Bộ 200 (101-200)
         MAX_ITER = 16000;
-        SEGMENT_LENGTH = 600;
         CAP = 500.0;
     }
     else if (nodes.size() >= 100) {
         // Bộ 100 (100)
         MAX_ITER = 8000;
-        SEGMENT_LENGTH = 100;
         CAP = 500.0;
     }
     else if (nodes.size() >= 50) {
         // Bộ 50 (50-99)
         MAX_ITER = 4000;
-        SEGMENT_LENGTH = 50;
         CAP = 300.0;
     }
     else {
         // Bộ nhỏ (6-49)
         MAX_ITER = 4000;
-        SEGMENT_LENGTH = 50;
         CAP = 200.0;
     }
     for (const auto& node : nodes) {
@@ -832,9 +824,7 @@ Solution tabu_search(){
 
     vector<TabuMove> tabu_list; // danh sách các move bị tabu
     int no_improve_count = 0;
-    int last_depot_opt_iter = 0;
-    int no_improve_segment_length = 0;
-    const int max_no_improve_segment = 8; 
+    int last_depot_opt_iter = 0; 
 
     vector<string> move_types = {"1-0", "1-1", "2-0", "2-1", "2-2", "2-opt"};
     
@@ -851,7 +841,6 @@ Solution tabu_search(){
         //int move_type_idx = rand() % MOVE_SET.size();
         string move_type = MOVE_SET[move_type_idx];
         used_count[move_type_idx]++;
-        bool segment_improved = false;
 
         // move 1-0
         if (move_type == "1-0") {
@@ -1278,7 +1267,6 @@ Solution tabu_search(){
                 best_sol = current_sol;
                 no_improve_count = 0;
                 scorePi[move_type_idx] += delta1;
-                segment_improved = true;
             } else if (current_sol.fitness < current_fitness - EPSILON) {
                 scorePi[move_type_idx] += delta2;
                 no_improve_count++;

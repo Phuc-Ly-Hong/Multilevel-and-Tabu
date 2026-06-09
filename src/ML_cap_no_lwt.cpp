@@ -311,31 +311,6 @@ void normalize_route(vector<int> &route) {
     route.swap(tmp);
 }
 
-double get_demand_for_node(int node_id, const LevelInfo* current_level = nullptr) {
-    if (node_id == depot_id) return 0.0;
-
-    if (current_level != nullptr) {
-        auto it_map = current_level->node_mapping.find(node_id);
-        if (it_map != current_level->node_mapping.end()) {
-            double sum = 0.0;
-            for (int orig : it_map->second) {
-                auto it = base_demand_by_node.find(orig);
-                if (it != base_demand_by_node.end()) sum += it->second;
-            }
-            return sum;
-        }
-    }
-
-    auto it_merge = merged_nodes_info.find(node_id);
-    if (it_merge != merged_nodes_info.end()) {
-        return it_merge->second.precomputed_demand;
-    }
-
-    auto it = base_demand_by_node.find(node_id);
-    if (it != base_demand_by_node.end()) return it->second;
-    return 0.0;
-}
-
 map<int, double> internal_distance_cache;
 
 RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const LevelInfo *current_level = nullptr) {
@@ -387,15 +362,21 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const
                 if (prev_idx != -1 && cid_idx != -1) {
                     travel_time = active_time_matrix[prev_idx][cid_idx];
                     auto info_it = merged_nodes_info.find(cid);
-                    if (info_it != merged_nodes_info.end())
+                    if (info_it != merged_nodes_info.end()) {
                         travel_time += is_drone ? info_it->second.internal_drone_time
                                                 : info_it->second.internal_truck_time;
+                        trip_load += info_it->second.precomputed_demand;  // O(1)
+                    } else {
+                        auto it = base_demand_by_node.find(cid);          // node thường
+                        if (it != base_demand_by_node.end()) trip_load += it->second;
+                    }
                 }
             } else {
                 travel_time = active_time_matrix[prev][cid];
+                auto it = base_demand_by_node.find(cid);                  
+                if (it != base_demand_by_node.end()) trip_load += it->second;
             }
             current_time += travel_time;
-            trip_load += get_demand_for_node(cid, current_level); 
             prev = cid;
         }
     }
@@ -981,8 +962,6 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
     vector<TabuMove> tabu_list; // danh sách các move bị tabu
     int no_improve_count = 0;
     int last_depot_opt_iter = 0;
-    int no_improve_segment_length = 0;
-    const int max_no_improve_segment = 8;
 
     vector<string> move_types = {"1-0", "1-1", "2-0", "2-1", "2-2", "2-opt"};
 
