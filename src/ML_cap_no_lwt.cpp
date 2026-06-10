@@ -88,9 +88,10 @@ vector<vector<double>> drone_times;
 vector<Node> C1; // customers served only by technicians
 vector<Node> C2; // customers served by drones or technicians
 vector<VehicleFamily> vehicles;
-map<int, MergedNodeInfo> merged_nodes_info;
+unordered_map<int, MergedNodeInfo> merged_nodes_info;
 unordered_map<int, int> base_type_by_node;
 unordered_map<int, double> base_demand_by_node;
+vector<double> base_demand_vec; 
 
 constexpr double TRUCK_SPEED = 0.58;
 constexpr double DRONE_SPEED = 0.83;
@@ -249,9 +250,11 @@ void read_dataset(const string &filename){
     build_time_matrices_from_distance(base_distance_matrix, truck_times, drone_times);
 
     // Phân loại khách hàng
+    base_demand_vec.assign(nodes.size(), 0.0);
     for (const auto& node : nodes){
         if (node.id == depot_id) continue;
         base_demand_by_node[node.id] = node.demand;
+        base_demand_vec[node.id] = node.demand;
         if (node.c1_or_c2 > 0){
             C2.push_back(node);
             base_type_by_node[node.id] = 2;
@@ -317,32 +320,25 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const
     normalize_route(route);
 
     const bool is_drone = vehicle.is_drone;
-    const vector<vector<double>>& active_time_matrix =
+    const vector<vector<double>>& M =
         (current_level != nullptr)
             ? (is_drone ? current_level->drone_time_matrix : current_level->truck_time_matrix)
             : (is_drone ? drone_times : truck_times);
 
+    const int depot_idx = (current_level != nullptr) ? find_node_index_fast(depot_id) : depot_id;
+
     int prev = depot_id;
+    int prev_idx = depot_idx; 
     double current_time = 0.0;
     double depart_time = 0.0;
     double drone_violation = 0.0;
-    double capacity_violation = 0.0; 
+    double capacity_violation = 0.0;
     double trip_load = 0.0;
 
     for (int cid : route) {
         if (cid == depot_id) {
-            if (prev != depot_id) {
-                double travel_time = 0.0;
-                if (current_level != nullptr) {
-                    int prev_idx = find_node_index_fast(prev);
-                    int depot_idx = find_node_index_fast(depot_id);
-                    if (prev_idx != -1 && depot_idx != -1)
-                        travel_time = active_time_matrix[prev_idx][depot_idx];
-                } else {
-                    travel_time = active_time_matrix[prev][depot_id];
-                }
-                current_time += travel_time;
-            }
+            if (prev != depot_id)
+                current_time += M[prev_idx][depot_idx];
 
             double flight_time = current_time - depart_time;
             if (is_drone)
@@ -354,29 +350,29 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const
             depart_time = current_time;
             trip_load = 0.0;
             prev = depot_id;
+            prev_idx = depot_idx;
         } else {
-            double travel_time = 0.0;
             if (current_level != nullptr) {
-                int prev_idx = find_node_index_fast(prev);
-                int cid_idx  = find_node_index_fast(cid);
+                int cid_idx = find_node_index_fast(cid); // FIX 3: chỉ gọi find cho cid, prev_idx đã có
                 if (prev_idx != -1 && cid_idx != -1) {
-                    travel_time = active_time_matrix[prev_idx][cid_idx];
-                    auto info_it = merged_nodes_info.find(cid);
+                    double travel_time = M[prev_idx][cid_idx];
+                    auto info_it = merged_nodes_info.find(cid); // FIX 4: unordered_map → O(1)
                     if (info_it != merged_nodes_info.end()) {
                         travel_time += is_drone ? info_it->second.internal_drone_time
                                                 : info_it->second.internal_truck_time;
-                        trip_load += info_it->second.precomputed_demand;  // O(1)
+                        trip_load += info_it->second.precomputed_demand;
                     } else {
-                        auto it = base_demand_by_node.find(cid);          // node thường
-                        if (it != base_demand_by_node.end()) trip_load += it->second;
+                        trip_load += base_demand_vec[cid]; // FIX 1: vector O(1)
                     }
+                    current_time += travel_time;
+                    prev_idx = cid_idx; // FIX 3: cập nhật để bước sau dùng lại
                 }
             } else {
-                travel_time = active_time_matrix[prev][cid];
-                auto it = base_demand_by_node.find(cid);                  
-                if (it != base_demand_by_node.end()) trip_load += it->second;
+                // Level 0: index trực tiếp, không cần find
+                current_time += M[prev_idx][cid];
+                trip_load += base_demand_vec[cid]; // FIX 1: vector O(1) thay unordered_map
+                prev_idx = cid; // FIX 3: tại level 0, node id = matrix index
             }
-            current_time += travel_time;
             prev = cid;
         }
     }
