@@ -386,33 +386,25 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const
                 drone_violation += max(0.0, flight_time - vehicle.limit_drone);
             }
 
-            for (auto &p : served_in_trip) {
-                int served_node_id = p.first;
-                double time_arrived_at_node = p.second;
+            if (current_level != nullptr) {
+                for (auto &p : served_in_trip) {
+                    int served_node_id = p.first;
+                    double time_arrived_at_node = p.second;
 
-                if (current_level != nullptr) {
                     auto it = current_level->node_mapping.find(served_node_id);
-                    bool is_merged =
-                        (it != current_level->node_mapping.end() && it->second.size() > 1);
+                    bool is_merged = (it != current_level->node_mapping.end() && it->second.size() > 1);
 
                     if (is_merged) {
                         auto info_it = merged_nodes_info.find(served_node_id);
                         if (info_it != merged_nodes_info.end()) {
                             const MergedNodeInfo& info = info_it->second;
                             double x = arrival_depot - time_arrived_at_node;
-
                             if (is_drone) {
                                 waiting_violation += fast_wait_violation_from_profile(
-                                    x,
-                                    info.wait_thresholds_drone_sorted,
-                                    info.wait_prefix_drone
-                                );
+                                    x, info.wait_thresholds_drone_sorted, info.wait_prefix_drone);
                             } else {
                                 waiting_violation += fast_wait_violation_from_profile(
-                                    x,
-                                    info.wait_thresholds_truck_sorted,
-                                    info.wait_prefix_truck
-                                );
+                                    x, info.wait_thresholds_truck_sorted, info.wait_prefix_truck);
                             }
                         }
                     } else {
@@ -420,10 +412,27 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const
                         double limit_wait = get_limit_wait_for_node(served_node_id, current_level);
                         waiting_violation += max(0.0, wait_time - limit_wait);
                     }
-                } else {
-                    double wait_time = arrival_depot - time_arrived_at_node;
-                    double limit_wait = get_limit_wait_for_node(served_node_id, nullptr);
-                    waiting_violation += max(0.0, wait_time - limit_wait);
+                }
+            } else {
+                const double LIMIT_WAIT = 60.0;
+                const double T_threshold = arrival_depot - LIMIT_WAIT;
+
+                int lo = 0, hi = (int)served_in_trip.size();
+                while (lo < hi) {
+                    int mid = (lo + hi) / 2;
+                    if (served_in_trip[mid].second < T_threshold)
+                        lo = mid + 1;
+                    else
+                        hi = mid;
+                }
+                int cnt = lo; 
+
+                if (cnt > 0) {
+                    double sum_entry = 0.0;
+                    for (int k = 0; k < cnt; k++) {
+                        sum_entry += served_in_trip[k].second;
+                    }
+                    waiting_violation += cnt * T_threshold - sum_entry;
                 }
             }
 
@@ -2232,6 +2241,64 @@ Solution multilevel_tabu_search() {
     return best_overall;
 }
 
+Solution create_test_solution_from_routes(const vector<vector<int>>& test_routes) {
+    Solution test_sol;
+    test_sol.route = test_routes;
+    
+    cout << "\n" << string(70, '=') << endl;
+    cout << "🧪 TESTING WITH PREDEFINED ROUTES" << endl;
+    cout << string(70, '=') << "\n" << endl;
+    
+    // ✅ HIỂN THỊ ROUTES
+    for (size_t v = 0; v < test_routes.size(); v++) {
+        cout << "Vehicle " << v << " (" 
+             << (vehicles[v].is_drone ? "🚁 Drone" : "🚚 Technician") 
+             << ", speed=" << vehicles[v].speed << " m/min";
+        if (vehicles[v].is_drone) {
+            cout << ", limit=" << vehicles[v].limit_drone << " min";
+        }
+        cout << "): ";
+        
+        for (int cid : test_routes[v]) {
+            cout << cid << " ";
+        }
+        cout << endl;
+    }
+    
+    // ✅ GỌI HÀM EVALUATE - NÓ ĐÃ TÍNH TẤT CẢ
+    evaluate_solution(test_sol, nullptr);
+    
+    // ✅ HIỂN THỊ KẾT QUẢ
+    cout << "\n" << string(70, '=') << endl;
+    cout << "📋 TEST RESULTS" << endl;
+    cout << string(70, '=') << "\n" << endl;
+    
+    cout << "Makespan: " << test_sol.makespan << " min" << endl;
+    cout << "Drone violation: " << test_sol.drone_violation << " min" << endl;
+    cout << "Waiting violation: " << test_sol.waiting_violation << " min" << endl;
+    cout << "Fitness: " << test_sol.fitness << endl;
+    cout << "Is feasible: " << (test_sol.is_feasible ? "YES ✅" : "NO ❌") << endl;
+    
+    // ✅ CHI TIẾT VI PHẠM (NẾU CÓ)
+    if (!test_sol.is_feasible) {
+        cout << "\n⚠️  VIOLATIONS DETECTED:" << endl;
+        
+        if (test_sol.drone_violation > 0) {
+            cout << "  🚁 Drone flight time exceeded by " << test_sol.drone_violation << " min" << endl;
+            cout << "     → Some drones flew > " << vehicles[3].limit_drone << " min without returning to depot" << endl;
+        }
+        
+        if (test_sol.waiting_violation > 0) {
+            cout << "  ⏳ Customer waiting time exceeded by " << test_sol.waiting_violation << " min" << endl;
+            cout << "     → Some customers waited > 60 min for drone to return" << endl;
+        }
+    } else {
+        cout << "\n ALL CONSTRAINTS SATISFIED!" << endl;
+    }
+    
+    return test_sol;
+}
+
 int main(int argc, char* argv[]) {
     srand(time(nullptr));
 
@@ -2239,7 +2306,7 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\50.40.4.txt"; 
+        dataset_path = "D:\\New folder\\instances\\50.30.3.txt"; 
     }
 
     if (argc > 2) {
@@ -2297,22 +2364,22 @@ int main(int argc, char* argv[]) {
         vehicles.push_back({ num_techs + i + 1, 0.83f, true, 120.0f }); // drone
     }
 
-    /*vector<vector<int>> test_routes = {
+    vector<vector<int>> test_routes = {
         // 3 Technicians
-        {0, 43, 49, 48, 15, 44, 34, 0},
-        {0, 30, 9, 16, 23, 12, 0},
-        {0, 8, 26, 1, 11, 38, 4, 14, 32, 0},
+        {0, 11, 3, 7, 9, 4, 50, 0},
+        {0, 36, 26, 13, 10, 0},
+        {0, 42, 1, 37, 5, 32, 14, 38, 0},
         
         // 3 Drones
-        {0, 37, 41, 40, 25, 42, 21, 13, 47, 31, 0},
-        {0, 19, 3, 18, 45, 22, 29, 5, 10, 33, 46, 17, 0, 24, 0},
-        {0, 2, 6, 28, 35, 20, 27, 39, 7, 36, 50, 0}
-    };*/
+        {0, 8, 41, 48, 29, 17, 43, 6, 12, 0},
+        {0, 49, 45, 39, 34, 31, 28, 30, 16, 20, 25, 15, 46, 21, 0},
+        {0, 27, 33, 19, 47, 24, 40, 23, 18, 44, 2, 22, 0, 35, 0}
+    };
 
-    //Solution test_solution = create_test_solution_from_routes(test_routes);
+    Solution test_solution = create_test_solution_from_routes(test_routes);
 
-    Solution best_solution = multilevel_tabu_search();
-    print_solution(best_solution);
+    //Solution best_solution = multilevel_tabu_search();
+    //print_solution(best_solution);
 
     return 0;
 }

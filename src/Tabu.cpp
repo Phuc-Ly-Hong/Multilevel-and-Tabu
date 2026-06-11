@@ -143,9 +143,6 @@ void read_dataset(const string &filename){
         double limit_wait = 60.0;
         static int id = 1;
         ss >> x >> y >> demand;
-        if (ss >> limit_wait) {
-            // Optional per-node waiting limit in the input file.
-        }
         nodes.push_back({id++,x,y,demand,limit_wait});
     }
     file.close();
@@ -318,13 +315,20 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle) {
                 drone_violation += (flight_time - vehicle.limit_drone);
             }
 
-            // compute waiting violation for nodes served in this trip
-            for (auto &p : served_in_trip) {
-                int served_node_id = p.first;
-                double time_arrived_at_node = p.second;
-                double wait_time = arrival_depot - time_arrived_at_node;
-                double limit_wait = get_limit_wait_for_node(served_node_id);
-                waiting_violation += max(0.0, wait_time - limit_wait);
+            const double T_threshold = arrival_depot - 60.0;
+            int lo = 0, hi = (int)served_in_trip.size();
+            while (lo < hi) {
+                int mid = (lo + hi) / 2;
+                if (served_in_trip[mid].second < T_threshold)
+                    lo = mid + 1;
+                else
+                    hi = mid;
+            }
+            int cnt = lo;
+            if (cnt > 0) {
+                double sum_entry = 0.0;
+                for (int k = 0; k < cnt; k++) sum_entry += served_in_trip[k].second;
+                waiting_violation += cnt * T_threshold - sum_entry;
             }
 
             depart_time = current_time;

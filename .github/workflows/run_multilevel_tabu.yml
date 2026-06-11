@@ -24,7 +24,7 @@ jobs:
           sudo apt-get install -y g++ bc
       - name: Compile executable
         run: |
-          g++ -O3 -std=c++17 -o multilevel_tabu_cap src/ML_cap_no_lwt.cpp
+          g++ -O3 -std=c++17 -o multilevel_tabu_cap src/Multilevel_Tabu.cpp
           chmod +x multilevel_tabu_cap
       - name: Upload executable
         uses: actions/upload-artifact@v4
