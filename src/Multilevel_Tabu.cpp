@@ -2376,10 +2376,9 @@ int main(int argc, char* argv[]) {
         {0, 27, 33, 19, 47, 24, 40, 23, 18, 44, 2, 22, 0, 35, 0}
     };
 
-    Solution test_solution = create_test_solution_from_routes(test_routes);
 
-    //Solution best_solution = multilevel_tabu_search();
-    //print_solution(best_solution);
+    Solution best_solution = multilevel_tabu_search();
+    print_solution(best_solution);
 
     return 0;
 }
