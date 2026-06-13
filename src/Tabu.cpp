@@ -56,7 +56,7 @@ vector<vector<double>> drone_times;
 vector<Node> C1; // customers served only by technicians
 vector<Node> C2; // customers served by drones or technicians
 vector<VehicleFamily> vehicles;
-vector<int> node_type; // 1 = C1, 2 = C2
+unordered_map<int, int> base_type_by_node;
 unordered_map<int, double> base_limit_wait_by_node;
 
 constexpr double TRUCK_SPEED = 0.58;
@@ -127,6 +127,7 @@ void read_dataset(const string &filename){
     vector<Node> nodes;
     C1.clear();
     C2.clear();
+    base_type_by_node.clear();
     base_limit_wait_by_node.clear();
     ifstream file(filename);
     if (!file.is_open()){
@@ -206,16 +207,16 @@ void read_dataset(const string &filename){
     build_time_matrices_from_distance(distances, truck_times, drone_times);
 
     // Phân loại khách hàng
-    node_type.assign(nodes.size(), -1);
+    base_type_by_node.clear();
     for (const auto& node : nodes){
         if (node.id == depot_id) continue;
         base_limit_wait_by_node[node.id] = node.limit_wait;
         if (node.c1_or_c2 > 0){
             C2.push_back(node);
-            if (node.id >= 0 && node.id < (int)node_type.size()) node_type[node.id] = 2;
+            base_type_by_node[node.id] = 2;
         } else if (node.c1_or_c2 == 0) {
             C1.push_back(node);
-            if (node.id >= 0 && node.id < (int)node_type.size()) node_type[node.id] = 1;
+            base_type_by_node[node.id] = 1;
         }
     }
     cout << "C1 size: " << C1.size() << ", C2 size: " << C2.size() << endl;
@@ -505,7 +506,8 @@ bool contains_depot_in_range(const vector<int>& route, size_t start, size_t end)
 }
 
 int get_type(int nid) {
-    if (nid >= 0 && nid < (int)node_type.size()) return node_type[nid];
+    auto it = base_type_by_node.find(nid);
+    if (it != base_type_by_node.end()) return it->second;
     return -1;
 }
 
@@ -849,9 +851,6 @@ Solution tabu_search(){
 
     vector<TabuMove> tabu_list; // danh sách các move bị tabu
     int no_improve_count = 0;
-    int last_depot_opt_iter = 0;
-    int no_improve_segment_length = 0;
-    const int max_no_improve_segment = 8; 
 
     vector<string> move_types = {"1-0", "1-1", "2-0", "2-1", "2-2", "2-opt"};
     
@@ -868,8 +867,6 @@ Solution tabu_search(){
         //int move_type_idx = rand() % MOVE_SET.size();
         string move_type = MOVE_SET[move_type_idx];
         used_count[move_type_idx]++;
-        bool segment_improved = false;
-
         // move 1-0
         if (move_type == "1-0") {
             for (size_t v1 = 0; v1 < current_sol.route.size(); v1++) {
@@ -1295,7 +1292,6 @@ Solution tabu_search(){
                 best_sol = current_sol;
                 no_improve_count = 0;
                 scorePi[move_type_idx] += delta1;
-                segment_improved = true;
             } else if (current_sol.fitness < current_fitness - EPSILON) {
                 scorePi[move_type_idx] += delta2;
                 no_improve_count++;
@@ -1376,9 +1372,6 @@ int main(int argc, char* argv[]){
 
     Solution sol = tabu_search();
     print_solution(sol);
-    if (sol.drone_violation > EPSILON) {
-        print_drone_violation_details(sol);
-    }
 
     return 0;
 }
