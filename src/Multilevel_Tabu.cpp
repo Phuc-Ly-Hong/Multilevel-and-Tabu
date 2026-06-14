@@ -105,7 +105,6 @@ double Beta = 0.5; // tham số điều chỉnh hệ số hàm phạt
 
 int MAX_ITER;
 int TABU_TENURE;
-int MAX_NO_IMPROVE;
 double EPSILON = 1e-6;
 
 int MAX_LEVELS = 4;
@@ -189,37 +188,30 @@ void read_dataset(const string &filename){
     if (nodes.size() > 1000) {
         // Bộ rất lớn (> 1000)
         MAX_ITER = 50000;
-        MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 1000) {
         // Bộ 1000 (501-1000)
         MAX_ITER = 25000;
-        MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 500) {
         // Bộ 500 (201-500)
         MAX_ITER = 5000;
-        MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 200) {
         // Bộ 200 (101-200)
         MAX_ITER = 2000;
-        MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 100) {
         // Bộ 100 (100)
         MAX_ITER = 1000;
-        MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 50) {
         // Bộ 50 (50-99)
         MAX_ITER = 500;
-        MAX_NO_IMPROVE = 500000;
     }
     else {
         // Bộ nhỏ (6-49)
         MAX_ITER = 500;
-        MAX_NO_IMPROVE = 500000;
     }
 
     // Dataset detail logging removed for performance.
@@ -345,43 +337,43 @@ void build_prefix_sum(const vector<double>& sorted_vals, vector<double>& prefix)
 
 RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const LevelInfo *current_level = nullptr) {
     normalize_route(route);
-
+ 
     const bool is_drone = vehicle.is_drone;
     const vector<vector<double>>& M =
         (current_level != nullptr)
             ? (is_drone ? current_level->drone_time_matrix : current_level->truck_time_matrix)
             : (is_drone ? drone_times : truck_times);
-
+ 
     const int depot_idx = (current_level != nullptr) ? find_node_index_fast(depot_id) : depot_id;
-
+ 
     int prev = depot_id;
     int prev_idx = depot_idx;
     double current_time = 0.0;
     double depart_time = 0.0;
     double drone_violation = 0.0;
     double waiting_violation = 0.0;
-    vector<pair<int, double>> served_in_trip; // {served_node_id, entry_time_at_node}
+    vector<pair<int, double>> served_in_trip; 
     served_in_trip.reserve(route.size());
-
+ 
     for (int cid : route) {
         if (cid == depot_id) {
             if (prev != depot_id)
                 current_time += M[prev_idx][depot_idx];
-
+ 
             double arrival_depot = current_time;
             double flight_time = arrival_depot - depart_time;
-
+ 
             if (is_drone)
                 drone_violation += max(0.0, flight_time - vehicle.limit_drone);
-
+ 
             if (current_level != nullptr) {
                 for (auto &p : served_in_trip) {
                     int served_node_id = p.first;
                     double time_arrived_at_node = p.second;
-
+ 
                     auto it = current_level->node_mapping.find(served_node_id);
                     bool is_merged = (it != current_level->node_mapping.end() && it->second.size() > 1);
-
+ 
                     if (is_merged) {
                         auto info_it = merged_nodes_info.find(served_node_id);
                         if (info_it != merged_nodes_info.end()) {
@@ -404,7 +396,7 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const
             } else {
                 const double LIMIT_WAIT = 60.0;
                 const double T_threshold = arrival_depot - LIMIT_WAIT;
-
+ 
                 int lo = 0, hi = (int)served_in_trip.size();
                 while (lo < hi) {
                     int mid = (lo + hi) / 2;
@@ -414,7 +406,7 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const
                         hi = mid;
                 }
                 int cnt = lo;
-
+ 
                 if (cnt > 0) {
                     double sum_entry = 0.0;
                     for (int k = 0; k < cnt; k++)
@@ -422,7 +414,7 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const
                     waiting_violation += cnt * T_threshold - sum_entry;
                 }
             }
-
+ 
             depart_time = current_time;
             served_in_trip.clear();
             prev = depot_id;
@@ -430,10 +422,10 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const
         } else {
             double travel_time = 0.0;
             double internal_time = 0.0;
-
+ 
             if (current_level != nullptr) {
                 int cid_idx = find_node_index_fast(cid);
-
+ 
                 if (prev_idx != -1 && cid_idx != -1) {
                     travel_time = M[prev_idx][cid_idx];
                     auto info_it = merged_nodes_info.find(cid);
@@ -444,22 +436,21 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const
                         travel_time += internal_time;
                     }
                 }
-                prev_idx = find_node_index_fast(cid); // update prev_idx
+                prev_idx = cid_idx; 
             } else {
-                // Level 0: index trực tiếp, không cần find
                 travel_time = M[prev_idx][cid];
                 prev_idx = cid;
             }
-
+ 
             double external_time = travel_time - internal_time;
             double entry_time = current_time + external_time;
-
+ 
             served_in_trip.push_back({cid, entry_time});
             current_time += travel_time;
             prev = cid;
         }
     }
-
+ 
     return {current_time, drone_violation, waiting_violation};
 }
 
@@ -787,7 +778,7 @@ Solution move_1_1(Solution current_sol, size_t v1, size_t node1, size_t v2, size
     Solution new_sol = current_sol;
     int cid1 = new_sol.route[v1][node1];
     int cid2 = new_sol.route[v2][node2];
-    if (cid1 == depot_id || cid2 == depot_id) return current_sol; // không di chuyển depot
+    if (cid1 == depot_id || cid2 == depot_id) return current_sol; 
     swap(new_sol.route[v1][node1], new_sol.route[v2][node2]);
     recompute_solution_for_routes(new_sol, v1, v2, true, current_level);
     return new_sol;
@@ -1039,11 +1030,10 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
     };
 
     vector<TabuMove> tabu_list; // danh sách các move bị tabu
-    int no_improve_count = 0;
 
     vector<string> move_types = {"1-0", "1-1", "2-0", "2-1", "2-2", "2-opt"};
     
-    for (int iter = 0; iter < MAX_ITER && no_improve_count < MAX_NO_IMPROVE; iter++){
+    for (int iter = 0; iter < MAX_ITER ; iter++){
         double best_Neighbor_fitness = DBL_MAX;
         Solution best_Neighbor_sol = current_sol;
         double current_fitness = current_sol.fitness;
@@ -1494,16 +1484,13 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
             
             if (current_sol.is_feasible && current_sol.fitness < best_sol.fitness - EPSILON){
                 best_sol = current_sol;
-                no_improve_count = 0;
                 scorePi[move_type_idx] += delta1;
             } else if (current_sol.fitness < current_fitness - EPSILON) {
                 scorePi[move_type_idx] += delta2;
-                no_improve_count++;
             } else {
                 scorePi[move_type_idx] += delta3;
-                no_improve_count++;
             }
-        } else no_improve_count++;
+        } 
 
         update_weights();
     }
