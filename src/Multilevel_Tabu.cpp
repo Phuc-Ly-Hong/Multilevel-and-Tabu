@@ -1,6 +1,9 @@
 #include<bits/stdc++.h>
 using namespace std;
 
+enum MoveType : int { MT_1_0=0, MT_1_1=1, MT_2_0=2, MT_2_1=3, MT_2_2=4, MT_2OPT=5, MT_NONE=6 };
+static const char* MT_NAME[] = {"1-0","1-1","2-0","2-1","2-2","2-opt","none"};
+
 struct Node {
     int id;
     double x,y;
@@ -30,7 +33,7 @@ struct Solution {
 };
 
 struct TabuMove {
-    string type; // 1-0, 1-1, 2-0, 2-1, 2-2, 2-opt
+    MoveType type; // 1-0, 1-1, 2-0, 2-1, 2-2, 2-opt
     int customer_id1; // khách hàng thứ nhất được di chuyển của xe 1
     int customer_id2; // khách hàng thứ hai được di chuyển của xe 1
     int customer_id3; // khách hàng thứ nhất được di chuyển của xe 2
@@ -113,7 +116,7 @@ bool USE_MANUAL_SEGMENT_CONFIG = false;
 double MERGE_RATIO = 0.10;
 
 // Adaptive parameters
-vector<string> MOVE_SET = {"1-0", "1-1", "2-0", "2-1", "2-2", "2-opt"};
+static constexpr int NUM_MOVE_TYPES = 6; // MT_1_0..MT_2OPT
 vector<double> weights = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
 vector<double> scorePi = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 vector<double> used_count = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
@@ -128,15 +131,15 @@ int select_move_type(){
     double r = ((double)rand() / RAND_MAX) * total_weight;
     double cumulate = 0.0;
 
-    for (size_t i = 0; i < MOVE_SET.size(); i++){
+    for (int i = 0; i < NUM_MOVE_TYPES; i++){
         cumulate += weights[i];
         if (r <= cumulate) return i;
     }
-    return MOVE_SET.size() - 1; 
+    return NUM_MOVE_TYPES - 1; 
 }
 
 void update_weights(){
-    for (int i = 0; i < MOVE_SET.size(); i++){
+    for (int i = 0; i < NUM_MOVE_TYPES; i++){
         if (used_count[i] > 0){
             double avg_score = scorePi[i] / used_count[i];
             weights[i] = (1.0 - delta4) * weights[i] + delta4 * avg_score;
@@ -306,16 +309,11 @@ map<int, double> internal_distance_cache;
 double get_limit_wait_for_node(int node_id, const LevelInfo *current_level = nullptr) {
     if (current_level != nullptr) {
         int idx = find_node_index_fast(node_id);
-        if (idx != -1) {
-            return current_level->nodes[idx].limit_wait;
-        }
+        if (idx != -1) return current_level->nodes[idx].limit_wait;
     }
-
-    auto it = base_limit_wait_by_node.find(node_id);
-    if (it != base_limit_wait_by_node.end()) {
-        return it->second;
-    }
-
+    // Dùng vector O(1) thay unordered_map lookup
+    if (node_id >= 0 && node_id < (int)base_limit_wait_vec.size())
+        return base_limit_wait_vec[node_id];
     return 60.0;
 }
 
@@ -360,8 +358,11 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const
     double depart_time = 0.0;
     double drone_violation = 0.0;
     double waiting_violation = 0.0;
-    vector<pair<int, double>> served_in_trip; 
-    served_in_trip.reserve(route.size());
+    // thread_local: tái sử dụng buffer, tránh alloc/dealloc mỗi lần gọi
+    static thread_local vector<pair<int, double>> served_in_trip;
+    served_in_trip.clear();
+    if (served_in_trip.capacity() < route.size())
+        served_in_trip.reserve(route.size());
  
     for (int cid : route) {
         if (cid == depot_id) {
@@ -375,54 +376,52 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const
                 drone_violation += max(0.0, flight_time - vehicle.limit_drone);
  
             if (current_level != nullptr) {
-                // Xấp xỉ nhanh: max_violation * số_node_vi_phạm
-                double max_viol = 0.0;
-                int viol_cnt = 0;
                 for (auto &p : served_in_trip) {
                     int served_node_id = p.first;
                     double time_arrived_at_node = p.second;
-                    double node_viol = 0.0;
-
+ 
                     auto it = current_level->node_mapping.find(served_node_id);
                     bool is_merged = (it != current_level->node_mapping.end() && it->second.size() > 1);
-
+ 
                     if (is_merged) {
                         auto info_it = merged_nodes_info.find(served_node_id);
                         if (info_it != merged_nodes_info.end()) {
                             const MergedNodeInfo& info = info_it->second;
                             double x = arrival_depot - time_arrived_at_node;
-                            node_viol = is_drone
-                                ? fast_wait_violation_from_profile(x, info.wait_thresholds_drone_sorted, info.wait_prefix_drone)
-                                : fast_wait_violation_from_profile(x, info.wait_thresholds_truck_sorted, info.wait_prefix_truck);
+                            if (is_drone) {
+                                waiting_violation += fast_wait_violation_from_profile(
+                                    x, info.wait_thresholds_drone_sorted, info.wait_prefix_drone);
+                            } else {
+                                waiting_violation += fast_wait_violation_from_profile(
+                                    x, info.wait_thresholds_truck_sorted, info.wait_prefix_truck);
+                            }
                         }
                     } else {
                         double wait_time = arrival_depot - time_arrived_at_node;
                         double limit_wait = get_limit_wait_for_node(served_node_id, current_level);
-                        node_viol = max(0.0, wait_time - limit_wait);
-                    }
-
-                    if (node_viol > 0.0) {
-                        viol_cnt++;
-                        if (node_viol > max_viol) max_viol = node_viol;
+                        waiting_violation += max(0.0, wait_time - limit_wait);
                     }
                 }
-                waiting_violation += max_viol * viol_cnt;
             } else {
                 const double LIMIT_WAIT = 60.0;
                 const double T_threshold = arrival_depot - LIMIT_WAIT;
-
-                int cnt = 0;
-                double max_viol = 0.0;
-                for (int k = 0; k < (int)served_in_trip.size(); k++) {
-                    double entry = served_in_trip[k].second;
-                    if (entry < T_threshold) {
-                        cnt++;
-                        double viol = T_threshold - entry;
-                        if (viol > max_viol) max_viol = viol;
-                    } else break; 
+ 
+                int lo = 0, hi = (int)served_in_trip.size();
+                while (lo < hi) {
+                    int mid = (lo + hi) / 2;
+                    if (served_in_trip[mid].second < T_threshold)
+                        lo = mid + 1;
+                    else
+                        hi = mid;
                 }
-                if (cnt > 0)
-                    waiting_violation += max_viol * cnt;
+                int cnt = lo;
+ 
+                if (cnt > 0) {
+                    double sum_entry = 0.0;
+                    for (int k = 0; k < cnt; k++)
+                        sum_entry += served_in_trip[k].second;
+                    waiting_violation += cnt * T_threshold - sum_entry;
+                }
             }
  
             depart_time = current_time;
@@ -686,7 +685,7 @@ bool contains_depot_in_range(const vector<int>& route, size_t start, size_t end)
 bool is_tabu(const vector<TabuMove> &tabu_list, const TabuMove &move){
     for (const auto &tabu_move : tabu_list){
         if (tabu_move.type == move.type && tabu_move.tenure > 0){
-            if (move.type == "1-1"){
+            if (move.type == MT_1_1){
                 if (((tabu_move.customer_id1 == move.customer_id1 && tabu_move.customer_id3 == move.customer_id3) ||
                      (tabu_move.customer_id1 == move.customer_id3 && tabu_move.customer_id3 == move.customer_id1)) &&
                     ((tabu_move.vehicle1 == move.vehicle1 && tabu_move.vehicle2 == move.vehicle2) ||
@@ -694,25 +693,25 @@ bool is_tabu(const vector<TabuMove> &tabu_list, const TabuMove &move){
                     return true;
                 }
             }
-            else if (move.type == "1-0"){
+            else if (move.type == MT_1_0){
                 if (tabu_move.customer_id1 == move.customer_id1 &&
                     tabu_move.vehicle1 == move.vehicle1 &&
                     tabu_move.vehicle2 == move.vehicle2) {
                     return true;
                 }
-            } else if (move.type == "2-0"){
+            } else if (move.type == MT_2_0){
                 if (tabu_move.customer_id1 == move.customer_id1 && tabu_move.customer_id2 == move.customer_id2
                     && tabu_move.vehicle1 == move.vehicle1 && tabu_move.vehicle2 == move.vehicle2 ) {
                         return true;
                 }
-            } else if (move.type == "2-1"){
+            } else if (move.type == MT_2_1){
                 if (((tabu_move.customer_id1 == move.customer_id1 && tabu_move.customer_id2 == move.customer_id2 && tabu_move.customer_id3 == move.customer_id3) ||
                         (tabu_move.customer_id1 == move.customer_id3 && tabu_move.customer_id3 == move.customer_id1 && tabu_move.customer_id4 == move.customer_id2)) &&
                         ((tabu_move.vehicle1 == move.vehicle1 && tabu_move.vehicle2 == move.vehicle2) ||
                         (tabu_move.vehicle1 == move.vehicle2 && tabu_move.vehicle2 == move.vehicle1))) {
                         return true;
                     }
-            } else if (move.type == "2-2"){
+            } else if (move.type == MT_2_2){
                 // Kiểm tra đơn giản hơn: chỉ cần khách hàng và xe giống nhau
                 if (tabu_move.customer_id1 == move.customer_id1 && 
                     tabu_move.customer_id2 == move.customer_id2 &&
@@ -731,7 +730,7 @@ bool is_tabu(const vector<TabuMove> &tabu_list, const TabuMove &move){
                     tabu_move.vehicle2 == move.vehicle1) {
                     return true;
                 }
-            } else if (move.type == "2-opt"){
+            } else if (move.type == MT_2OPT){
                 if (tabu_move.customer_id1 == move.customer_id1 && tabu_move.customer_id3 == move.customer_id3
                     && tabu_move.vehicle1 == move.vehicle1 && tabu_move.vehicle2 == move.vehicle2){
                         return true;
@@ -831,7 +830,7 @@ Solution move_2_0(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
     return new_sol;
 }
 
-Solution move_2_1(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_t pos2, const LevelInfo *current_level){
+Solution move_2_1(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_t pos2, const LevelInfo *current_level, int cnt_v1=-1, int cnt_v2=-1){
     Solution new_sol = current_sol;
     
     if (pos1 >= new_sol.route[v1].size() - 1 || pos2 >= new_sol.route[v2].size()) {
@@ -845,25 +844,20 @@ Solution move_2_1(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
     if (pos1 + 1 >= new_sol.route[v1].size() - 1) {
         return current_sol;
     }
-    int customer_count_v1 = 0;
-    for (int node : new_sol.route[v1]) {
-        if (node != depot_id) customer_count_v1++;
+    // Dùng cnt được truyền vào từ ngoài để tránh scan lại
+    int customer_count_v1 = cnt_v1;
+    if (customer_count_v1 < 0) {
+        customer_count_v1 = 0;
+        for (int node : new_sol.route[v1]) if (node != depot_id) customer_count_v1++;
     }
-    
-    if (customer_count_v1 <= 2) {
-        // Xe chỉ còn 2 khách - swap sẽ tạo xe trống
-        return current_sol;
+    if (customer_count_v1 <= 2) return current_sol;
+
+    int customer_count_v2 = cnt_v2;
+    if (customer_count_v2 < 0) {
+        customer_count_v2 = 0;
+        for (int node : new_sol.route[v2]) if (node != depot_id) customer_count_v2++;
     }
-    
-    int customer_count_v2 = 0;
-    for (int node : new_sol.route[v2]) {
-        if (node != depot_id) customer_count_v2++;
-    }
-    
-    if (customer_count_v2 <= 1) {
-        // Xe chỉ còn 1 khách - swap sẽ tạo xe trống
-        return current_sol;
-    }
+    if (customer_count_v2 <= 1) return current_sol;
     
     int cid1 = new_sol.route[v1][pos1];
     int cid2 = new_sol.route[v1][pos1+1];
@@ -884,7 +878,7 @@ Solution move_2_1(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
     return new_sol;
 }
 
-Solution move_2_2(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_t pos2, const LevelInfo *current_level){
+Solution move_2_2(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_t pos2, const LevelInfo *current_level, int cnt_v1=-1, int cnt_v2=-1){
     Solution new_sol = current_sol;
     
     if (pos1 >= new_sol.route[v1].size() - 1 || pos2 >= new_sol.route[v2].size() - 1) {
@@ -899,20 +893,18 @@ Solution move_2_2(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
         return current_sol;
     }
 
-    int customer_count_v1 = 0;
-    for (int node : new_sol.route[v1]) {
-        if (node != depot_id) customer_count_v1++;
+    // Dùng cnt được truyền vào từ ngoài để tránh scan lại
+    int customer_count_v1 = cnt_v1;
+    if (customer_count_v1 < 0) {
+        customer_count_v1 = 0;
+        for (int node : new_sol.route[v1]) if (node != depot_id) customer_count_v1++;
     }
-    
-    int customer_count_v2 = 0;
-    for (int node : new_sol.route[v2]) {
-        if (node != depot_id) customer_count_v2++;
+    int customer_count_v2 = cnt_v2;
+    if (customer_count_v2 < 0) {
+        customer_count_v2 = 0;
+        for (int node : new_sol.route[v2]) if (node != depot_id) customer_count_v2++;
     }
-    
-    if (customer_count_v1 <= 2 || customer_count_v2 <= 2) {
-        // Swap 2-2 sẽ tạo xe trống
-        return current_sol;
-    }
+    if (customer_count_v1 <= 2 || customer_count_v2 <= 2) return current_sol;
     
     int cid1 = new_sol.route[v1][pos1];
     int cid2 = new_sol.route[v1][pos1+1];
@@ -1043,7 +1035,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
     int no_improve_count = 0;
     int last_depot_opt_iter = 0;
 
-    vector<string> move_types = {"1-0", "1-1", "2-0", "2-1", "2-2", "2-opt"};
+    // move_types removed: using MoveType enum
     
     for (int iter = 0; iter < MAX_ITER && no_improve_count < MAX_NO_IMPROVE; iter++){
         double best_Neighbor_fitness = DBL_MAX;
@@ -1056,20 +1048,18 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
 
         int move_type_idx = select_move_type();
         //int move_type_idx = rand() % MOVE_SET.size();
-        string move_type = MOVE_SET[move_type_idx];
+        MoveType move_type = static_cast<MoveType>(move_type_idx);
         used_count[move_type_idx]++;
 
+        // route đã normalize: [depot, c1, c2, ..., depot] → size-2 = số customers
         vector<int> customer_count_per_vehicle(current_sol.route.size(), 0);
         for (size_t v = 0; v < current_sol.route.size(); v++) {
-            int count = 0;
-            for (int node : current_sol.route[v]) {
-                if (node != depot_id) count++;
-            }
-            customer_count_per_vehicle[v] = count;
+            int sz = (int)current_sol.route[v].size();
+            customer_count_per_vehicle[v] = (sz >= 2) ? sz - 2 : 0;
         }
 
         // move 1-0
-        if (move_type == "1-0") {
+        if (move_type == MT_1_0) {
             for (size_t v1 = 0; v1 < current_sol.route.size(); v1++) {
                 for (size_t pos1 = 1; pos1 < current_sol.route[v1].size()-1; pos1++) {
                     int n1 = current_sol.route[v1][pos1];
@@ -1091,7 +1081,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                             }
 
                             Solution new_sol = move_1_0(current_sol, v1, pos1, v2, pos2, current_level);
-                            TabuMove move = {"1-0", n1, -1, -1, -1, (int)v1, (int)v2, (int)pos1, -1, (int)pos2, -1, TABU_TENURE};
+                            TabuMove move = {MT_1_0, n1, -1, -1, -1, (int)v1, (int)v2, (int)pos1, -1, (int)pos2, -1, TABU_TENURE};
                             bool tabu = is_tabu(tabu_list, move);
 
                             if (new_sol.is_feasible && (new_sol.fitness < best_sol.fitness - EPSILON)) {
@@ -1121,7 +1111,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
         }
 
         // move 1-1
-        if (move_type == "1-1") {
+        if (move_type == MT_1_1) {
             for (size_t v1 = 0; v1 < vehicles.size(); v1++) {
                 for (size_t pos1 = 1; pos1 < current_sol.route[v1].size() -1 ; pos1++) {
                     int n1 = current_sol.route[v1][pos1];
@@ -1132,7 +1122,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                             if (n2 == depot_id || n1 == n2 || get_type_fast(n1) != get_type_fast(n2) || ((abs(int(pos1)-int(pos2)) <= 1) && (v1 == v2))) continue;
 
                             Solution new_sol = move_1_1(current_sol, v1, pos1, v2, pos2, current_level);
-                            TabuMove move = {"1-1", n1, -1, n2, -1, (int)v1, (int)v2, (int)pos1, -1, (int)pos2, -1, TABU_TENURE};
+                            TabuMove move = {MT_1_1, n1, -1, n2, -1, (int)v1, (int)v2, (int)pos1, -1, (int)pos2, -1, TABU_TENURE};
                             bool tabu = is_tabu(tabu_list, move);
 
                             if (new_sol.is_feasible && (new_sol.fitness < best_sol.fitness - EPSILON)) {
@@ -1161,7 +1151,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
             }
         }
 
-        if (move_type == "2-0") {
+        if (move_type == MT_2_0) {
             for(size_t v1 = 0; v1 < vehicles.size(); v1++){
                 for(size_t pos1 = 1; pos1 < current_sol.route[v1].size()-2; pos1++){
                     int n1 = current_sol.route[v1][pos1];
@@ -1177,7 +1167,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                             }
 
                             Solution new_sol = move_2_0(current_sol, v1, pos1, v2, pos2, current_level);
-                            TabuMove move = {"2-0", n1, n2, -1, -1, (int)v1, (int)v2, (int)pos1, (int)pos1+1, (int)pos2, (int)pos2+1, TABU_TENURE};
+                            TabuMove move = {MT_2_0, n1, n2, -1, -1, (int)v1, (int)v2, (int)pos1, (int)pos1+1, (int)pos2, (int)pos2+1, TABU_TENURE};
                             bool tabu = is_tabu(tabu_list, move);
 
                             if (new_sol.is_feasible && (new_sol.fitness < best_sol.fitness - EPSILON)) {
@@ -1207,7 +1197,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
         }
 
         // move 2-1
-        if (move_type == "2-1") {
+        if (move_type == MT_2_1) {
             for(size_t v1 = 0; v1 < vehicles.size(); v1++) {
                 for(size_t pos1 = 1; pos1 < current_sol.route[v1].size() - 2; pos1++) {
                     int n1 = current_sol.route[v1][pos1];
@@ -1223,8 +1213,8 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                             if (v1 == v2 && (abs(int(pos1)-int(pos2)) <= 2)) continue;
                             if ((get_type_fast(n1) == 1 || get_type_fast(n2) == 1) && vehicles[v2].is_drone) continue;
                             if (get_type_fast(n3) == 1 && vehicles[v1].is_drone) continue;
-                            Solution new_sol = move_2_1(current_sol, v1, pos1, v2, pos2, current_level);
-                            TabuMove move = {"2-1", n1, n2, n3, -1, (int)v1, (int)v2, (int)pos1, (int)pos1+1, (int)pos2, -1, TABU_TENURE};
+                            Solution new_sol = move_2_1(current_sol, v1, pos1, v2, pos2, current_level, customer_count_per_vehicle[v1], customer_count_per_vehicle[v2]);
+                            TabuMove move = {MT_2_1, n1, n2, n3, -1, (int)v1, (int)v2, (int)pos1, (int)pos1+1, (int)pos2, -1, TABU_TENURE};
                             bool tabu = is_tabu(tabu_list, move);
                             if (new_sol.is_feasible && (new_sol.fitness < best_sol.fitness - EPSILON)) {
                                 best_Neighbor_fitness = new_sol.fitness;
@@ -1252,7 +1242,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
             }
         }
 
-        if (move_type == "2-2"){
+        if (move_type == MT_2_2){
             for (size_t v1 = 0; v1 < vehicles.size(); v1++) {
                 for (size_t pos1 = 1; pos1 < current_sol.route[v1].size() -2; pos1++){
                     int n1 = current_sol.route[v1][pos1];
@@ -1269,8 +1259,8 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                             if ((get_type_fast(n1) == 1 || get_type_fast(n2) == 1) && vehicles[v2].is_drone) continue;
                             if ((get_type_fast(n3) == 1 || get_type_fast(n4) == 1) && vehicles[v1].is_drone) continue;
 
-                            Solution new_sol = move_2_2(current_sol, v1, pos1, v2, pos2, current_level);
-                            TabuMove move = {"2-2", n1, n2, n3, n4, int(v1), int(v2), int(pos1), int(pos1+1), int(pos2), int(pos2+1), TABU_TENURE};
+                            Solution new_sol = move_2_2(current_sol, v1, pos1, v2, pos2, current_level, customer_count_per_vehicle[v1], customer_count_per_vehicle[v2]);
+                            TabuMove move = {MT_2_2, n1, n2, n3, n4, int(v1), int(v2), int(pos1), int(pos1+1), int(pos2), int(pos2+1), TABU_TENURE};
                             bool tabu = is_tabu(tabu_list, move);
                             if (new_sol.is_feasible && (new_sol.fitness < best_sol.fitness - EPSILON)) {
                                 best_Neighbor_fitness = new_sol.fitness;
@@ -1299,7 +1289,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
         }
 
         // move 2-opt
-        if (move_type == "2-opt") {
+        if (move_type == MT_2OPT) {
             // Intra-route 2-opt (cùng xe)
             for(size_t v1 = 0; v1 < vehicles.size(); v1++) {
                 for(size_t pos1 = 1; pos1 < current_sol.route[v1].size() - 1; pos1++) {
@@ -1311,7 +1301,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                         int customer_at_pos2 = current_sol.route[v1][pos2];
 
                         Solution new_sol = move_2opt(current_sol, v1, pos1, v1, pos2, current_level); // Cùng xe v1
-                        TabuMove move = {"2-opt", customer_at_pos1, -1, customer_at_pos2, -1, (int)v1, (int)v1, (int)pos1, -1, (int)pos2, -1, TABU_TENURE};
+                        TabuMove move = {MT_2OPT, customer_at_pos1, -1, customer_at_pos2, -1, (int)v1, (int)v1, (int)pos1, -1, (int)pos2, -1, TABU_TENURE};
                         bool tabu = is_tabu(tabu_list, move);
                         
                         if (new_sol.is_feasible && (new_sol.fitness < best_sol.fitness - EPSILON)) {
@@ -1373,7 +1363,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                             int customer_at_pos2 = current_sol.route[v2][pos2];
                             
                             Solution new_sol = move_2opt(current_sol, v1, pos1, v2, pos2, current_level); // Khác xe v1 và v2
-                            TabuMove move = {"2-opt", customer_at_pos1, -1, customer_at_pos2, -1, (int)v1, (int)v2, (int)pos1, -1, (int)pos2, -1, TABU_TENURE};
+                            TabuMove move = {MT_2OPT, customer_at_pos1, -1, customer_at_pos2, -1, (int)v1, (int)v2, (int)pos1, -1, (int)pos2, -1, TABU_TENURE};
                             bool tabu = is_tabu(tabu_list, move);
                             
                             if (new_sol.is_feasible && (new_sol.fitness < best_sol.fitness - EPSILON)) {
@@ -1404,22 +1394,22 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
 
         bool should_apply_move = false;
 
-        if (move_type == "1-0") {
+        if (move_type == MT_1_0) {
             should_apply_move = (best_move_node1 != -1);
         }
-        else if (move_type == "1-1") {
+        else if (move_type == MT_1_1) {
             should_apply_move = (best_move_node1 != -1 && best_move_node3 != -1);
         }
-        else if (move_type == "2-0") {
+        else if (move_type == MT_2_0) {
             should_apply_move = (best_move_node1 != -1 && best_move_node2 != -1);
         }
-        else if (move_type == "2-1") {
+        else if (move_type == MT_2_1) {
             should_apply_move = (best_move_node1 != -1 && best_move_node2 != -1 && best_move_node3 != -1);
         }
-        else if (move_type == "2-2") {
+        else if (move_type == MT_2_2) {
             should_apply_move = (best_move_node1 != -1 && best_move_node2 != -1 && best_move_node3 != -1 && best_move_node4 != -1);
         }
-        else if (move_type == "2-opt") {
+        else if (move_type == MT_2OPT) {
             should_apply_move = (best_move_node1 != -1 && best_move_node3 != -1);
         }
         
@@ -1438,15 +1428,12 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                 cout << endl;
             }*/
 
-            // Cập nhật tabu list
-            for (auto it = tabu_list.begin(); it != tabu_list.end(); ) {
-                it->tenure--;
-                if (it->tenure <= 0) {
-                    it = tabu_list.erase(it);
-                } else {
-                    ++it;
-                }
-            }
+            // Cập nhật tabu list: giảm tenure tất cả, xóa hết loạt cuối
+            for (auto& tm : tabu_list) tm.tenure--;
+            tabu_list.erase(
+                std::remove_if(tabu_list.begin(), tabu_list.end(),
+                    [](const TabuMove& m){ return m.tenure <= 0; }),
+                tabu_list.end());
             tabu_list.push_back(best_move);
             /*cout << "Tabu move added: type=" << best_move.type
                  << ", customer1=" << best_move.customer_id1
@@ -1461,23 +1448,23 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                  << ", pos4=" << best_move.pos4
                  << ", tenure=" << best_move.tenure << endl;*/
             TabuMove reverse_move;
-            if (move_type == "1-0") {
-                reverse_move = {"1-0", best_move_node1, -1, -1, -1, best_move.vehicle2, best_move.vehicle1, best_move.pos3, -1, best_move.pos1, -1, TABU_TENURE};
+            if (move_type == MT_1_0) {
+                reverse_move = {MT_1_0, best_move_node1, -1, -1, -1, best_move.vehicle2, best_move.vehicle1, best_move.pos3, -1, best_move.pos1, -1, TABU_TENURE};
             }
-            else if (move_type == "1-1") {
-                reverse_move = {"1-1", best_move_node3, -1, best_move_node1, -1, best_move.vehicle2, best_move.vehicle1, best_move.pos3, -1, best_move.pos1, -1, TABU_TENURE};
+            else if (move_type == MT_1_1) {
+                reverse_move = {MT_1_1, best_move_node3, -1, best_move_node1, -1, best_move.vehicle2, best_move.vehicle1, best_move.pos3, -1, best_move.pos1, -1, TABU_TENURE};
             }
-            else if (move_type == "2-0") {
-                reverse_move = {"2-0", best_move_node1, best_move_node2, -1, -1, best_move.vehicle2, best_move.vehicle1, best_move.pos3, best_move.pos4, best_move.pos1, best_move.pos2, TABU_TENURE};
+            else if (move_type == MT_2_0) {
+                reverse_move = {MT_2_0, best_move_node1, best_move_node2, -1, -1, best_move.vehicle2, best_move.vehicle1, best_move.pos3, best_move.pos4, best_move.pos1, best_move.pos2, TABU_TENURE};
             }
-            else if (move_type == "2-1") {
-                reverse_move = {"2-1", best_move_node3, -1, best_move_node1, best_move_node2, best_move.vehicle2, best_move.vehicle1, best_move.pos3, -1, best_move.pos1, best_move.pos2, TABU_TENURE};
+            else if (move_type == MT_2_1) {
+                reverse_move = {MT_2_1, best_move_node3, -1, best_move_node1, best_move_node2, best_move.vehicle2, best_move.vehicle1, best_move.pos3, -1, best_move.pos1, best_move.pos2, TABU_TENURE};
             }
-            else if (move_type == "2-2") {
-                reverse_move = {"2-2", best_move_node3, best_move_node4, best_move_node1, best_move_node2, best_move.vehicle2, best_move.vehicle1, best_move.pos3, best_move.pos4, best_move.pos1, best_move.pos2, TABU_TENURE};
+            else if (move_type == MT_2_2) {
+                reverse_move = {MT_2_2, best_move_node3, best_move_node4, best_move_node1, best_move_node2, best_move.vehicle2, best_move.vehicle1, best_move.pos3, best_move.pos4, best_move.pos1, best_move.pos2, TABU_TENURE};
             }
-            else if (move_type == "2-opt") {
-                reverse_move = {"2-opt", best_move_node3, -1, best_move_node1, -1, best_move.vehicle2, best_move.vehicle1, best_move.pos3, -1, best_move.pos1, -1, TABU_TENURE};
+            else if (move_type == MT_2OPT) {
+                reverse_move = {MT_2OPT, best_move_node3, -1, best_move_node1, -1, best_move.vehicle2, best_move.vehicle1, best_move.pos3, -1, best_move.pos1, -1, TABU_TENURE};
             }
             tabu_list.push_back(reverse_move);
 
