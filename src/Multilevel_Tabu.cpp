@@ -105,6 +105,7 @@ double Beta = 0.5; // tham số điều chỉnh hệ số hàm phạt
 
 int MAX_ITER;
 int TABU_TENURE;
+int MAX_NO_IMPROVE;
 double EPSILON = 1e-6;
 
 int MAX_LEVELS = 4;
@@ -188,30 +189,37 @@ void read_dataset(const string &filename){
     if (nodes.size() > 1000) {
         // Bộ rất lớn (> 1000)
         MAX_ITER = 50000;
+        MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 1000) {
         // Bộ 1000 (501-1000)
         MAX_ITER = 25000;
+        MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 500) {
         // Bộ 500 (201-500)
         MAX_ITER = 5000;
+        MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 200) {
         // Bộ 200 (101-200)
         MAX_ITER = 2000;
+        MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 100) {
         // Bộ 100 (100)
         MAX_ITER = 1000;
+        MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 50) {
         // Bộ 50 (50-99)
         MAX_ITER = 500;
+        MAX_NO_IMPROVE = 500000;
     }
     else {
         // Bộ nhỏ (6-49)
         MAX_ITER = 500;
+        MAX_NO_IMPROVE = 500000;
     }
 
     // Dataset detail logging removed for performance.
@@ -367,52 +375,54 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const
                 drone_violation += max(0.0, flight_time - vehicle.limit_drone);
  
             if (current_level != nullptr) {
+                // Xấp xỉ nhanh: max_violation * số_node_vi_phạm
+                double max_viol = 0.0;
+                int viol_cnt = 0;
                 for (auto &p : served_in_trip) {
                     int served_node_id = p.first;
                     double time_arrived_at_node = p.second;
- 
+                    double node_viol = 0.0;
+
                     auto it = current_level->node_mapping.find(served_node_id);
                     bool is_merged = (it != current_level->node_mapping.end() && it->second.size() > 1);
- 
+
                     if (is_merged) {
                         auto info_it = merged_nodes_info.find(served_node_id);
                         if (info_it != merged_nodes_info.end()) {
                             const MergedNodeInfo& info = info_it->second;
                             double x = arrival_depot - time_arrived_at_node;
-                            if (is_drone) {
-                                waiting_violation += fast_wait_violation_from_profile(
-                                    x, info.wait_thresholds_drone_sorted, info.wait_prefix_drone);
-                            } else {
-                                waiting_violation += fast_wait_violation_from_profile(
-                                    x, info.wait_thresholds_truck_sorted, info.wait_prefix_truck);
-                            }
+                            node_viol = is_drone
+                                ? fast_wait_violation_from_profile(x, info.wait_thresholds_drone_sorted, info.wait_prefix_drone)
+                                : fast_wait_violation_from_profile(x, info.wait_thresholds_truck_sorted, info.wait_prefix_truck);
                         }
                     } else {
                         double wait_time = arrival_depot - time_arrived_at_node;
                         double limit_wait = get_limit_wait_for_node(served_node_id, current_level);
-                        waiting_violation += max(0.0, wait_time - limit_wait);
+                        node_viol = max(0.0, wait_time - limit_wait);
+                    }
+
+                    if (node_viol > 0.0) {
+                        viol_cnt++;
+                        if (node_viol > max_viol) max_viol = node_viol;
                     }
                 }
+                waiting_violation += max_viol * viol_cnt;
             } else {
                 const double LIMIT_WAIT = 60.0;
                 const double T_threshold = arrival_depot - LIMIT_WAIT;
- 
-                int lo = 0, hi = (int)served_in_trip.size();
-                while (lo < hi) {
-                    int mid = (lo + hi) / 2;
-                    if (served_in_trip[mid].second < T_threshold)
-                        lo = mid + 1;
-                    else
-                        hi = mid;
+
+                int cnt = 0;
+                double max_viol = 0.0;
+                for (int k = 0; k < (int)served_in_trip.size(); k++) {
+                    double entry = served_in_trip[k].second;
+                    if (entry < T_threshold) {
+                        cnt++;
+                        double viol = T_threshold - entry;
+                        if (viol > max_viol) max_viol = viol;
+                    } else break; 
                 }
-                int cnt = lo;
- 
-                if (cnt > 0) {
-                    double sum_entry = 0.0;
-                    for (int k = 0; k < cnt; k++)
-                        sum_entry += served_in_trip[k].second;
-                    waiting_violation += cnt * T_threshold - sum_entry;
-                }
+                if (cnt > 0)
+                    waiting_violation += max_viol * cnt;
             }
  
             depart_time = current_time;
@@ -1030,10 +1040,12 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
     };
 
     vector<TabuMove> tabu_list; // danh sách các move bị tabu
+    int no_improve_count = 0;
+    int last_depot_opt_iter = 0;
 
     vector<string> move_types = {"1-0", "1-1", "2-0", "2-1", "2-2", "2-opt"};
     
-    for (int iter = 0; iter < MAX_ITER ; iter++){
+    for (int iter = 0; iter < MAX_ITER && no_improve_count < MAX_NO_IMPROVE; iter++){
         double best_Neighbor_fitness = DBL_MAX;
         Solution best_Neighbor_sol = current_sol;
         double current_fitness = current_sol.fitness;
@@ -1484,16 +1496,20 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
             
             if (current_sol.is_feasible && current_sol.fitness < best_sol.fitness - EPSILON){
                 best_sol = current_sol;
+                no_improve_count = 0;
                 scorePi[move_type_idx] += delta1;
             } else if (current_sol.fitness < current_fitness - EPSILON) {
                 scorePi[move_type_idx] += delta2;
+                no_improve_count++;
             } else {
                 scorePi[move_type_idx] += delta3;
+                no_improve_count++;
             }
-        } 
+        } else no_improve_count++;
 
         update_weights();
     }
+    (void)last_depot_opt_iter;
     return best_sol;
 }
 
@@ -2272,7 +2288,7 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\50.30.3.txt"; 
+        dataset_path = "D:\\New folder\\instances\\50.10.3.txt"; 
     }
 
     if (argc > 2) {

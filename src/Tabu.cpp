@@ -70,7 +70,6 @@ double Beta = 0.5; // tham số điều chỉnh hệ số hàm phạt
 
 int MAX_ITER;
 int TABU_TENURE;
-int MAX_NO_IMPROVE = 700000;
 double EPSILON = 1e-6;
 
 // Adaptive parameters
@@ -317,20 +316,18 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle) {
             }
 
             const double T_threshold = arrival_depot - 60.0;
-            int lo = 0, hi = (int)served_in_trip.size();
-            while (lo < hi) {
-                int mid = (lo + hi) / 2;
-                if (served_in_trip[mid].second < T_threshold)
-                    lo = mid + 1;
-                else
-                    hi = mid;
+            int cnt = 0;
+            double max_viol = 0.0;
+            for (int k = 0; k < (int)served_in_trip.size(); k++) {
+                double entry = served_in_trip[k].second;
+                if (entry < T_threshold) {
+                    cnt++;
+                    double viol = T_threshold - entry;
+                    if (viol > max_viol) max_viol = viol;
+                } else break; 
             }
-            int cnt = lo;
-            if (cnt > 0) {
-                double sum_entry = 0.0;
-                for (int k = 0; k < cnt; k++) sum_entry += served_in_trip[k].second;
-                waiting_violation += cnt * T_threshold - sum_entry;
-            }
+            if (cnt > 0)
+                waiting_violation += max_viol * cnt;
 
             depart_time = current_time;
             served_in_trip.clear();
@@ -850,11 +847,10 @@ Solution tabu_search(){
     Solution current_sol = initial_sol;
 
     vector<TabuMove> tabu_list; // danh sách các move bị tabu
-    int no_improve_count = 0;
 
     vector<string> move_types = {"1-0", "1-1", "2-0", "2-1", "2-2", "2-opt"};
     
-    for (int iter = 0; iter < MAX_ITER && no_improve_count < MAX_NO_IMPROVE; iter++){
+    for (int iter = 0; iter < MAX_ITER; iter++){
         double best_Neighbor_fitness = DBL_MAX;
         Solution best_Neighbor_sol = current_sol;
         double current_fitness = current_sol.fitness;
@@ -1290,16 +1286,13 @@ Solution tabu_search(){
             
             if (current_sol.is_feasible && current_sol.fitness < best_sol.fitness - EPSILON){
                 best_sol = current_sol;
-                no_improve_count = 0;
                 scorePi[move_type_idx] += delta1;
             } else if (current_sol.fitness < current_fitness - EPSILON) {
                 scorePi[move_type_idx] += delta2;
-                no_improve_count++;
             } else {
                 scorePi[move_type_idx] += delta3;
-                no_improve_count++;
             }
-        } else no_improve_count++;
+        } 
 
         update_weights();
     }
@@ -1313,7 +1306,7 @@ int main(int argc, char* argv[]){
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\50.40.4.txt"; 
+        dataset_path = "D:\\New folder\\instances\\50.10.3.txt"; 
     }
 
     read_dataset(dataset_path);
