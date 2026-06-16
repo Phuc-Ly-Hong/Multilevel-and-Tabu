@@ -376,51 +376,58 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const
                 drone_violation += max(0.0, flight_time - vehicle.limit_drone);
  
             if (current_level != nullptr) {
-                for (auto &p : served_in_trip) {
-                    int served_node_id = p.first;
-                    double time_arrived_at_node = p.second;
- 
+                // Duyệt từ cuối lên: tìm node (hoặc node to) gần depot nhất bị vi phạm
+                // entry_time trong served_in_trip là thời gian tới node đầu tiên trong group
+                int n_served = (int)served_in_trip.size();
+                for (int k = n_served - 1; k >= 0; k--) {
+                    int served_node_id = served_in_trip[k].first;
+                    double entry_time = served_in_trip[k].second;
+
                     auto it = current_level->node_mapping.find(served_node_id);
                     bool is_merged = (it != current_level->node_mapping.end() && it->second.size() > 1);
- 
+
+                    double viol = 0.0;
                     if (is_merged) {
                         auto info_it = merged_nodes_info.find(served_node_id);
                         if (info_it != merged_nodes_info.end()) {
                             const MergedNodeInfo& info = info_it->second;
-                            double x = arrival_depot - time_arrived_at_node;
-                            if (is_drone) {
-                                waiting_violation += fast_wait_violation_from_profile(
-                                    x, info.wait_thresholds_drone_sorted, info.wait_prefix_drone);
-                            } else {
-                                waiting_violation += fast_wait_violation_from_profile(
-                                    x, info.wait_thresholds_truck_sorted, info.wait_prefix_truck);
-                            }
+                            // x = thoi gian cho tinh tu entry node dau tien cua group
+                            double x = arrival_depot - entry_time;
+                            // lay violation cua node dau tien trong group (threshold nho nhat)
+                            const auto& thresholds = is_drone
+                                ? info.wait_thresholds_drone_sorted
+                                : info.wait_thresholds_truck_sorted;
+                            if (!thresholds.empty())
+                                viol = max(0.0, x - thresholds[0]);
                         }
                     } else {
-                        double wait_time = arrival_depot - time_arrived_at_node;
+                        double wait_time = arrival_depot - entry_time;
                         double limit_wait = get_limit_wait_for_node(served_node_id, current_level);
-                        waiting_violation += max(0.0, wait_time - limit_wait);
+                        viol = max(0.0, wait_time - limit_wait);
+                    }
+
+                    if (viol > 0.0) {
+                        // node k la node gan depot nhat bi vi pham
+                        // cac node 0..k truoc no chac chan bi vi pham it nhat bang viol
+                        waiting_violation += viol * (k + 1);
+                        break;
                     }
                 }
             } else {
+                // Duyệt từ cuối lên (node gần depot nhất đến node xa depot nhất)
+                // Tìm node gần depot nhất bị vi phạm waiting time
+                // Vi phạm = violation_của_node_đó × (số node từ đầu đến node đó, tức index+1)
                 const double LIMIT_WAIT = 60.0;
-                const double T_threshold = arrival_depot - LIMIT_WAIT;
- 
-                int lo = 0, hi = (int)served_in_trip.size();
-                while (lo < hi) {
-                    int mid = (lo + hi) / 2;
-                    if (served_in_trip[mid].second < T_threshold)
-                        lo = mid + 1;
-                    else
-                        hi = mid;
-                }
-                int cnt = lo;
- 
-                if (cnt > 0) {
-                    double sum_entry = 0.0;
-                    for (int k = 0; k < cnt; k++)
-                        sum_entry += served_in_trip[k].second;
-                    waiting_violation += cnt * T_threshold - sum_entry;
+                int n_served = (int)served_in_trip.size();
+                for (int k = n_served - 1; k >= 0; k--) {
+                    double wait_time = arrival_depot - served_in_trip[k].second;
+                    double viol = wait_time - LIMIT_WAIT;
+                    if (viol > 0.0) {
+                        // node này (index k) là node gần depot nhất bị vi phạm
+                        // chắc chắn tất cả node từ 0..k đều bị vi phạm ít nhất bằng viol
+                        waiting_violation += viol * (k + 1);
+                        break;
+                    }
                 }
             }
  
@@ -2208,64 +2215,6 @@ Solution multilevel_tabu_search() {
     }
 
     return best_overall;
-}
-
-Solution create_test_solution_from_routes(const vector<vector<int>>& test_routes) {
-    Solution test_sol;
-    test_sol.route = test_routes;
-    
-    cout << "\n" << string(70, '=') << endl;
-    cout << "🧪 TESTING WITH PREDEFINED ROUTES" << endl;
-    cout << string(70, '=') << "\n" << endl;
-    
-    // ✅ HIỂN THỊ ROUTES
-    for (size_t v = 0; v < test_routes.size(); v++) {
-        cout << "Vehicle " << v << " (" 
-             << (vehicles[v].is_drone ? "🚁 Drone" : "🚚 Technician") 
-             << ", speed=" << vehicles[v].speed << " m/min";
-        if (vehicles[v].is_drone) {
-            cout << ", limit=" << vehicles[v].limit_drone << " min";
-        }
-        cout << "): ";
-        
-        for (int cid : test_routes[v]) {
-            cout << cid << " ";
-        }
-        cout << endl;
-    }
-    
-    // ✅ GỌI HÀM EVALUATE - NÓ ĐÃ TÍNH TẤT CẢ
-    evaluate_solution(test_sol, nullptr);
-    
-    // ✅ HIỂN THỊ KẾT QUẢ
-    cout << "\n" << string(70, '=') << endl;
-    cout << "📋 TEST RESULTS" << endl;
-    cout << string(70, '=') << "\n" << endl;
-    
-    cout << "Makespan: " << test_sol.makespan << " min" << endl;
-    cout << "Drone violation: " << test_sol.drone_violation << " min" << endl;
-    cout << "Waiting violation: " << test_sol.waiting_violation << " min" << endl;
-    cout << "Fitness: " << test_sol.fitness << endl;
-    cout << "Is feasible: " << (test_sol.is_feasible ? "YES ✅" : "NO ❌") << endl;
-    
-    // ✅ CHI TIẾT VI PHẠM (NẾU CÓ)
-    if (!test_sol.is_feasible) {
-        cout << "\n⚠️  VIOLATIONS DETECTED:" << endl;
-        
-        if (test_sol.drone_violation > 0) {
-            cout << "  🚁 Drone flight time exceeded by " << test_sol.drone_violation << " min" << endl;
-            cout << "     → Some drones flew > " << vehicles[3].limit_drone << " min without returning to depot" << endl;
-        }
-        
-        if (test_sol.waiting_violation > 0) {
-            cout << "  ⏳ Customer waiting time exceeded by " << test_sol.waiting_violation << " min" << endl;
-            cout << "     → Some customers waited > 60 min for drone to return" << endl;
-        }
-    } else {
-        cout << "\n ALL CONSTRAINTS SATISFIED!" << endl;
-    }
-    
-    return test_sol;
 }
 
 int main(int argc, char* argv[]) {

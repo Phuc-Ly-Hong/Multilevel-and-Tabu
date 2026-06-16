@@ -327,19 +327,16 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle) {
                 drone_violation += (flight_time - vehicle.limit_drone);
             }
 
-            const double T_threshold = arrival_depot - 60.0;
-            int cnt = 0;
-            double max_viol = 0.0;
-            for (int k = 0; k < (int)served_in_trip.size(); k++) {
-                double entry = served_in_trip[k].second;
-                if (entry < T_threshold) {
-                    cnt++;
-                    double viol = T_threshold - entry;
-                    if (viol > max_viol) max_viol = viol;
-                } else break; 
+            const double LIMIT_WAIT = 60.0;
+            int n_served = (int)served_in_trip.size();
+            for (int k = n_served - 1; k >= 0; k--) {
+                double wait_time = arrival_depot - served_in_trip[k].second;
+                double viol = wait_time - LIMIT_WAIT;
+                if (viol > 0.0) {
+                    waiting_violation += viol * (k + 1);
+                    break;
+                }
             }
-            if (cnt > 0)
-                waiting_violation += max_viol * cnt;
 
             depart_time = current_time;
             served_in_trip.clear();
