@@ -28,6 +28,9 @@ struct Solution {
     vector<double> route_time; // thời gian hoàn thành theo từng xe
     vector<double> route_drone_violation; // vi phạm thời gian bay theo từng xe
     vector<double> route_waiting_violation; // vi phạm chờ tối đa theo từng xe
+    // Cache entry_time cho từng node trong route: route_entry_times[v][i] = entry_time của route[v][i]
+    // Dùng cho incremental lwt evaluation
+    vector<vector<double>> route_entry_times;
 
     Solution(): makespan(0), drone_violation(0), waiting_violation(0), fitness(DBL_MAX), is_feasible(true) {}
 };
@@ -341,7 +344,7 @@ void build_prefix_sum(const vector<double>& sorted_vals, vector<double>& prefix)
     }
 }
 
-RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const LevelInfo *current_level = nullptr) {
+RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const LevelInfo *current_level = nullptr, vector<double>* entry_times_out = nullptr) {
     normalize_route(route);
  
     const bool is_drone = vehicle.is_drone;
@@ -358,17 +361,24 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const
     double depart_time = 0.0;
     double drone_violation = 0.0;
     double waiting_violation = 0.0;
-    // thread_local: tái sử dụng buffer, tránh alloc/dealloc mỗi lần gọi
     static thread_local vector<pair<int, double>> served_in_trip;
     served_in_trip.clear();
     if (served_in_trip.capacity() < route.size())
         served_in_trip.reserve(route.size());
+
+    // Build entry_times nếu được yêu cầu
+    if (entry_times_out) {
+        entry_times_out->assign(route.size(), 0.0);
+    }
  
-    for (int cid : route) {
+    for (size_t ri = 0; ri < route.size(); ri++) {
+        int cid = route[ri];
         if (cid == depot_id) {
             if (prev != depot_id)
                 current_time += M[prev_idx][depot_idx];
  
+            if (entry_times_out) (*entry_times_out)[ri] = current_time;
+
             double arrival_depot = current_time;
             double flight_time = arrival_depot - depart_time;
  
@@ -376,8 +386,6 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const
                 drone_violation += max(0.0, flight_time - vehicle.limit_drone);
  
             if (current_level != nullptr) {
-                // Duyệt từ cuối lên: tìm node (hoặc node to) gần depot nhất bị vi phạm
-                // entry_time trong served_in_trip là thời gian tới node đầu tiên trong group
                 int n_served = (int)served_in_trip.size();
                 for (int k = n_served - 1; k >= 0; k--) {
                     int served_node_id = served_in_trip[k].first;
@@ -391,9 +399,7 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const
                         auto info_it = merged_nodes_info.find(served_node_id);
                         if (info_it != merged_nodes_info.end()) {
                             const MergedNodeInfo& info = info_it->second;
-                            // x = thoi gian cho tinh tu entry node dau tien cua group
                             double x = arrival_depot - entry_time;
-                            // lay violation cua node dau tien trong group (threshold nho nhat)
                             const auto& thresholds = is_drone
                                 ? info.wait_thresholds_drone_sorted
                                 : info.wait_thresholds_truck_sorted;
@@ -407,24 +413,17 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const
                     }
 
                     if (viol > 0.0) {
-                        // node k la node gan depot nhat bi vi pham
-                        // cac node 0..k truoc no chac chan bi vi pham it nhat bang viol
                         waiting_violation += viol * (k + 1);
                         break;
                     }
                 }
             } else {
-                // Duyệt từ cuối lên (node gần depot nhất đến node xa depot nhất)
-                // Tìm node gần depot nhất bị vi phạm waiting time
-                // Vi phạm = violation_của_node_đó × (số node từ đầu đến node đó, tức index+1)
                 const double LIMIT_WAIT = 60.0;
                 int n_served = (int)served_in_trip.size();
                 for (int k = n_served - 1; k >= 0; k--) {
                     double wait_time = arrival_depot - served_in_trip[k].second;
                     double viol = wait_time - LIMIT_WAIT;
                     if (viol > 0.0) {
-                        // node này (index k) là node gần depot nhất bị vi phạm
-                        // chắc chắn tất cả node từ 0..k đều bị vi phạm ít nhất bằng viol
                         waiting_violation += viol * (k + 1);
                         break;
                     }
@@ -460,6 +459,8 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const
  
             double external_time = travel_time - internal_time;
             double entry_time = current_time + external_time;
+
+            if (entry_times_out) (*entry_times_out)[ri] = entry_time;
  
             served_in_trip.push_back({cid, entry_time});
             current_time += travel_time;
@@ -482,9 +483,10 @@ void evaluate_solution(Solution &sol, const LevelInfo *current_level = nullptr) 
     sol.route_time.assign(sol.route.size(), 0.0);
     sol.route_drone_violation.assign(sol.route.size(), 0.0);
     sol.route_waiting_violation.assign(sol.route.size(), 0.0);
+    sol.route_entry_times.resize(sol.route.size());
 
     for (size_t i = 0; i < sol.route.size(); i++) {
-        RouteEval eval = evaluate_route(sol.route[i], vehicles[i], current_level);
+        RouteEval eval = evaluate_route(sol.route[i], vehicles[i], current_level, &sol.route_entry_times[i]);
         sol.route_time[i] = eval.time;
         sol.route_drone_violation[i] = eval.drone_violation;
         sol.route_waiting_violation[i] = eval.waiting_violation;
@@ -519,14 +521,17 @@ void recompute_solution_for_routes(Solution &sol, size_t v1, size_t v2, bool has
         evaluate_solution(sol, current_level);
         return;
     }
+    // Đảm bảo route_entry_times có đủ slot
+    if (sol.route_entry_times.size() != sol.route.size())
+        sol.route_entry_times.resize(sol.route.size());
 
-    RouteEval eval1 = evaluate_route(sol.route[v1], vehicles[v1], current_level);
+    RouteEval eval1 = evaluate_route(sol.route[v1], vehicles[v1], current_level, &sol.route_entry_times[v1]);
     sol.route_time[v1] = eval1.time;
     sol.route_drone_violation[v1] = eval1.drone_violation;
     sol.route_waiting_violation[v1] = eval1.waiting_violation;
 
     if (has_second && v2 != v1) {
-        RouteEval eval2 = evaluate_route(sol.route[v2], vehicles[v2], current_level);
+        RouteEval eval2 = evaluate_route(sol.route[v2], vehicles[v2], current_level, &sol.route_entry_times[v2]);
         sol.route_time[v2] = eval2.time;
         sol.route_drone_violation[v2] = eval2.drone_violation;
         sol.route_waiting_violation[v2] = eval2.waiting_violation;
@@ -537,6 +542,233 @@ void recompute_solution_for_routes(Solution &sol, size_t v1, size_t v2, bool has
 
 void recompute_solution_for_route(Solution &sol, size_t v1, const LevelInfo *current_level) {
     recompute_solution_for_routes(sol, v1, v1, false, current_level);
+}
+
+static double compute_lwt_from_entry_times(
+    const vector<int>& route,
+    const vector<double>& entry_times,        // kích thước = route.size()
+    const VehicleFamily& vehicle,
+    const LevelInfo* current_level)
+{
+    double waiting_violation = 0.0;
+    // served_in_trip: (node_id, entry_time) giữa 2 depot liên tiếp
+    static thread_local vector<pair<int,double>> trip_buf;
+    trip_buf.clear();
+
+    for (size_t ri = 0; ri < route.size(); ri++) {
+        int cid = route[ri];
+        if (cid == depot_id) {
+            double arrival_depot = entry_times[ri];
+            int n = (int)trip_buf.size();
+
+            if (current_level != nullptr) {
+                for (int k = n - 1; k >= 0; k--) {
+                    int nid = trip_buf[k].first;
+                    double et  = trip_buf[k].second;
+                    auto it = current_level->node_mapping.find(nid);
+                    bool is_merged = (it != current_level->node_mapping.end() && it->second.size() > 1);
+                    double viol = 0.0;
+                    if (is_merged) {
+                        auto ii = merged_nodes_info.find(nid);
+                        if (ii != merged_nodes_info.end()) {
+                            const MergedNodeInfo& info = ii->second;
+                            double x = arrival_depot - et;
+                            const auto& thr = vehicle.is_drone
+                                ? info.wait_thresholds_drone_sorted
+                                : info.wait_thresholds_truck_sorted;
+                            if (!thr.empty()) viol = max(0.0, x - thr[0]);
+                        }
+                    } else {
+                        double wt = arrival_depot - et;
+                        double lw = get_limit_wait_for_node(nid, current_level);
+                        viol = max(0.0, wt - lw);
+                    }
+                    if (viol > 0.0) { waiting_violation += viol * (k + 1); break; }
+                }
+            } else {
+                const double LW = 60.0;
+                for (int k = n - 1; k >= 0; k--) {
+                    double viol = (arrival_depot - trip_buf[k].second) - LW;
+                    if (viol > 0.0) { waiting_violation += viol * (k + 1); break; }
+                }
+            }
+            trip_buf.clear();
+        } else {
+            trip_buf.push_back({cid, entry_times[ri]});
+        }
+    }
+    return waiting_violation;
+}
+
+static RouteEval evaluate_route_incremental(
+    vector<int>& route,
+    const vector<double>& old_entry_times,   // entry_times của route CŨ (trước khi sửa)
+    vector<double>& new_entry_times,          // OUTPUT: entry_times mới
+    size_t from_pos,                          // vị trí đầu tiên bị thay đổi trong route mới
+    const VehicleFamily& vehicle,
+    const LevelInfo* current_level)
+{
+    normalize_route(route);
+
+    const bool is_drone = vehicle.is_drone;
+    const vector<vector<double>>& M =
+        (current_level != nullptr)
+            ? (is_drone ? current_level->drone_time_matrix : current_level->truck_time_matrix)
+            : (is_drone ? drone_times : truck_times);
+    const int depot_idx = (current_level != nullptr) ? find_node_index_fast(depot_id) : depot_id;
+
+    new_entry_times.assign(route.size(), 0.0);
+
+    // Copy phần không đổi từ old (trước from_pos)
+    // Chú ý: nếu route đã thay đổi trước from_pos (ví dụ xóa node) thì
+    // from_pos phải là vị trí đúng trong route MỚI.
+    // Phần [0, from_pos) của route mới = route cũ → copy thẳng
+    size_t safe_copy = min(from_pos, min(old_entry_times.size(), new_entry_times.size()));
+    for (size_t i = 0; i < safe_copy; i++)
+        new_entry_times[i] = old_entry_times[i];
+
+    // Khôi phục current_time và prev_idx tại from_pos từ cache
+    // current_time tại from_pos = entry_times[from_pos - 1] nếu là depot,
+    // hoặc = entry_times[from_pos - 1] + travel_đến_depot nếu cần.
+    // Đơn giản hơn: replay từ from_pos, dùng entry_times[from_pos-1] làm điểm neo.
+
+    double current_time = 0.0;
+    int prev_idx = depot_idx;
+
+    if (from_pos > 0 && from_pos <= route.size()) {
+        // Lấy thời gian tại cuối đoạn không đổi
+        // entry_times[from_pos-1] là thời điểm tới route[from_pos-1]
+        current_time = new_entry_times[from_pos - 1];
+        int prev_node = route[from_pos - 1];
+        if (prev_node == depot_id)
+            prev_idx = depot_idx;
+        else if (current_level != nullptr)
+            prev_idx = find_node_index_fast(prev_node);
+        else
+            prev_idx = prev_node;
+    }
+
+    // Tính drone_violation cho các trip TRƯỚC from_pos (đọc từ entry_times cũ)
+    double drone_violation = 0.0;
+    {
+        double dep_time = 0.0;
+        for (size_t i = 0; i < from_pos && i < route.size(); i++) {
+            if (route[i] == depot_id) {
+                if (i > 0) {
+                    double ft = new_entry_times[i] - dep_time;
+                    if (is_drone) drone_violation += max(0.0, ft - vehicle.limit_drone);
+                }
+                dep_time = new_entry_times[i];
+            }
+        }
+        // dep_time bây giờ = thời gian rời depot lần cuối trước from_pos
+        // Lưu lại để dùng khi tính drone_violation phần sau
+        // Truyền qua closure bên dưới
+        // (biến dep_time_before dùng trong loop phía dưới)
+        // Ta cần depart_time của trip hiện tại tại from_pos
+        // Tìm depot gần nhất TRƯỚC from_pos
+        double last_depot_time = 0.0;
+        for (int i = (int)from_pos - 1; i >= 0; i--) {
+            if (route[i] == depot_id) { last_depot_time = new_entry_times[i]; break; }
+        }
+        // replay từ from_pos: depart_time = last_depot_time
+        double depart_time = last_depot_time;
+
+        static thread_local vector<pair<int,double>> trip_buf2;
+        trip_buf2.clear();
+        // Tái tạo served_in_trip của trip hiện tại (từ depot trước from_pos)
+        for (int i = (int)from_pos - 1; i >= 0; i--) {
+            if (route[i] == depot_id) break;
+            // Thêm vào đầu trip_buf2 (các node đã phục vụ trước from_pos trong trip này)
+            trip_buf2.insert(trip_buf2.begin(), {route[i], new_entry_times[i]});
+        }
+
+        for (size_t ri = from_pos; ri < route.size(); ri++) {
+            int cid = route[ri];
+            if (cid == depot_id) {
+                if (ri > 0 && route[ri-1] != depot_id)
+                    current_time += M[prev_idx][depot_idx];
+                new_entry_times[ri] = current_time;
+
+                double ft = current_time - depart_time;
+                if (is_drone) drone_violation += max(0.0, ft - vehicle.limit_drone);
+
+                depart_time = current_time;
+                trip_buf2.clear();
+                prev_idx = depot_idx;
+            } else {
+                double travel = 0.0, internal = 0.0;
+                if (current_level != nullptr) {
+                    int cidx = find_node_index_fast(cid);
+                    if (prev_idx != -1 && cidx != -1) {
+                        travel = M[prev_idx][cidx];
+                        auto it = merged_nodes_info.find(cid);
+                        if (it != merged_nodes_info.end()) {
+                            internal = is_drone ? it->second.internal_drone_time
+                                                : it->second.internal_truck_time;
+                            travel += internal;
+                        }
+                    }
+                    prev_idx = cidx;
+                } else {
+                    travel = M[prev_idx][cid];
+                    prev_idx = cid;
+                }
+                double entry_time = current_time + (travel - internal);
+                new_entry_times[ri] = entry_time;
+                trip_buf2.push_back({cid, entry_time});
+                current_time += travel;
+            }
+        }
+    }
+
+    // Tính lwt dùng new_entry_times (toàn bộ route)
+    double lwt = compute_lwt_from_entry_times(route, new_entry_times, vehicle, current_level);
+
+    return {current_time, drone_violation, lwt};
+}
+
+// Recompute chỉ 1-2 route, dùng incremental từ vị trí from_pos1 / from_pos2
+void recompute_incremental(Solution& sol, size_t v1, size_t from_pos1,
+                           size_t v2, bool has_second, size_t from_pos2,
+                           const LevelInfo* current_level)
+{
+    if (sol.route_entry_times.size() != sol.route.size())
+        sol.route_entry_times.resize(sol.route.size());
+
+    // Đảm bảo old_entry_times tồn tại (nếu chưa có, fallback về full eval)
+    if (sol.route_entry_times[v1].size() != sol.route[v1].size() + 10 /* slack */) {
+        // Không có cache hợp lệ → full eval route v1
+        RouteEval e1 = evaluate_route(sol.route[v1], vehicles[v1], current_level, &sol.route_entry_times[v1]);
+        sol.route_time[v1] = e1.time;
+        sol.route_drone_violation[v1] = e1.drone_violation;
+        sol.route_waiting_violation[v1] = e1.waiting_violation;
+    } else {
+        vector<double> old_et = sol.route_entry_times[v1]; // copy old trước khi ghi đè
+        RouteEval e1 = evaluate_route_incremental(sol.route[v1], old_et,
+                            sol.route_entry_times[v1], from_pos1, vehicles[v1], current_level);
+        sol.route_time[v1] = e1.time;
+        sol.route_drone_violation[v1] = e1.drone_violation;
+        sol.route_waiting_violation[v1] = e1.waiting_violation;
+    }
+
+    if (has_second && v2 != v1) {
+        if (sol.route_entry_times[v2].size() != sol.route[v2].size() + 10) {
+            RouteEval e2 = evaluate_route(sol.route[v2], vehicles[v2], current_level, &sol.route_entry_times[v2]);
+            sol.route_time[v2] = e2.time;
+            sol.route_drone_violation[v2] = e2.drone_violation;
+            sol.route_waiting_violation[v2] = e2.waiting_violation;
+        } else {
+            vector<double> old_et2 = sol.route_entry_times[v2];
+            RouteEval e2 = evaluate_route_incremental(sol.route[v2], old_et2,
+                                sol.route_entry_times[v2], from_pos2, vehicles[v2], current_level);
+            sol.route_time[v2] = e2.time;
+            sol.route_drone_violation[v2] = e2.drone_violation;
+            sol.route_waiting_violation[v2] = e2.waiting_violation;
+        }
+    }
+
+    recompute_solution_from_cache(sol);
 }
 
 int get_type(int nid, const LevelInfo *current_level = nullptr) {
@@ -785,8 +1017,9 @@ Solution move_1_0(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
         new_sol.route[v1].erase(new_sol.route[v1].begin() + pos1);
         new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2, cid);
     }
-    
-    recompute_solution_for_routes(new_sol, v1, v2, true, current_level);
+    // from_pos1 = pos1 (node bị xóa → từ pos1 trở đi thay đổi)
+    // from_pos2 = pos2 (node được chèn vào → từ pos2 trở đi thay đổi)
+    recompute_incremental(new_sol, v1, pos1, v2, true, pos2, current_level);
     return new_sol;
 }
 
@@ -796,7 +1029,7 @@ Solution move_1_1(Solution current_sol, size_t v1, size_t node1, size_t v2, size
     int cid2 = new_sol.route[v2][node2];
     if (cid1 == depot_id || cid2 == depot_id) return current_sol; 
     swap(new_sol.route[v1][node1], new_sol.route[v2][node2]);
-    recompute_solution_for_routes(new_sol, v1, v2, true, current_level);
+    recompute_incremental(new_sol, v1, node1, v2, true, node2, current_level);
     return new_sol;
 }
 
@@ -833,7 +1066,7 @@ Solution move_2_0(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
         new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2 + 1, cid2);
     }
 
-    recompute_solution_for_routes(new_sol, v1, v2, true, current_level);
+    recompute_incremental(new_sol, v1, pos1, v2, true, pos2, current_level);
     return new_sol;
 }
 
@@ -881,7 +1114,7 @@ Solution move_2_1(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
     new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2, cid1);
     new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2 + 1, cid2);
 
-    recompute_solution_for_routes(new_sol, v1, v2, true, current_level);
+    recompute_incremental(new_sol, v1, pos1, v2, true, pos2, current_level);
     return new_sol;
 }
 
@@ -931,7 +1164,7 @@ Solution move_2_2(Solution current_sol, size_t v1, size_t pos1, size_t v2, size_
     new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2, cid1);
     new_sol.route[v2].insert(new_sol.route[v2].begin() + pos2 + 1, cid2);
 
-    recompute_solution_for_routes(new_sol, v1, v2, true, current_level);
+    recompute_incremental(new_sol, v1, pos1, v2, true, pos2, current_level);
     return new_sol;
 }
 
@@ -990,9 +1223,11 @@ Solution move_2opt(Solution current_sol, size_t v1, size_t pos1, size_t v2, size
     }
 
     if (v1 == v2) {
-        recompute_solution_for_route(new_sol, v1, current_level);
+        // intra-route: từ pos1 trở đi thay đổi
+        recompute_incremental(new_sol, v1, pos1, v1, false, 0, current_level);
     } else {
-        recompute_solution_for_routes(new_sol, v1, v2, true, current_level);
+        // inter-route: từ pos1/pos2 trở đi thay đổi
+        recompute_incremental(new_sol, v1, pos1, v2, true, pos2, current_level);
     }
     return new_sol;
 }
