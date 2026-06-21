@@ -1006,6 +1006,13 @@ int count_customers_in_vehicle(const Solution& sol, size_t vehicle_idx) {
 Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
     if (current_level != nullptr) update_node_index_cache(*current_level);
 
+    // Reset trọng số adaptive mỗi khi bắt đầu 1 lần tabu_search mới (1 level mới)
+    // Tránh việc weights "học" được ở level trước (vd: ưu tiên 2-opt) bị mang
+    // nguyên sang level sau, gây mỗi iteration ở level sau đắt hơn dù số node ít hơn.
+    fill(weights.begin(), weights.end(), 1.0);
+    fill(scorePi.begin(), scorePi.end(), 0.0);
+    fill(used_count.begin(), used_count.end(), 0.0);
+
     Solution best_sol = initial_sol;
     Solution current_sol = initial_sol;
 
