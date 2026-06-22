@@ -392,8 +392,10 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const
                             const auto& thresholds = is_drone
                                 ? info.wait_thresholds_drone_sorted
                                 : info.wait_thresholds_truck_sorted;
-                            if (!thresholds.empty())
-                                viol = max(0.0, x - thresholds[0]);
+                            const auto& prefix = is_drone
+                                ? info.wait_prefix_drone
+                                : info.wait_prefix_truck;
+                            viol = fast_wait_violation_from_profile(x, thresholds, prefix);
                         }
                     } else {
                         double wait_time = arrival_depot - entry_time;
