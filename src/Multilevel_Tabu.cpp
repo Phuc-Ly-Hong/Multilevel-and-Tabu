@@ -56,7 +56,7 @@ struct RouteEval {
 struct LevelInfo {
     vector<Node> nodes;
     vector<Node> C1_level, C2_level; // customers ở level này
-    map<int, vector<int>> node_mapping; // ánh xạ từ node level này về node gốc
+    unordered_map<int, vector<int>> node_mapping; // ánh xạ từ node level này về node gốc
     vector<vector<double>> truck_time_matrix; // ma trận thời gian cho technician
     vector<vector<double>> drone_time_matrix; // ma trận thời gian cho drone
     int level_id;
@@ -271,12 +271,29 @@ void print_solution(const Solution &sol){
 }
 
 unordered_map<int, int> node_id_to_index_cache;
+vector<const MergedNodeInfo*> merged_ptr_by_idx;
+vector<double> internal_truck_by_idx;
+vector<double> internal_drone_by_idx;
 
 void update_node_index_cache(const LevelInfo& level) {
     node_id_to_index_cache.clear();
     node_id_to_index_cache.reserve(level.nodes.size() * 2);
-    for (size_t i = 0; i < level.nodes.size(); i++) {
+    const size_t n = level.nodes.size();
+    for (size_t i = 0; i < n; i++) {
         node_id_to_index_cache[level.nodes[i].id] = i; 
+    }
+
+    merged_ptr_by_idx.assign(n, nullptr);
+    internal_truck_by_idx.assign(n, 0.0);
+    internal_drone_by_idx.assign(n, 0.0);
+    for (const auto& kv : merged_nodes_info) {
+        auto it = node_id_to_index_cache.find(kv.first);
+        if (it != node_id_to_index_cache.end()) {
+            int idx = it->second;
+            merged_ptr_by_idx[idx] = &kv.second;
+            internal_truck_by_idx[idx] = kv.second.internal_truck_time;
+            internal_drone_by_idx[idx] = kv.second.internal_drone_time;
+        }
     }
 }
 
@@ -290,6 +307,18 @@ int find_node_index_fast(int node_id) {
 
 void normalize_route(vector<int> &route) {
     if (route.empty()) { route.push_back(depot_id); return; }
+
+    // Fast-path: nếu route đã chuẩn (bắt đầu/kết thúc bằng depot, không có
+    // 2 depot liên tiếp) thì khỏi cấp phát vector mới. Các hàm move_* luôn
+    // duy trì route hợp lệ, nên phần lớn lệt gọi evaluate_route rơi vào đây.
+    if (route.front() == depot_id && route.back() == depot_id) {
+        bool ok = true;
+        for (size_t i = 1; i < route.size(); i++) {
+            if (route[i] == depot_id && route[i - 1] == depot_id) { ok = false; break; }
+        }
+        if (ok) return;
+    }
+
     vector<int> tmp;
     tmp.reserve(route.size());
     // đảm bảo bắt đầu bằng depot
@@ -341,6 +370,12 @@ void build_prefix_sum(const vector<double>& sorted_vals, vector<double>& prefix)
     }
 }
 
+struct ServedEntry {
+    int id;
+    double entry_time;
+    const MergedNodeInfo* info; // nullptr nếu node không bị merge
+};
+
 RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const LevelInfo *current_level = nullptr) {
     normalize_route(route);
  
@@ -358,7 +393,7 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const
     double depart_time = 0.0;
     double drone_violation = 0.0;
     double waiting_violation = 0.0;
-    static thread_local vector<pair<int, double>> served_in_trip;
+    static thread_local vector<ServedEntry> served_in_trip;
     served_in_trip.clear();
     if (served_in_trip.capacity() < route.size())
         served_in_trip.reserve(route.size());
@@ -377,29 +412,21 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const
             if (current_level != nullptr) {
                 int n_served = (int)served_in_trip.size();
                 for (int k = n_served - 1; k >= 0; k--) {
-                    int served_node_id = served_in_trip[k].first;
-                    double entry_time = served_in_trip[k].second;
-
-                    auto it = current_level->node_mapping.find(served_node_id);
-                    bool is_merged = (it != current_level->node_mapping.end() && it->second.size() > 1);
+                    const ServedEntry& se = served_in_trip[k];
 
                     double viol = 0.0;
-                    if (is_merged) {
-                        auto info_it = merged_nodes_info.find(served_node_id);
-                        if (info_it != merged_nodes_info.end()) {
-                            const MergedNodeInfo& info = info_it->second;
-                            double x = arrival_depot - entry_time;
-                            const auto& thresholds = is_drone
-                                ? info.wait_thresholds_drone_sorted
-                                : info.wait_thresholds_truck_sorted;
-                            const auto& prefix = is_drone
-                                ? info.wait_prefix_drone
-                                : info.wait_prefix_truck;
-                            viol = fast_wait_violation_from_profile(x, thresholds, prefix);
-                        }
+                    if (se.info != nullptr) {
+                        double x = arrival_depot - se.entry_time;
+                        const auto& thresholds = is_drone
+                            ? se.info->wait_thresholds_drone_sorted
+                            : se.info->wait_thresholds_truck_sorted;
+                        const auto& prefix = is_drone
+                            ? se.info->wait_prefix_drone
+                            : se.info->wait_prefix_truck;
+                        viol = fast_wait_violation_from_profile(x, thresholds, prefix);
                     } else {
-                        double wait_time = arrival_depot - entry_time;
-                        double limit_wait = get_limit_wait_for_node(served_node_id, current_level);
+                        double wait_time = arrival_depot - se.entry_time;
+                        double limit_wait = get_limit_wait_for_node(se.id, current_level);
                         viol = max(0.0, wait_time - limit_wait);
                     }
 
@@ -412,7 +439,7 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const
                 const double LIMIT_WAIT = 60.0;
                 int n_served = (int)served_in_trip.size();
                 for (int k = n_served - 1; k >= 0; k--) {
-                    double wait_time = arrival_depot - served_in_trip[k].second;
+                    double wait_time = arrival_depot - served_in_trip[k].entry_time;
                     double viol = wait_time - LIMIT_WAIT;
                     if (viol > 0.0) {
                         waiting_violation += viol * (k + 1);
@@ -428,17 +455,18 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const
         } else {
             double travel_time = 0.0;
             double internal_time = 0.0;
+            const MergedNodeInfo* node_info = nullptr;
  
             if (current_level != nullptr) {
                 int cid_idx = find_node_index_fast(cid);
  
                 if (prev_idx != -1 && cid_idx != -1) {
                     travel_time = M[prev_idx][cid_idx];
-                    auto info_it = merged_nodes_info.find(cid);
-                    if (info_it != merged_nodes_info.end()) {
+                    node_info = merged_ptr_by_idx[cid_idx]; // O(1) thay merged_nodes_info.find(cid)
+                    if (node_info != nullptr) {
                         internal_time = is_drone
-                            ? info_it->second.internal_drone_time
-                            : info_it->second.internal_truck_time;
+                            ? internal_drone_by_idx[cid_idx]
+                            : internal_truck_by_idx[cid_idx];
                         travel_time += internal_time;
                     }
                 }
@@ -451,7 +479,7 @@ RouteEval evaluate_route(vector<int> &route, const VehicleFamily &vehicle, const
             double external_time = travel_time - internal_time;
             double entry_time = current_time + external_time;
  
-            served_in_trip.push_back({cid, entry_time});
+            served_in_trip.push_back({cid, entry_time, node_info});
             current_time += travel_time;
             prev = cid;
         }
@@ -2218,6 +2246,7 @@ Solution multilevel_tabu_search() {
                     ++it;
                 }
             }
+            update_node_index_cache(all_levels[prev_level_id]);
             
             evaluate_solution(s, &all_levels[prev_level_id]);
             
