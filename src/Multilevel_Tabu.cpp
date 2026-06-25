@@ -306,11 +306,7 @@ int find_node_index_fast(int node_id) {
 }
 
 void normalize_route(vector<int> &route) {
-    if (route.empty()) { route.push_back(depot_id); return; }
-
-    // Fast-path: nếu route đã chuẩn (bắt đầu/kết thúc bằng depot, không có
-    // 2 depot liên tiếp) thì khỏi cấp phát vector mới. Các hàm move_* luôn
-    // duy trì route hợp lệ, nên phần lớn lệt gọi evaluate_route rơi vào đây.
+    if (route.empty()) { route.push_back(depot_id); return; } 
     if (route.front() == depot_id && route.back() == depot_id) {
         bool ok = true;
         for (size_t i = 1; i < route.size(); i++) {
@@ -1821,10 +1817,18 @@ LevelInfo merge_customers(const LevelInfo& current_level, const Solution& best_s
 
             for (size_t k = 0; k < info.current_sequence.size(); k++) {
                 int node_id_k = info.current_sequence[k];
-                double lw = get_limit_wait_for_node(node_id_k, &current_level);
-
-                thresholds_truck.push_back(info.cumulative_truck_times[k] + lw);
-                thresholds_drone.push_back(info.cumulative_drone_times[k] + lw);
+                auto it_nested = merged_nodes_info.find(node_id_k);
+                if (it_nested != merged_nodes_info.end()) {
+                    const MergedNodeInfo& nested = it_nested->second;
+                    for (double t : nested.wait_thresholds_truck_sorted)
+                        thresholds_truck.push_back(info.cumulative_truck_times[k] + t);
+                    for (double t : nested.wait_thresholds_drone_sorted)
+                        thresholds_drone.push_back(info.cumulative_drone_times[k] + t);
+                } else {
+                    double lw = get_limit_wait_for_node(node_id_k, &current_level);
+                    thresholds_truck.push_back(info.cumulative_truck_times[k] + lw);
+                    thresholds_drone.push_back(info.cumulative_drone_times[k] + lw);
+                }
             }
 
             sort(thresholds_truck.begin(), thresholds_truck.end());
