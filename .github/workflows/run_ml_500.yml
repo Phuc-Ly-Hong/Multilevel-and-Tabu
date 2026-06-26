@@ -45,7 +45,7 @@ jobs:
 
     strategy:
       fail-fast: false
-      max-parallel: 12
+      max-parallel: 16
       matrix:
         instance: [
           "500.10.1","500.10.2","500.10.3","500.10.4",

@@ -27,7 +27,7 @@ jobs:
 
       - name: Compile executable
         run: |
-          g++ -O3 -std=c++17 -o tabu src/Tabu_cap_no_lwt.cpp
+          g++ -O3 -std=c++17 -o tabu src/Tabu.cpp
           chmod +x tabu
 
       - name: Upload executable
@@ -45,7 +45,7 @@ jobs:
 
     strategy:
       fail-fast: false
-      max-parallel: 8
+      max-parallel: 12
       matrix:
         instance: [
           "500.10.1","500.10.2","500.10.3","500.10.4",
