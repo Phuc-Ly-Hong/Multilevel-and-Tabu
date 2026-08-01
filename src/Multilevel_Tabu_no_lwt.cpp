@@ -2046,7 +2046,7 @@ Solution multilevel_tabu_search() {
     bool coarsening = true;
     double prev_fitness = DBL_MAX;
 
-    while (coarsening && L < max_levels) {
+    while (coarsening) {
         //cout << "\n--- LEVEL " << L << " ---" << endl;
         auto level_start = chrono::high_resolution_clock::now();   
         update_node_index_cache(all_levels[L]);
@@ -2058,6 +2058,11 @@ Solution multilevel_tabu_search() {
         }
         prev_fitness = s_current.fitness;
         s = s_current;
+
+        if (L >= max_levels) {
+            break;
+        }
+
         auto merge_start = chrono::high_resolution_clock::now();
         LevelInfo next_level = merge_customers(all_levels[L], s, truck_times, drone_times);
         //cout << "Nodes in next_level: ";
@@ -2213,8 +2218,8 @@ int main(int argc, char* argv[]) {
         num_drones = 4;
     }
     else if (customers <= 200) {
-        num_techs = 10;
-        num_drones = 4;
+        num_techs = 6;
+        num_drones = 6;
     }
     else if (customers <= 500) {
         num_techs = 10;
