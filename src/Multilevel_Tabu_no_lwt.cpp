@@ -2053,9 +2053,9 @@ Solution multilevel_tabu_search() {
         Solution s_current = tabu_search(s, &all_levels[L]);
         auto level_end = chrono::high_resolution_clock::now();
         double level_time = chrono::duration<double>(level_end - level_start).count();
-        if (L >= 3 && s_current.fitness == prev_fitness) {
+        /*if (L >= 3 && s_current.fitness == prev_fitness) {
             break;
-        }
+        }*/
         prev_fitness = s_current.fitness;
         s = s_current;
 
