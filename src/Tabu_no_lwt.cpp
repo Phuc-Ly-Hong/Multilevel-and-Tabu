@@ -1304,8 +1304,8 @@ int main(int argc, char* argv[]){
         num_drones = 4;
     }
     else if (customers <= 200) {
-        num_techs = 10;
-        num_drones = 4;
+        num_techs = 6;
+        num_drones = 6;
     }
     else if (customers <= 500) {
         num_techs = 10;
