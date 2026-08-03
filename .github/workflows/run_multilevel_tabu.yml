@@ -2,9 +2,9 @@ name: Run Multilevel Tabu Capacity
 
 on:
   push:
-    branches: [ main, master, Method_Ba]
+    branches: [ main, master, Method_B]
   pull_request:
-    branches: [ main, master, Method_Ba]
+    branches: [ main, master, Method_B]
   workflow_dispatch:
 
 permissions:
@@ -24,7 +24,7 @@ jobs:
           sudo apt-get install -y g++ bc
       - name: Compile executable
         run: |
-          g++ -O3 -std=c++17 -o multilevel_tabu_cap src/Multilevel_Tabu.cpp
+          g++ -O3 -std=c++17 -o multilevel_tabu_cap src/ml_cu.cpp
           chmod +x multilevel_tabu_cap
       - name: Upload executable
         uses: actions/upload-artifact@v4
