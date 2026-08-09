@@ -1320,7 +1320,7 @@ int main(int argc, char* argv[]){
         vehicles.push_back({ i+1, 0.58f, false, 0.0f }); // technician
     }
     for (int i = 0; i < num_drones; ++i) {
-        vehicles.push_back({ num_techs + i + 1, 0.83f, true, 120.0f }); // drone
+        vehicles.push_back({ num_techs + i + 1, 0.83f, true, 60.0f }); // drone
     }
 
     Solution sol = tabu_search();
