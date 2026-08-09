@@ -105,7 +105,7 @@ int TABU_TENURE;
 int MAX_NO_IMPROVE;
 double EPSILON = 1e-6;
 
-int MAX_LEVELS = 3;
+int MAX_LEVELS = 4;
 bool USE_MANUAL_SEGMENT_CONFIG = false;
 double MERGE_RATIO = 0.10;
 
@@ -2210,20 +2210,20 @@ int main(int argc, char* argv[]) {
         num_drones = 2;
     }
     else if (customers <= 50) {
+        num_techs = 2;
+        num_drones = 2;
+    }
+    else if (customers <= 100) {
         num_techs = 3;
         num_drones = 3;
     }
-    else if (customers <= 100) {
-        num_techs = 4;
-        num_drones = 4;
-    }
     else if (customers <= 200) {
-        num_techs = 6;
-        num_drones = 6;
+        num_techs = 5;
+        num_drones = 5;
     }
     else if (customers <= 500) {
-        num_techs = 10;
-        num_drones = 10;
+        num_techs = 8;
+        num_drones = 8;
     }
     else if (customers <= 1000) {
         num_techs = 15;
@@ -2234,7 +2234,7 @@ int main(int argc, char* argv[]) {
         vehicles.push_back({ i+1, 0.58f, false, 0.0f }); // technician
     }
     for (int i = 0; i < num_drones; ++i) {
-        vehicles.push_back({ num_techs + i + 1, 0.83f, true, 120.0f }); // drone
+        vehicles.push_back({ num_techs + i + 1, 0.83f, true, 60.0f }); // drone
     }
 
     /*vector<vector<int>> test_routes = {
