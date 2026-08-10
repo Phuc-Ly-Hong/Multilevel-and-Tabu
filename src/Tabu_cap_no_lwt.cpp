@@ -160,28 +160,28 @@ void read_dataset(const string &filename){
     }
     else if (nodes.size() >= 500) {
         // Bộ 500 (201-500)
-        MAX_ITER = 40000;
-        CAP = 500.0;
+        MAX_ITER = 45000;
+        CAP = 400.0;
     }
     else if (nodes.size() >= 200) {
         // Bộ 200 (101-200)
-        MAX_ITER = 16000;
-        CAP = 500.0;
+        MAX_ITER = 18000;
+        CAP = 400.0;
     }
     else if (nodes.size() >= 100) {
         // Bộ 100 (100)
-        MAX_ITER = 8000;
-        CAP = 500.0;
+        MAX_ITER = 9000;
+        CAP = 400.0;
     }
     else if (nodes.size() >= 50) {
         // Bộ 50 (50-99)
-        MAX_ITER = 4000;
-        CAP = 300.0;
+        MAX_ITER = 4500;
+        CAP = 400.0;
     }
     else {
         // Bộ nhỏ (6-49)
-        MAX_ITER = 4000;
-        CAP = 200.0;
+        MAX_ITER = 4500;
+        CAP = 400.0;
     }
     for (const auto& node : nodes) {
         if (node.id == depot_id) {
@@ -1318,20 +1318,20 @@ int main(int argc, char* argv[]){
         num_drones = 2;
     }
     else if (customers <= 50) {
+        num_techs = 2;
+        num_drones = 2;
+    }
+    else if (customers <= 100) {
         num_techs = 3;
         num_drones = 3;
     }
-    else if (customers <= 100) {
-        num_techs = 4;
-        num_drones = 4;
-    }
     else if (customers <= 200) {
-        num_techs = 10;
-        num_drones = 4;
+        num_techs = 5;
+        num_drones = 5;
     }
     else if (customers <= 500) {
-        num_techs = 10;
-        num_drones = 10;
+        num_techs = 9;
+        num_drones = 9;
     }
     else if (customers <= 1000) {
         num_techs = 15;
@@ -1342,7 +1342,7 @@ int main(int argc, char* argv[]){
         vehicles.push_back({ i+1, 0.58f, false, 0.0f, CAP }); // technician
     }
     for (int i = 0; i < num_drones; ++i) {
-        vehicles.push_back({ num_techs + i + 1, 0.83f, true, 120.0f, 2.7 }); // drone
+        vehicles.push_back({ num_techs + i + 1, 0.83f, true, 60.0f, 5.0 }); // drone
     }
 
     Solution sol = tabu_search();

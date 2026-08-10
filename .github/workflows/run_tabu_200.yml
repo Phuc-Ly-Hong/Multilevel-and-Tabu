@@ -2,9 +2,9 @@ name: Run Tabu Search - Size 200
 
 on:
   push:
-    branches: [ main, master, Method_Ba]
+    branches: [ main, master, Method_B]
   pull_request:
-    branches: [ main, master, Method_Ba]
+    branches: [ main, master, Method_B]
   workflow_dispatch:
 
 permissions:
@@ -27,7 +27,7 @@ jobs:
     
     - name: Compile executable
       run: |
-        g++ -O3 -std=c++17 -o tabu src/Tabu_no_lwt.cpp
+        g++ -O3 -std=c++17 -o tabu src/Tabu_cap_no_lwt.cpp
         chmod +x tabu
     
     - name: Upload executable
@@ -118,22 +118,24 @@ jobs:
                 else:
                     makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
                     drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
+                    capacity_viol = find_metric_last(r'Capacity violation:\s*([0-9.+\-eE]+)', content)
                     waiting_viol = find_metric_last(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
                     fitness = find_metric_last(r'Fitness:\s*([0-9.+\-eE]+)', content)
                     
                     if makespan == 0.0 and fitness == 0.0:
                         status = "INVALID"
                     else:
-                        feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
+                        feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(capacity_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
                         return {"runtime": round(runtime, 3), "makespan": round(makespan, 4),
-                                "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
+                                "drone_violation": round(drone_viol, 4), "capacity_violation": round(capacity_viol, 4), "waiting_violation": round(waiting_viol, 4),
                                 "fitness": round(fitness, 4), "feasible": feasible}
                 
                 return {"runtime": round(runtime, 3), "makespan": 0.0,
-                        "drone_violation": 0.0, "waiting_violation": 0.0,
+                        "drone_violation": 0.0, "capacity_violation": 0.0, "waiting_violation": 0.0,
                         "fitness": float('inf'), "feasible": status}
             except:
                 return {"runtime": 0, "makespan": 0, "drone_violation": 0,
+                        "capacity_violation": 0,
                         "waiting_violation": 0, "fitness": float('inf'), "feasible": "PARSE_ERROR"}
         
         runs = []
@@ -239,22 +241,24 @@ jobs:
                 else:
                     makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
                     drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
+                    capacity_viol = find_metric_last(r'Capacity violation:\s*([0-9.+\-eE]+)', content)
                     waiting_viol = find_metric_last(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
                     fitness = find_metric_last(r'Fitness:\s*([0-9.+\-eE]+)', content)
                     
                     if makespan == 0.0 and fitness == 0.0:
                         status = "INVALID"
                     else:
-                        feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
+                        feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(capacity_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
                         return {"runtime": round(runtime, 3), "makespan": round(makespan, 4),
-                                "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
+                                "drone_violation": round(drone_viol, 4), "capacity_violation": round(capacity_viol, 4), "waiting_violation": round(waiting_viol, 4),
                                 "fitness": round(fitness, 4), "feasible": feasible}
                 
                 return {"runtime": round(runtime, 3), "makespan": 0.0,
-                        "drone_violation": 0.0, "waiting_violation": 0.0,
+                        "drone_violation": 0.0, "capacity_violation": 0.0, "waiting_violation": 0.0,
                         "fitness": float('inf'), "feasible": status}
             except:
                 return {"runtime": 0, "makespan": 0, "drone_violation": 0,
+                        "capacity_violation": 0,
                         "waiting_violation": 0, "fitness": float('inf'), "feasible": "PARSE_ERROR"}
         
         runs = []
@@ -360,22 +364,24 @@ jobs:
                 else:
                     makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
                     drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
+                    capacity_viol = find_metric_last(r'Capacity violation:\s*([0-9.+\-eE]+)', content)
                     waiting_viol = find_metric_last(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
                     fitness = find_metric_last(r'Fitness:\s*([0-9.+\-eE]+)', content)
                     
                     if makespan == 0.0 and fitness == 0.0:
                         status = "INVALID"
                     else:
-                        feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
+                        feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(capacity_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
                         return {"runtime": round(runtime, 3), "makespan": round(makespan, 4),
-                                "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
+                                "drone_violation": round(drone_viol, 4), "capacity_violation": round(capacity_viol, 4), "waiting_violation": round(waiting_viol, 4),
                                 "fitness": round(fitness, 4), "feasible": feasible}
                 
                 return {"runtime": round(runtime, 3), "makespan": 0.0,
-                        "drone_violation": 0.0, "waiting_violation": 0.0,
+                        "drone_violation": 0.0, "capacity_violation": 0.0, "waiting_violation": 0.0,
                         "fitness": float('inf'), "feasible": status}
             except:
                 return {"runtime": 0, "makespan": 0, "drone_violation": 0,
+                        "capacity_violation": 0,
                         "waiting_violation": 0, "fitness": float('inf'), "feasible": "PARSE_ERROR"}
         
         runs = []
@@ -481,22 +487,24 @@ jobs:
                 else:
                     makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
                     drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
+                    capacity_viol = find_metric_last(r'Capacity violation:\s*([0-9.+\-eE]+)', content)
                     waiting_viol = find_metric_last(r'Waiting violation:\s*([0-9.+\-eE]+)', content)
                     fitness = find_metric_last(r'Fitness:\s*([0-9.+\-eE]+)', content)
                     
                     if makespan == 0.0 and fitness == 0.0:
                         status = "INVALID"
                     else:
-                        feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
+                        feasible = "YES" if (abs(drone_viol) < 1e-6 and abs(capacity_viol) < 1e-6 and abs(waiting_viol) < 1e-6) else "NO"
                         return {"runtime": round(runtime, 3), "makespan": round(makespan, 4),
-                                "drone_violation": round(drone_viol, 4), "waiting_violation": round(waiting_viol, 4),
+                                "drone_violation": round(drone_viol, 4), "capacity_violation": round(capacity_viol, 4), "waiting_violation": round(waiting_viol, 4),
                                 "fitness": round(fitness, 4), "feasible": feasible}
                 
                 return {"runtime": round(runtime, 3), "makespan": 0.0,
-                        "drone_violation": 0.0, "waiting_violation": 0.0,
+                        "drone_violation": 0.0, "capacity_violation": 0.0, "waiting_violation": 0.0,
                         "fitness": float('inf'), "feasible": status}
             except:
                 return {"runtime": 0, "makespan": 0, "drone_violation": 0,
+                        "capacity_violation": 0,
                         "waiting_violation": 0, "fitness": float('inf'), "feasible": "PARSE_ERROR"}
         
         runs = []
@@ -550,6 +558,7 @@ jobs:
                     "runtime": run.get("runtime", ""),
                     "makespan": run.get("makespan", ""),
                     "drone_violation": run.get("drone_violation", ""),
+                    "capacity_violation": run.get("capacity_violation", ""),
                     "waiting_violation": run.get("waiting_violation", ""),
                     "fitness": run.get("fitness", ""),
                     "feasible": run.get("feasible", "")
@@ -565,6 +574,7 @@ jobs:
                     "runtime",
                     "makespan",
                     "drone_violation",
+                    "capacity_violation",
                     "waiting_violation",
                     "fitness",
                     "feasible"
@@ -582,4 +592,3 @@ jobs:
         name: tabu-200-summary
         path: summary_200.csv
         retention-days: 30
-
