@@ -471,113 +471,196 @@ Solution init_greedy_solution() {
     for (size_t v = 0; v < vehicles.size(); ++v)
         sol.route[v].push_back(depot_id);
 
-    // 1. GÁN C1 CHO TECHNICIAN 
+    // Trạng thái động của từng xe trong lúc xây dựng route
+    // (mỗi xe có thể đi NHIỀU chuyến - quay về depot rồi xuất phát lại -
+    //  evaluate_route() vốn đã hỗ trợ điều này thông qua việc reset trip_load
+    //  mỗi khi gặp depot, nên ta tận dụng luôn cơ chế đó để đảm bảo feasible)
+    vector<int>    current_pos(vehicles.size(), depot_id);
+    vector<double> current_load(vehicles.size(), 0.0);   // tải trọng của CHUYẾN hiện tại
+    vector<double> outbound_time(vehicles.size(), 0.0);   // thời gian đã bay kể từ lần rời depot gần nhất (chỉ dùng cho drone)
+    vector<double> cumulative_time(vehicles.size(), 0.0); // tổng thời gian đã đi (mọi chuyến cộng dồn) - dùng để cân bằng tải
+
+    // Đóng chuyến hiện tại của xe v: cho quay về depot, reset tải trọng/ thời gian bay
+    auto close_trip = [&](size_t v) {
+        if (sol.route[v].back() != depot_id) {
+            const auto& M = vehicles[v].is_drone ? drone_times : truck_times;
+            cumulative_time[v] += M[current_pos[v]][depot_id];
+            sol.route[v].push_back(depot_id);
+        }
+        current_pos[v]    = depot_id;
+        current_load[v]   = 0.0;
+        outbound_time[v]  = 0.0;
+    };
+
+    // Xe v có thể phục vụ khách cid ngay bây giờ hay không:
+    //  - còn đủ tải trọng cho CHUYẾN hiện tại
+    //  - nếu là drone: đi tới cid rồi bay thẳng về depot vẫn không vượt limit_drone
+    //    (kiểm tra "khứ hồi" để đảm bảo chuyến luôn có thể kết thúc hợp lệ)
+    auto can_serve = [&](size_t v, int cid, double demand) -> bool {
+        if (vehicles[v].capacity > 0 &&
+            current_load[v] + demand > vehicles[v].capacity + EPSILON) {
+            return false;
+        }
+        if (vehicles[v].is_drone) {
+            double travel_to   = drone_times[current_pos[v]][cid];
+            double travel_back = drone_times[cid][depot_id];
+            if (outbound_time[v] + travel_to + travel_back > vehicles[v].limit_drone + EPSILON) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    // ================= 1. GÁN C1 CHO TECHNICIAN (multi-trip, capacity-feasible) =================
     vector<int> unserved_C1;
     for (const auto& n : C1) unserved_C1.push_back(n.id);
 
-    vector<int> tech_pos;
-    vector<int> tech_indices;
-    for (size_t v = 0; v < vehicles.size(); v++) {
-        if (!vehicles[v].is_drone) {
-            tech_pos.push_back(depot_id);
-            tech_indices.push_back(v);
-        }
-    }
-    
+    vector<size_t> tech_indices;
+    for (size_t v = 0; v < vehicles.size(); v++)
+        if (!vehicles[v].is_drone) tech_indices.push_back(v);
+
     while (!unserved_C1.empty()) {
-        double best_time = DBL_MAX;
-        int best_tech = -1, best_cid = -1, best_idx = -1;
-        for (size_t t = 0; t < tech_indices.size(); t++) {
-            for (size_t i = 0; i < unserved_C1.size(); i++) {
-                int cid = unserved_C1[i];
-                double d = truck_times[tech_pos[t]][cid];
-                if (d < best_time) {
-                    best_time = d;
-                    best_tech = t;
-                    best_cid = cid;
-                    best_idx = i;
-                }
+        // 1a. Nhu cầu nhỏ nhất còn lại: xe nào không còn đủ chỗ cho cả nhu cầu nhỏ nhất
+        //     nghĩa là chắc chắn không phục vụ được ai nữa trong chuyến hiện tại -> đóng chuyến
+        double min_remaining_demand = DBL_MAX;
+        for (int cid : unserved_C1) min_remaining_demand = min(min_remaining_demand, base_demand_vec[cid]);
+
+        for (size_t t : tech_indices) {
+            if (vehicles[t].capacity > 0 &&
+                current_pos[t] != depot_id &&
+                current_load[t] + min_remaining_demand > vehicles[t].capacity + EPSILON) {
+                close_trip(t);
             }
         }
-        int vehicle_id = tech_indices[best_tech];
-        sol.route[vehicle_id].push_back(best_cid);
-        tech_pos[best_tech] = best_cid;
+
+        // 1b. Với mỗi technician, tìm khách hàng khả thi GẦN NHẤT của riêng nó,
+        //     rồi trong số đó chọn xe nào có TỔNG THỜI GIAN HOÀN THÀNH sau khi
+        //     nhận khách là NHỎ NHẤT (thay vì chỉ nhìn quãng đường đơn lẻ).
+        //     => xe đang "rảnh" (đi ít hơn) sẽ được ưu tiên nhận khách mới,
+        //        tránh việc 1 xe ôm hết còn xe khác đứng yên ở depot.
+        double best_total_time = DBL_MAX;
+        int best_tech = -1, best_idx = -1;
+        for (size_t t : tech_indices) {
+            double nearest_d = DBL_MAX;
+            int nearest_idx = -1;
+            for (size_t i = 0; i < unserved_C1.size(); i++) {
+                int cid = unserved_C1[i];
+                if (!can_serve(t, cid, base_demand_vec[cid])) continue;
+                double d = truck_times[current_pos[t]][cid];
+                if (d < nearest_d) { nearest_d = d; nearest_idx = (int)i; }
+            }
+            if (nearest_idx == -1) continue;
+            double resulting_total = cumulative_time[t] + nearest_d;
+            if (resulting_total < best_total_time) {
+                best_total_time = resulting_total;
+                best_tech = (int)t;
+                best_idx  = nearest_idx;
+            }
+        }
+
+        if (best_tech == -1) {
+            // Trường hợp hiếm: demand của 1 khách > capacity của MỌI technician
+            // -> không thể chia nhỏ 1 khách ra nhiều chuyến, đành gán cho xe có capacity lớn
+            //    nhất và chấp nhận vi phạm (evaluate_solution sẽ phản ánh đúng vi phạm này)
+            int cid = unserved_C1.front();
+            size_t t = *max_element(tech_indices.begin(), tech_indices.end(),
+                            [](size_t a, size_t b){ return vehicles[a].capacity < vehicles[b].capacity; });
+            if (current_pos[t] != depot_id) close_trip(t);
+            double d = truck_times[current_pos[t]][cid];
+            sol.route[t].push_back(cid);
+            cumulative_time[t] += d;
+            current_pos[t]     = cid;
+            current_load[t]   += base_demand_vec[cid];
+            unserved_C1.erase(unserved_C1.begin());
+            continue;
+        }
+
+        int cid = unserved_C1[best_idx];
+        double d = truck_times[current_pos[best_tech]][cid];
+        sol.route[best_tech].push_back(cid);
+        cumulative_time[best_tech] += d;
+        current_pos[best_tech]     = cid;
+        current_load[best_tech]   += base_demand_vec[cid];
         unserved_C1.erase(unserved_C1.begin() + best_idx);
     }
 
+    // ================= 2. GÁN C2 CHO TẤT CẢ XE (multi-trip, capacity + thời gian bay feasible) =================
     vector<int> unserved_C2;
     for (const auto& n : C2) unserved_C2.push_back(n.id);
 
-    int total_vehicles = vehicles.size();
-    int customers_per_vehicle = unserved_C2.size() / total_vehicles;
-    int extra_customers = unserved_C2.size() % total_vehicles;
-
-    vector<int> vehicle_quota(total_vehicles);
-    for (int v = 0; v < total_vehicles; v++) {
-        vehicle_quota[v] = customers_per_vehicle;
-        if (v < extra_customers) vehicle_quota[v]++; 
-    }
-
-    vector<int> current_pos(vehicles.size());
-    vector<int> assigned_count(vehicles.size(), 0);
-
-    for (size_t v = 0; v < vehicles.size(); v++) {
-        if (!sol.route[v].empty() && sol.route[v].back() != depot_id) {
-            current_pos[v] = sol.route[v].back();
-        } else {
-            current_pos[v] = depot_id;
-        }
-    }
-
     while (!unserved_C2.empty()) {
-        double best_time = DBL_MAX;
-        int best_vehicle = -1;
-        int best_cid_idx = -1;
+        double min_remaining_demand = DBL_MAX;
+        for (int cid : unserved_C2) min_remaining_demand = min(min_remaining_demand, base_demand_vec[cid]);
 
-        // Tìm customer gần nhất cho từng xe 
         for (size_t v = 0; v < vehicles.size(); v++) {
-            // Bỏ qua nếu đã đủ quota
-            if (assigned_count[v] >= vehicle_quota[v]) continue;
-
-            for (size_t i = 0; i < unserved_C2.size(); i++) {
-                int cid = unserved_C2[i];
-                
-                // Drone không được gán C1
-                if (vehicles[v].is_drone && get_type(cid, nullptr) == 1) {
-                    continue;
-                }
-
-                const vector<vector<double>>& time_matrix = vehicles[v].is_drone ? drone_times : truck_times;
-                double dist = time_matrix[current_pos[v]][cid];
-
-                if (dist < best_time) {
-                    best_time = dist;
-                    best_vehicle = v;
-                    best_cid_idx = i;
-                }
+            if (vehicles[v].capacity > 0 &&
+                current_pos[v] != depot_id &&
+                current_load[v] + min_remaining_demand > vehicles[v].capacity + EPSILON) {
+                close_trip(v);
             }
         }
 
-        // Gán customer cho xe
-        if (best_vehicle != -1) {
-            int best_cid = unserved_C2[best_cid_idx];
-
-            sol.route[best_vehicle].push_back(best_cid);
-            current_pos[best_vehicle] = best_cid;
-            assigned_count[best_vehicle]++;
-
-            unserved_C2.erase(unserved_C2.begin() + best_cid_idx);
-        } else {
-            break;
+        double best_total_time = DBL_MAX;
+        int best_v = -1, best_idx = -1;
+        for (size_t v = 0; v < vehicles.size(); v++) {
+            const vector<vector<double>>& M = vehicles[v].is_drone ? drone_times : truck_times;
+            double nearest_d = DBL_MAX;
+            int nearest_idx = -1;
+            for (size_t i = 0; i < unserved_C2.size(); i++) {
+                int cid = unserved_C2[i];
+                // Drone không được gán khách chỉ phục vụ bởi technician
+                if (vehicles[v].is_drone && get_type(cid, nullptr) == 1) continue;
+                if (!can_serve(v, cid, base_demand_vec[cid])) continue;
+                double d = M[current_pos[v]][cid];
+                if (d < nearest_d) { nearest_d = d; nearest_idx = (int)i; }
+            }
+            if (nearest_idx == -1) continue;
+            double resulting_total = cumulative_time[v] + nearest_d;
+            if (resulting_total < best_total_time) {
+                best_total_time = resulting_total;
+                best_v   = (int)v;
+                best_idx = nearest_idx;
+            }
         }
+
+        if (best_v == -1) {
+            // Không xe nào (kể cả vừa đóng chuyến, tải trọng = 0) chở nổi khách nhỏ nhất còn lại
+            // -> demand khách này > capacity của mọi xe hợp lệ với nó; ép gán cho technician
+            //    có capacity lớn nhất để không rơi vào vòng lặp vô hạn (chấp nhận vi phạm ở ca hiếm này)
+            int cid = unserved_C2.front();
+            size_t v = 0;
+            double best_cap = -1.0;
+            for (size_t vv = 0; vv < vehicles.size(); vv++) {
+                if (!vehicles[vv].is_drone && vehicles[vv].capacity > best_cap) {
+                    best_cap = vehicles[vv].capacity;
+                    v = vv;
+                }
+            }
+            if (current_pos[v] != depot_id) close_trip(v);
+            double d = truck_times[current_pos[v]][cid];
+            sol.route[v].push_back(cid);
+            cumulative_time[v] += d;
+            current_pos[v]     = cid;
+            current_load[v]   += base_demand_vec[cid];
+            unserved_C2.erase(unserved_C2.begin());
+            continue;
+        }
+
+        int cid = unserved_C2[best_idx];
+        double demand = base_demand_vec[cid];
+        double d = (vehicles[best_v].is_drone ? drone_times : truck_times)[current_pos[best_v]][cid];
+
+        sol.route[best_v].push_back(cid);
+        cumulative_time[best_v] += d;
+        current_pos[best_v]     = cid;
+        current_load[best_v]   += demand;
+        if (vehicles[best_v].is_drone) outbound_time[best_v] += d;
+
+        unserved_C2.erase(unserved_C2.begin() + best_idx);
     }
 
-    for (size_t v = 0; v < vehicles.size(); v++) {
-        if (sol.route[v].back() != depot_id) {
-            sol.route[v].push_back(depot_id);
-        }
-    }
-
+    // Đóng nốt chuyến còn dở của mọi xe
+    for (size_t v = 0; v < vehicles.size(); v++) close_trip(v);
 
     evaluate_solution(sol);
     auto end_time = chrono::high_resolution_clock::now();
@@ -2145,7 +2228,7 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\500.10.1.txt"; 
+        dataset_path = "D:\\New folder\\instances\\500.40.4.txt"; 
     }
 
     if (argc > 2) {
@@ -2217,7 +2300,7 @@ int main(int argc, char* argv[]) {
 
     //Solution test_solution = create_test_solution_from_routes(test_routes);
 
-    Solution best_solution = multilevel_tabu_search();
+    Solution best_solution = init_greedy_solution();
     print_solution(best_solution);
 
     return 0;
