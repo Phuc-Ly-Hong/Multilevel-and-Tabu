@@ -2151,7 +2151,7 @@ Solution multilevel_tabu_search() {
 
     LevelInfo current_level;
     current_level.level_id = 0;
-    current_level.nodes.push_back({depot_id, 0.0, 0.0, -1.0, DBL_MAX});
+    current_level.nodes.push_back({depot_id, 0.0, 0.0, -1.0});
     current_level.nodes.insert(current_level.nodes.end(), C1.begin(), C1.end());
     current_level.nodes.insert(current_level.nodes.end(), C2.begin(), C2.end());
 
@@ -2177,23 +2177,23 @@ Solution multilevel_tabu_search() {
     bool coarsening = true;
     double prev_fitness = DBL_MAX;
 
-    cout << fixed << setprecision(4);
-    cout << "\n========== COARSENING PHASE ==========" << endl;
-
-    while (coarsening && L < max_levels) {
+    while (coarsening) {
         //cout << "\n--- LEVEL " << L << " ---" << endl;
         auto level_start = chrono::high_resolution_clock::now();   
         update_node_index_cache(all_levels[L]);
         Solution s_current = tabu_search(s, &all_levels[L]);
         auto level_end = chrono::high_resolution_clock::now();
         double level_time = chrono::duration<double>(level_end - level_start).count();
-        if (L >= 3 && s_current.fitness == prev_fitness) {
-            cout << "[LEVEL " << L << "] Tabu search time: " << level_time << "s"
-                 << " | fitness khong doi -> dung coarsening" << endl;
+        /*if (L >= 3 && s_current.fitness == prev_fitness) {
             break;
-        }
+        }*/
         prev_fitness = s_current.fitness;
         s = s_current;
+
+        if (L >= max_levels) {
+            break;
+        }
+
         auto merge_start = chrono::high_resolution_clock::now();
         LevelInfo next_level = merge_customers(all_levels[L], s, truck_times, drone_times);
         //cout << "Nodes in next_level: ";
@@ -2203,9 +2203,6 @@ Solution multilevel_tabu_search() {
         double merge_time = chrono::duration<double>(merge_end - merge_start).count();
         int reduction = all_levels[L].nodes.size() - next_level.nodes.size();
         if (reduction < 1) {
-            cout << "[LEVEL " << L << "] Tabu search time: " << level_time << "s"
-                 << " | Merge time: " << merge_time << "s"
-                 << " | khong merge duoc node nao -> dung coarsening" << endl;
             break;
         }
         all_levels.push_back(next_level);
@@ -2223,32 +2220,18 @@ Solution multilevel_tabu_search() {
         double project_time = chrono::duration<double>(project_end - project_start).count();
         update_node_index_cache(next_level);
         evaluate_solution(s, &next_level);
-
-        cout << "[LEVEL " << L << " -> " << (L + 1) << "]"
-             << " Tabu search time: " << level_time << "s"
-             << " | Merge time: " << merge_time << "s"
-             << " | Project time: " << project_time << "s"
-             << " | So node: " << all_levels[L].nodes.size() << " -> " << next_level.nodes.size()
-             << " (giam " << reduction << " node)"
-             << " | fitness: " << s.fitness << endl;
-
-        L++;        
+        
+        L++;
         
         (void)level_time;
         (void)merge_time;
         (void)project_time;
     }
-
-    cout << "========== KET THUC COARSENING (toi level " << L << ") ==========" << endl;
-
     Solution best_overall = s;
-
-    cout << "\n========== REFINEMENT PHASE (tach node) ==========" << endl;
     
     for (int i = 0; i < L; i++) {
         int current_level_id = L - i;
         int prev_level_id = L - i - 1;
-        (void)current_level_id;
         
         //cout << "\n=== REFINING FROM LEVEL " << current_level_id << " TO LEVEL " << prev_level_id << " ===" << endl; 
         // Unmerge solution
@@ -2256,6 +2239,7 @@ Solution multilevel_tabu_search() {
         s = unmerge_solution_to_previous_level(s, all_levels[current_level_id], all_levels[prev_level_id]);
         auto unmerge_end = chrono::high_resolution_clock::now();
         double unmerge_time = chrono::duration<double>(unmerge_end - unmerge_start).count();
+        (void)unmerge_time;
         truck_times = all_levels[prev_level_id].truck_time_matrix;
         drone_times = all_levels[prev_level_id].drone_time_matrix;
 
@@ -2266,34 +2250,32 @@ Solution multilevel_tabu_search() {
         /*cout << "Level " << prev_level_id << " stats:" << endl;
         cout << "  Nodes: " << num_nodes << endl;
         cout << "  C1: " << C1.size() << ", C2: " << C2.size() << endl;
-        cout << "  Matrix: " << distances.size() << "x" 
-             << (distances.empty() ? 0 : distances[0].size()) << endl;*/
+        cout << "  Matrix: " << truck_times.size() << "x" 
+             << (truck_times.empty() ? 0 : truck_times[0].size()) << endl;*/
 
         update_node_index_cache(all_levels[prev_level_id]);
         // CASE 1: LEVEL 0 - DÙNG EVALUATE VÀ TABU KHÔNG CÓ LEVEL
         if (prev_level_id == 0) {
+            // Final refinement logging removed for performance.
             merged_nodes_info.clear();
             internal_distance_cache.clear();
             
-            // EVALUATE KHÔNG CÓ LEVEL (nullptr)
             evaluate_solution(s, nullptr);
             
-            auto refine_start = chrono::high_resolution_clock::now();            
+            auto refine_start = chrono::high_resolution_clock::now();
+            
             s = tabu_search(s, nullptr);
             
             evaluate_solution(s, nullptr);
             
             auto refine_end = chrono::high_resolution_clock::now();
             double refine_time = chrono::duration<double>(refine_end - refine_start).count();
-            cout << "[REFINE] Level " << current_level_id << " -> " << prev_level_id
-                 << " | Tach node (unmerge) time: " << unmerge_time << "s"
-                 << " | Tabu search time: " << refine_time << "s"
-                 << " | So node: " << num_nodes
-                 << " | fitness: " << s.fitness << endl;
+            (void)refine_time;
             best_overall = s;
         }
-        // CASE 2: LEVEL 1, 2, 3...
+        // CASE 2: LEVEL 1, 2, 3... - VẪN DÙNG MULTILEVEL
         else {
+            // CLEAR MERGED INFO CỦA LEVEL CAO HƠN
             auto it = merged_nodes_info.begin();
             while (it != merged_nodes_info.end()) {
                 if (it->second.level_id > prev_level_id) {
@@ -2302,26 +2284,20 @@ Solution multilevel_tabu_search() {
                     ++it;
                 }
             }
-            update_node_index_cache(all_levels[prev_level_id]);
             
             evaluate_solution(s, &all_levels[prev_level_id]);
             
-            auto refine_start = chrono::high_resolution_clock::now();            
+            auto refine_start = chrono::high_resolution_clock::now();
             s = tabu_search(s, &all_levels[prev_level_id]);
             evaluate_solution(s, &all_levels[prev_level_id]);
             
             auto refine_end = chrono::high_resolution_clock::now();
             double refine_time = chrono::duration<double>(refine_end - refine_start).count();
-            cout << "[REFINE] Level " << current_level_id << " -> " << prev_level_id
-                 << " | Tach node (unmerge) time: " << unmerge_time << "s"
-                 << " | Tabu search time: " << refine_time << "s"
-                 << " | So node: " << num_nodes
-                 << " | fitness: " << s.fitness << endl;
+            (void)refine_time;
+            (void)unmerge_time;
             best_overall = s;
         }
     }
-
-    cout << "========== KET THUC REFINEMENT ==========" << endl;
 
     return best_overall;
 }
@@ -2364,20 +2340,20 @@ int main(int argc, char* argv[]) {
         num_drones = 2;
     }
     else if (customers <= 50) {
+        num_techs = 2;
+        num_drones = 2;
+    }
+    else if (customers <= 100) {
         num_techs = 3;
         num_drones = 3;
     }
-    else if (customers <= 100) {
-        num_techs = 4;
-        num_drones = 4;
-    }
     else if (customers <= 200) {
-        num_techs = 10;
-        num_drones = 4;
+        num_techs = 5;
+        num_drones = 5;
     }
     else if (customers <= 500) {
-        num_techs = 10;
-        num_drones = 10;
+        num_techs = 9;
+        num_drones = 9;
     }
     else if (customers <= 1000) {
         num_techs = 15;
@@ -2388,7 +2364,7 @@ int main(int argc, char* argv[]) {
         vehicles.push_back({ i+1, 0.58f, false, 0.0f }); // technician
     }
     for (int i = 0; i < num_drones; ++i) {
-        vehicles.push_back({ num_techs + i + 1, 0.83f, true, 120.0f }); // drone
+        vehicles.push_back({ num_techs + i + 1, 0.83f, true, 60.0f }); // drone
     }
 
     vector<vector<int>> test_routes = {
