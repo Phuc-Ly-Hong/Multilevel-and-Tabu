@@ -476,8 +476,24 @@ Solution init_greedy_solution() {
         const VehicleFamily& vehicle = vehicles[v];
         const auto& M = vehicle.is_drone ? drone_times : truck_times;
 
-        Candidate cand = find_candidate(depot_id, vehicle, true); // điểm xa nhất từ depot
-        if (!cand.found) continue; // hết pool phù hợp cho loại xe này -> đành chịu (không thể tránh được)
+        Candidate cand;
+        if (vehicle.is_drone) {
+            // Tìm ứng viên xa nhất trong C2 nhưng vẫn phải đảm bảo round-trip (depot->cid->depot)
+            // không vượt quá giới hạn bay của drone, tránh vi phạm ngay từ điểm đầu tiên.
+            double best_val = -1.0;
+            for (size_t i = 0; i < unvisited_C2.size(); i++) {
+                int cid = unvisited_C2[i];
+                double round_trip = M[depot_id][cid] + M[cid][depot_id];
+                if ((round_trip - vehicle.limit_drone) > EPSILON) continue; // vi phạm -> loại
+                if (M[depot_id][cid] > best_val) {
+                    best_val = M[depot_id][cid];
+                    cand = {cid, 2, (int)i, true};
+                }
+            }
+        } else {
+            cand = find_candidate(depot_id, vehicle, true); // điểm xa nhất từ depot
+        }
+        if (!cand.found) continue; // hết pool phù hợp (hoặc không có ứng viên nào khả thi) -> đành chịu
 
         double travel_time = M[depot_id][cand.cid];
         sol.route[v].push_back(cand.cid);
@@ -1369,7 +1385,7 @@ int main(int argc, char* argv[]){
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\100.40.2.txt"; 
+        dataset_path = "D:\\New folder\\instances\\50.40.1.txt"; 
     }
 
     read_dataset(dataset_path);
