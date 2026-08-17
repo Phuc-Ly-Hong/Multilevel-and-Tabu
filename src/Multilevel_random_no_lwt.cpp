@@ -2007,18 +2007,23 @@ Solution multilevel_tabu_search() {
     bool coarsening = true;
     double prev_fitness = DBL_MAX;
 
-    while (coarsening && L < max_levels) {
+    while (coarsening) {
         //cout << "\n--- LEVEL " << L << " ---" << endl;
         auto level_start = chrono::high_resolution_clock::now();   
         update_node_index_cache(all_levels[L]);
         Solution s_current = tabu_search(s, &all_levels[L]);
         auto level_end = chrono::high_resolution_clock::now();
         double level_time = chrono::duration<double>(level_end - level_start).count();
-        if (L >= 3 && s_current.fitness == prev_fitness) {
+        /*if (L >= 3 && s_current.fitness == prev_fitness) {
             break;
-        }
+        }*/
         prev_fitness = s_current.fitness;
         s = s_current;
+
+        if (L >= max_levels) {
+            break;
+        }
+
         auto merge_start = chrono::high_resolution_clock::now();
         LevelInfo next_level = merge_customers(all_levels[L], s, truck_times, drone_times);
         //cout << "Nodes in next_level: ";
@@ -2100,7 +2105,6 @@ Solution multilevel_tabu_search() {
         }
         // CASE 2: LEVEL 1, 2, 3... - VẪN DÙNG MULTILEVEL
         else {
-            // Refinement logging removed for performance.
             // CLEAR MERGED INFO CỦA LEVEL CAO HƠN
             auto it = merged_nodes_info.begin();
             while (it != merged_nodes_info.end()) {
@@ -2222,20 +2226,20 @@ int main(int argc, char* argv[]) {
         num_drones = 2;
     }
     else if (customers <= 50) {
+        num_techs = 2;
+        num_drones = 2;
+    }
+    else if (customers <= 100) {
         num_techs = 3;
         num_drones = 3;
     }
-    else if (customers <= 100) {
-        num_techs = 4;
-        num_drones = 4;
-    }
     else if (customers <= 200) {
-        num_techs = 10;
-        num_drones = 4;
+        num_techs = 5;
+        num_drones = 5;
     }
     else if (customers <= 500) {
-        num_techs = 10;
-        num_drones = 10;
+        num_techs = 9;
+        num_drones = 9;
     }
     else if (customers <= 1000) {
         num_techs = 15;
