@@ -503,16 +503,40 @@ Solution init_greedy_solution() {
         remove_from_pool(cand);
     }
 
-    for (size_t v = 0; v < n_vehicles; v++) {
-        const VehicleFamily& vehicle = vehicles[v];
-        const auto& M = vehicle.is_drone ? drone_times : truck_times;
-        vector<int>& route = sol.route[v];
+    // ---- GIAI ĐOẠN 2: mở rộng route cho từng xe (gần nhất + kiểm tra vi phạm) ----
+    // Chạy round-robin: mỗi vòng mỗi xe chỉ lấy thêm 1 khách rồi nhường lượt cho xe kế
+    // tiếp, thay vì xử lý xong hẳn 1 xe (đặc biệt là drone, có thể mở rất nhiều trip liên
+    // tiếp) rồi mới sang xe khác. Nếu không, xe được xử lý trước sẽ ăn gần hết pool trước
+    // khi các xe cùng loại (vd nhiều drone) được đụng tới.
+    bool any_active = true;
+    while (any_active) {
+        any_active = false;
+        for (size_t v = 0; v < n_vehicles; v++) {
+            if (stopped[v]) continue;
+            any_active = true;
 
-        while (!stopped[v]) {
+            const VehicleFamily& vehicle = vehicles[v];
+            const auto& M = vehicle.is_drone ? drone_times : truck_times;
+            vector<int>& route = sol.route[v];
+
             bool trip_just_started = served_in_trip[v].empty();
-            Candidate cand = find_candidate(current_pos[v], vehicle, trip_just_started);
+            Candidate cand;
+            if (trip_just_started && vehicle.is_drone) {
+                // Mở trip mới cho drone -> chỉ xét ứng viên mà round-trip solo
+                // (depot->cid->depot) không vượt giới hạn bay, giống hệt GIAI ĐOẠN 1.
+                double best_val = -1.0;
+                for (size_t i = 0; i < unvisited_C2.size(); i++) {
+                    int cid = unvisited_C2[i];
+                    double round_trip = M[depot_id][cid] + M[cid][depot_id];
+                    if ((round_trip - vehicle.limit_drone) > EPSILON) continue; // vi phạm -> loại
+                    double d = M[current_pos[v]][cid];
+                    if (d > best_val) { best_val = d; cand = {cid, 2, (int)i, true}; }
+                }
+            } else {
+                cand = find_candidate(current_pos[v], vehicle, trip_just_started);
+            }
 
-            if (!cand.found) break; // hết khách hợp lệ cho xe này -> dừng hẳn
+            if (!cand.found) { stopped[v] = true; continue; } // hết khách hợp lệ cho xe này -> dừng hẳn
 
             double travel_time = M[current_pos[v]][cand.cid];
             double tentative_time = current_time[v] + travel_time;
@@ -546,7 +570,7 @@ Solution init_greedy_solution() {
                 if (!vehicle.is_drone) {
                     stopped[v] = true; // truck: dừng hẳn công việc tại depot
                 }
-                continue; // candidate được giữ lại trong pool cho trip/xe kế tiếp
+                continue; // candidate được giữ lại trong pool cho lượt/xe kế tiếp
             }
 
             // Chấp nhận candidate (không vi phạm, hoặc bắt buộc chấp nhận vì là điểm đầu trip)
@@ -556,8 +580,13 @@ Solution init_greedy_solution() {
             current_pos[v] = cand.cid;
             remove_from_pool(cand);
         }
+    }
 
-        // Đóng trip cuối cùng nếu chưa về depot
+    // Đóng trip cuối cùng cho từng xe nếu chưa về depot
+    for (size_t v = 0; v < n_vehicles; v++) {
+        const VehicleFamily& vehicle = vehicles[v];
+        const auto& M = vehicle.is_drone ? drone_times : truck_times;
+        vector<int>& route = sol.route[v];
         if (route.back() != depot_id) {
             current_time[v] += M[current_pos[v]][depot_id];
             route.push_back(depot_id);
@@ -567,23 +596,76 @@ Solution init_greedy_solution() {
     auto try_insert_leftover = [&](int cid, bool is_c1) {
         double best_cost = DBL_MAX;
         int best_v = -1;
+        bool best_new_trip = false; // true nếu phương án tốt nhất là mở hẳn 1 trip mới cho cid
 
         for (size_t v = 0; v < vehicles.size(); v++) {
             if (is_c1 && vehicles[v].is_drone) continue; // drone không được nhận C1
-            const auto& M = vehicles[v].is_drone ? drone_times : truck_times;
+            const VehicleFamily& vh = vehicles[v];
+            const auto& M = vh.is_drone ? drone_times : truck_times;
             vector<int>& route = sol.route[v];
-            if (route.size() < 2) continue; // cần ít nhất [depot, depot]
+            if (route.empty()) continue;
 
-            int prev = route[route.size() - 2]; // điểm ngay trước depot cuối
-            double cost = M[prev][cid] + M[cid][depot_id] - M[prev][depot_id];
-            if (cost < best_cost) {
-                best_cost = cost;
-                best_v = (int)v;
+            // ---- Phương án A: chèn ngay trước depot cuối cùng (rẻ nhưng có thể vi phạm) ----
+            if (route.size() >= 2) {
+                int prev = route[route.size() - 2];
+                double cost = M[prev][cid] + M[cid][depot_id] - M[prev][depot_id];
+
+                // Tìm điểm bắt đầu trip cuối cùng để mô phỏng lại thời gian trong trip đó
+                size_t trip_start = 1;
+                for (size_t k = route.size() - 2; k > 0; k--) {
+                    if (route[k] == depot_id) { trip_start = k + 1; break; }
+                }
+                double t = 0.0;
+                vector<double> entry_time(route.size(), 0.0);
+                for (size_t k = trip_start; k <= route.size() - 2; k++) {
+                    t += M[route[k - 1]][route[k]];
+                    entry_time[k] = t;
+                }
+                double t_cid = t + M[prev][cid];
+                double t_return = t_cid + M[cid][depot_id];
+
+                bool violate = vh.is_drone && ((t_return - vh.limit_drone) > EPSILON);
+                for (size_t k = trip_start; k <= route.size() - 2 && !violate; k++) {
+                    double wait_time = t_return - entry_time[k];
+                    if ((wait_time - get_limit_wait_for_node(route[k])) > EPSILON) violate = true;
+                }
+                if (!violate) {
+                    double wait_cid = t_return - t_cid;
+                    if ((wait_cid - get_limit_wait_for_node(cid)) > EPSILON) violate = true;
+                }
+
+                if (!violate && cost < best_cost) {
+                    best_cost = cost;
+                    best_v = (int)v;
+                    best_new_trip = false;
+                }
+            }
+
+            // ---- Phương án B: mở 1 trip riêng depot->cid->depot (đắt hơn nhưng hầu như luôn khả thi) ----
+            {
+                double round_trip = M[depot_id][cid] + M[cid][depot_id];
+                bool violate = vh.is_drone && ((round_trip - vh.limit_drone) > EPSILON);
+                if (!violate) {
+                    double wait_cid = M[cid][depot_id]; // rời depot lúc 0, ghé cid rồi về ngay
+                    if ((wait_cid - get_limit_wait_for_node(cid)) > EPSILON) violate = true;
+                }
+                double cost = round_trip;
+
+                if (!violate && cost < best_cost) {
+                    best_cost = cost;
+                    best_v = (int)v;
+                    best_new_trip = true;
+                }
             }
         }
 
-        if (best_v != -1) {
-            vector<int>& route = sol.route[best_v];
+        if (best_v == -1) return; // không xe nào nhận được cid dù mở trip riêng -> gần như không thể xảy ra
+
+        vector<int>& route = sol.route[best_v];
+        if (best_new_trip) {
+            route.push_back(cid);
+            route.push_back(depot_id);
+        } else {
             route.insert(route.end() - 1, cid); // chèn ngay trước depot cuối cùng
         }
     };
@@ -1385,7 +1467,7 @@ int main(int argc, char* argv[]){
     if (argc > 1) {
         dataset_path = argv[1];
     } else {
-        dataset_path = "D:\\New folder\\instances\\50.40.1.txt"; 
+        dataset_path = "D:\\New folder\\instances\\100.40.3.txt"; 
     }
 
     read_dataset(dataset_path);
@@ -1442,7 +1524,7 @@ int main(int argc, char* argv[]){
         vehicles.push_back({ num_techs + i + 1, 0.83f, true, 60.0f }); // drone
     }
 
-    Solution sol = tabu_search();
+    Solution sol = init_greedy_solution();
     print_solution(sol);
 
     return 0;
