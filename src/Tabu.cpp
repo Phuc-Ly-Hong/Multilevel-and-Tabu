@@ -1524,7 +1524,7 @@ int main(int argc, char* argv[]){
         vehicles.push_back({ num_techs + i + 1, 0.83f, true, 60.0f }); // drone
     }
 
-    Solution sol = init_greedy_solution();
+    Solution sol = tabu_search();
     print_solution(sol);
 
     return 0;

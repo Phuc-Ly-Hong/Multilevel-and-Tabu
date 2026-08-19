@@ -2476,7 +2476,7 @@ int main(int argc, char* argv[]) {
     };
 
 
-    Solution best_solution = init_greedy_solution();
+    Solution best_solution = multilevel_tabu_search();
     print_solution(best_solution);
 
     return 0;
