@@ -1308,8 +1308,8 @@ int main(int argc, char* argv[]){
         num_drones = 5;
     }
     else if (customers <= 500) {
-        num_techs = 8;
-        num_drones = 8;
+        num_techs = 9;
+        num_drones = 9;
     }
     else if (customers <= 1000) {
         num_techs = 15;
