@@ -90,19 +90,20 @@ target.runner <- function(experiment, scenario) {
 # ---------------------------------------------------------------
 # Scenario + chay irace
 # ---------------------------------------------------------------
+parameters <- readParameters("parameters.txt")
+
 scenario <- defaultScenario(list(
   targetRunner   = target.runner,
   instances      = instance_files,
   maxExperiments = MAX_EXPERIMENTS,
   parallel       = N_PARALLEL,
   logFile        = "irace-log.Rdata",
-  seed           = 4321
+  seed           = 4321,
+  parameters     = parameters
 ))
 
-parameters <- readParameters("parameters.txt")
-
 cat("\n=== Bat dau tune (maxExperiments =", MAX_EXPERIMENTS, ") ===\n")
-elite <- irace(scenario = scenario, parameters = parameters)
+elite <- irace(scenario = scenario)
 
 cat("\n=== Cac cau hinh tot nhat (elite configurations) ===\n")
 print(elite)
