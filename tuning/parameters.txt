@@ -1,0 +1,14 @@
+# File tham số cho irace — tune Multilevel_Tabu_no_lwt.exe
+# Cột: name  switch  type  range/values
+# type: i = integer, r = real (liên tục), c = categorical, o = ordinal
+#
+# name                    switch                          type  range
+max_levels                "--max_levels "                 i     (3, 6)
+merge_ratio                "--merge_ratio "                r     (0.05, 0.30)
+tabu_factor                "--tabu_factor "                r     (0.05, 0.75)
+tabu_cap                   "--tabu_cap "                   i     (5, 30)
+iter_k                      "--iter_k "                     r     (3, 20)
+delta1                     "--delta1 "                     r     (0.05, 0.60)
+delta2                     "--delta2 "                     r     (0.05, 0.60)
+delta3                     "--delta3 "                     r     (0.01, 0.40)
+delta4                     "--delta4 "                     r     (0.05, 0.60)

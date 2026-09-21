@@ -115,11 +115,14 @@ vector<double> weights = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
 vector<double> scorePi = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 vector<double> used_count = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 
+// Các tham số dưới đây có thể tune bằng irace (xem tuning/README.md).
+double delta1 = 0.3;
+double delta2 = 0.2;
+double delta3 = 0.1;
+double delta4 = 0.3;
 
-const double delta1 = 0.3;
-const double delta2 = 0.2;
-const double delta3 = 0.1;
-const double delta4 = 0.3;
+double TABU_TENURE_FACTOR = 0.25; // TABU_TENURE = ceil(num_nodes * factor), chặn bởi cap
+int TABU_TENURE_CAP = 10;
 
 int select_move_type(){
     double total_weight = accumulate(weights.begin(), weights.end(), 0.0);
@@ -246,7 +249,7 @@ void read_dataset(const string &filename){
     }
     // Dataset stats logging removed for performance.
     num_nodes = nodes.size();
-    TABU_TENURE = min((int)ceil(num_nodes/4.0), 10);
+    TABU_TENURE = min((int)ceil(num_nodes * TABU_TENURE_FACTOR), TABU_TENURE_CAP);
 }
 
 void print_solution(const Solution &sol){
@@ -969,8 +972,6 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
     vector<TabuMove> tabu_list; // danh sách các move bị tabu
     int no_improve_count = 0;
     int last_depot_opt_iter = 0;
-    int no_improve_segment_length = 0;
-    const int max_no_improve_segment = 8;
 
     vector<string> move_types = {"1-0", "1-1", "2-0", "2-1", "2-2", "2-opt"};
     
@@ -2172,33 +2173,51 @@ Solution multilevel_tabu_search() {
 }
 
 int main(int argc, char* argv[]) {
-    srand(time(nullptr));
-
     string dataset_path;
-    if (argc > 1) {
+    unsigned int seed_arg = 0;
+    bool has_seed = false;
+    double iter_k_arg = 0.0;
+    bool has_iter_k = false;
+
+    // argv[1] (nếu có và không bắt đầu bằng "--") là đường dẫn instance, giữ tương thích ngược.
+    int start_idx = 1;
+    if (argc > 1 && string(argv[1]).rfind("--", 0) != 0) {
         dataset_path = argv[1];
+        start_idx = 2;
     } else {
-        dataset_path = "D:\\New folder\\instances\\50.10.1.txt"; 
+        dataset_path = "D:\\New folder\\instances\\50.10.1.txt";
     }
 
-    if (argc > 2) {
-        MAX_LEVELS = max(1, atoi(argv[2]));
-        USE_MANUAL_SEGMENT_CONFIG = true;
+    // Parse các flag dạng "--ten_tham_so gia_tri" (dùng cho irace target-runner).
+    for (int i = start_idx; i < argc; i++) {
+        string key = argv[i];
+        if (key.rfind("--", 0) != 0 || i + 1 >= argc) continue;
+        string val = argv[++i];
+        if (key == "--instance") dataset_path = val;
+        else if (key == "--max_levels") { MAX_LEVELS = max(1, atoi(val.c_str())); USE_MANUAL_SEGMENT_CONFIG = true; }
+        else if (key == "--merge_ratio") { double r = atof(val.c_str()); if (r > 1.0) r /= 100.0; MERGE_RATIO = min(0.95, max(0.01, r)); }
+        else if (key == "--tabu_factor") TABU_TENURE_FACTOR = atof(val.c_str());
+        else if (key == "--tabu_cap") TABU_TENURE_CAP = max(1, atoi(val.c_str()));
+        else if (key == "--delta1") delta1 = atof(val.c_str());
+        else if (key == "--delta2") delta2 = atof(val.c_str());
+        else if (key == "--delta3") delta3 = atof(val.c_str());
+        else if (key == "--delta4") delta4 = atof(val.c_str());
+        else if (key == "--iter_k") { iter_k_arg = atof(val.c_str()); has_iter_k = true; }
+        else if (key == "--seed") { seed_arg = (unsigned int)strtoul(val.c_str(), nullptr, 10); has_seed = true; }
     }
 
-    if (argc > 5) {
-        double ratio_arg = atof(argv[5]);
-        if (ratio_arg > 1.0) {
-            ratio_arg /= 100.0;
-        }
-        MERGE_RATIO = min(0.95, max(0.01, ratio_arg));
-    }
+    srand(has_seed ? seed_arg : (unsigned int)time(nullptr));
 
     read_dataset(dataset_path);
- 
-    // Khởi tạo danh sách xe 
+
+    // Khởi tạo danh sách xe
     vehicles.clear();
     int customers = num_nodes-1;
+
+    // Ghi đè MAX_ITER (số vòng lặp/1 level) đã tính theo bậc thang kích thước,
+    // nếu có truyền --iter_k: MAX_ITER = K * số khách hàng (dùng cho irace).
+    if (has_iter_k) MAX_ITER = max(1, (int)llround(iter_k_arg * customers));
+
     int num_techs = 0, num_drones = 0;
     if (customers >= 6 && customers <= 12) {
         num_techs = 1;
@@ -2252,6 +2271,10 @@ int main(int argc, char* argv[]) {
 
     Solution best_solution = multilevel_tabu_search();
     print_solution(best_solution);
+
+    // Dòng dành riêng cho irace target-runner: phạt nặng nếu lời giải không khả thi.
+    double irace_objective = best_solution.fitness + (best_solution.is_feasible ? 0.0 : 1e6);
+    cout << "IRACE_RESULT " << fixed << setprecision(6) << irace_objective << endl;
 
     return 0;
 }
