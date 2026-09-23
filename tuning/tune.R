@@ -23,7 +23,7 @@ suppressMessages(library(irace))
 # ---------------------------------------------------------------
 EXE_PATH        <- normalizePath(file.path("..", "src", "Multilevel_Tabu_no_lwt.exe"))
 INSTANCES_DIR   <- "train-instances"
-MAX_EXPERIMENTS <- 25000  # ngan sach so lan chay thuat toan cho lan tune "that"
+MAX_EXPERIMENTS <- 20000  # ngan sach so lan chay thuat toan (giam so voi lan truoc vi chi con 6 tham so can tune)
 PER_RUN_TIMEOUT <- 600    # giay, chan neu 1 lan chay bi treo/qua lau (noi rong vi co instance 200 + chay song song 20 tien trinh de cham hon do tranh chap CPU)
 N_PARALLEL      <- 20     # may 24 nhan, danh 20 nhan chay song song cho irace
 
@@ -38,19 +38,23 @@ if (length(instance_files) == 0) stop("Khong co instance nao trong ", INSTANCES_
 cat("So instance dung de tune:", length(instance_files), "\n")
 
 # ---------------------------------------------------------------
-# Anh xa ten tham so (trong parameters.txt) -> switch dong lenh
-# Phai khop voi phan parse "--..." trong main() cua file .cpp
+# 3 tham so chot cung (khong tune), luon truyen y het cho moi lan chay
 # ---------------------------------------------------------------
-switch_map <- c(
-  max_levels             = "--max_levels",
-  merge_ratio             = "--merge_ratio",
-  tabu_factor             = "--tabu_factor",
-  tabu_cap                = "--tabu_cap",
-  iter_k                  = "--iter_k",
-  delta1                  = "--delta1",
-  delta2                  = "--delta2",
-  delta3                  = "--delta3",
-  delta4                  = "--delta4"
+FIXED_ARGS <- c("--max_levels", "5",
+                "--tabu_factor", "0.25",
+                "--delta1", "0.4")
+
+# ---------------------------------------------------------------
+# Cac tham so con lai duoc irace tune duoi dang "so buoc nguyen" (xem
+# parameters.txt) -- can nhan lai voi buoc nhay de ra gia tri thuc, roi
+# moi truyen cho exe qua switch tuong ung ("_steps" bi bo di).
+# ---------------------------------------------------------------
+STEP_SIZES <- c(
+  merge_ratio = 0.005,
+  iter_k      = 0.5,
+  delta2      = 0.01,
+  delta3      = 0.01,
+  delta4      = 0.01
 )
 
 # ---------------------------------------------------------------
@@ -58,12 +62,17 @@ switch_map <- c(
 # ---------------------------------------------------------------
 target.runner <- function(experiment, scenario) {
   conf <- experiment$configuration
-  args <- c(experiment$instance, "--seed", as.character(experiment$seed))
+  args <- c(experiment$instance, "--seed", as.character(experiment$seed), FIXED_ARGS)
 
-  for (pname in names(switch_map)) {
-    if (pname %in% names(conf) && !is.na(conf[[pname]])) {
-      args <- c(args, switch_map[[pname]], as.character(conf[[pname]]))
+  for (base_name in names(STEP_SIZES)) {
+    steps_name <- paste0(base_name, "_steps")
+    if (steps_name %in% names(conf) && !is.na(conf[[steps_name]])) {
+      real_value <- round(STEP_SIZES[[base_name]] * conf[[steps_name]], 4)
+      args <- c(args, paste0("--", base_name), as.character(real_value))
     }
+  }
+  if ("tabu_cap" %in% names(conf) && !is.na(conf[["tabu_cap"]])) {
+    args <- c(args, "--tabu_cap", as.character(conf[["tabu_cap"]]))
   }
 
   start_time <- Sys.time()

@@ -1,14 +1,25 @@
 # File tham số cho irace — tune Multilevel_Tabu_no_lwt.exe
-# Cột: name  switch  type  range/values
-# type: i = integer, r = real (liên tục), c = categorical, o = ordinal
+#
+# CHOT CUNG (khong tune): max_levels=5, tabu_factor=0.25, delta1=0.4
+# -- ba tham so nay duoc gan cung trong tuning/tune.R (target.runner),
+#    khong xuat hien trong file nay.
+#
+# Cac tham so con lai duoc bieu dien duoi dang "so buoc nguyen" (vi irace
+# khong ho tro step-size cho tham so thuc truc tiep trong file nay). Gia
+# tri thuc te = so_buoc x buoc_nhay, duoc tune.R tinh lai truoc khi goi exe:
+#   merge_ratio = merge_ratio_steps * 0.005   (buoc 0.005)
+#   iter_k      = iter_k_steps      * 0.5     (buoc 0.5, mien rong nen buoc to hon)
+#   delta2      = delta2_steps      * 0.01    (buoc 0.01)
+#   delta3      = delta3_steps      * 0.01    (buoc 0.01)
+#   delta4      = delta4_steps      * 0.01    (buoc 0.01)
+#
+# Cot: name  switch  type  range/values
+# type: i = integer, r = real (lien tuc), c = categorical, o = ordinal
 #
 # name                    switch                          type  range
-max_levels                "--max_levels "                 i     (3, 6)
-merge_ratio                "--merge_ratio "                r     (0.05, 0.30)
-tabu_factor                "--tabu_factor "                r     (0.05, 0.75)
+merge_ratio_steps          "--merge_ratio_steps "          i     (10, 60)
 tabu_cap                   "--tabu_cap "                   i     (5, 30)
-iter_k                      "--iter_k "                     r     (3, 20)
-delta1                     "--delta1 "                     r     (0.05, 0.60)
-delta2                     "--delta2 "                     r     (0.05, 0.60)
-delta3                     "--delta3 "                     r     (0.01, 0.40)
-delta4                     "--delta4 "                     r     (0.05, 0.60)
+iter_k_steps                "--iter_k_steps "                i     (6, 40)
+delta2_steps                "--delta2_steps "                i     (5, 60)
+delta3_steps                "--delta3_steps "                i     (1, 40)
+delta4_steps                "--delta4_steps "                i     (5, 60)

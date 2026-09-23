@@ -44,6 +44,35 @@ theo yêu cầu — vẫn giữ cố định = 1.0 như code gốc, không nhậ
 `alpha2` và `Beta` (dòng ~100-101) hiện **không được dùng ở đâu trong code**
 — tôi để nguyên, chưa đưa vào tune vì chúng chưa có tác dụng gì với fitness.
 
+## 1b. Chốt cứng 3 tham số (không tune nữa)
+
+Theo yêu cầu, `max_levels = 5`, `tabu_factor = 0.25`, `delta1 = 0.4` được
+**chốt cứng** — không còn nằm trong `parameters.txt`, mà được truyền cố định
+trong `FIXED_ARGS` ở đầu `tune.R` cho mọi lần chạy. Chỉ còn **6 tham số**
+irace thật sự tune: `merge_ratio`, `tabu_cap`, `iter_k`, `delta2`, `delta3`,
+`delta4`.
+
+## 1c. Bước nhảy (step size) cho các tham số thực
+
+irace không hỗ trợ khai báo step-size trực tiếp cho tham số kiểu `r` (thực)
+trong `parameters.txt`, nên các tham số thực còn lại được biểu diễn dưới
+dạng **số bước nguyên** (`merge_ratio_steps`, `iter_k_steps`,
+`delta2_steps`, `delta3_steps`, `delta4_steps`) — `tune.R` tự nhân lại với
+độ dài bước trước khi truyền cho exe (xem `STEP_SIZES` trong `tune.R`):
+
+| Tham số | Bước nhảy | Miền số bước | Số giá trị khả dĩ |
+|---|---|---|---|
+| `merge_ratio` | 0.005 | 10 – 60 | 51 |
+| `tabu_cap` | (nguyên sẵn, không đổi) | 5 – 30 | 26 |
+| `iter_k` | 0.5 | 6 – 40 | 35 |
+| `delta2` | 0.01 | 5 – 60 | 56 |
+| `delta3` | 0.01 | 1 – 40 | 40 |
+| `delta4` | 0.01 | 5 – 60 | 56 |
+
+`iter_k` dùng bước 0.5 thay vì 0.01 như các delta — vì miền của nó (3–20,
+biên độ 17) rộng hơn nhiều so với delta (biên độ ~0.4–0.55), nếu áp 0.01 sẽ
+ra tới 1701 giá trị khác nhau, không hợp lý so với các tham số còn lại.
+
 ## 2. Cài đặt môi trường (chỉ cần làm 1 lần)
 
 1. Cài **R**: tải tại https://cran.r-project.org/bin/windows/base/ (bản mới
