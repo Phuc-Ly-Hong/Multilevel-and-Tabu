@@ -13,7 +13,6 @@
 #     dau cau hinh nao thuc su "song sot" den het qua trinh tune
 
 TOP_N <- 10
-MIN_INSTANCES <- 5   # chi tin cau hinh da duoc test tren >= 5 instance
 
 load("irace-log.Rdata")
 
@@ -39,8 +38,20 @@ if (file.exists("elite-configurations.csv")) {
 }
 ranking$song_sot_den_cuoi <- ranking$ID %in% final_elite_ids
 
-# Chi xep hang nhung cau hinh co du du lieu (test tren >= MIN_INSTANCES)
-ranking_fair <- subset(ranking, n_instances_tested >= MIN_INSTANCES)
+# QUAN TRONG: khong the so sanh thang mean_cost giua cac cau hinh da duoc
+# test tren SO LUONG/BO instance khac nhau -- cau hinh bi loai som chi gap
+# vai instance dau (co the toan instance "de"), trong khi cau hinh song sot
+# phai vuot qua ca cac instance kho hon ve sau. De cong bang, chi so sanh
+# nhung cau hinh da duoc test tren SO INSTANCE >= nhom elite that su da trai
+# qua (tuc la duoc "thu thach" it nhat bang nhom da duoc chung minh la tot).
+if (length(final_elite_ids) > 0) {
+  fair_threshold <- min(ranking$n_instances_tested[ranking$ID %in% final_elite_ids])
+} else {
+  fair_threshold <- max(ranking$n_instances_tested) # fallback neu khong co elite CSV
+}
+cat("Nguong cong bang (so instance toi thieu de duoc xep hang):", fair_threshold, "\n")
+
+ranking_fair <- subset(ranking, n_instances_tested >= fair_threshold)
 ranking_fair <- ranking_fair[order(ranking_fair$mean_cost), ]
 
 top_n <- head(ranking_fair, TOP_N)
@@ -53,7 +64,7 @@ other_cols <- setdiff(names(top_n), front_cols)
 top_n <- top_n[, c(front_cols, other_cols)]
 
 cat("\n=== TOP", TOP_N, "cau hinh tot nhat (tinh tren toan bo log,",
-    "chi xet cau hinh test >=", MIN_INSTANCES, "instance) ===\n\n")
+    "chi xet cau hinh test >=", fair_threshold, "instance) ===\n\n")
 print(top_n, row.names = FALSE)
 
 write.csv(top_n, "top-configurations.csv", row.names = FALSE)
