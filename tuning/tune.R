@@ -23,7 +23,7 @@ suppressMessages(library(irace))
 # ---------------------------------------------------------------
 EXE_PATH        <- normalizePath(file.path("..", "src", "Multilevel_Tabu_no_lwt.exe"))
 INSTANCES_DIR   <- "train-instances"
-MAX_EXPERIMENTS <- 40000  # ngan sach so lan chay thuat toan (6 tham so tune, du du du de chac chan lay du top 5 elite)
+MAX_EXPERIMENTS <- 35000  # ngan sach so lan chay thuat toan (6 tham so tune, du du de chac chan lay du top 5 elite)
 PER_RUN_TIMEOUT <- 1500   # giay (25 phut), noi rong manh vi iter_k gio luon cao (16-22, gap ~2x mac dinh cu) lam instance 200 rat cham
 N_PARALLEL      <- 20     # may 24 nhan, danh 20 nhan chay song song cho irace
 
@@ -51,7 +51,7 @@ FIXED_ARGS <- c("--max_levels", "5",
 # ---------------------------------------------------------------
 STEP_SIZES <- c(
   merge_ratio = 0.01,
-  iter_k      = 0.5,
+  iter_k      = 1,
   delta2      = 0.015,
   delta3      = 0.01,
   delta4      = 0.01

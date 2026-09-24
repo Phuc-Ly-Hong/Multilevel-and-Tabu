@@ -63,7 +63,7 @@ trước khi truyền cho exe (xem `STEP_SIZES` trong `tune.R`):
 |---|---|---|---|---|
 | `merge_ratio` | 0.01 | 5 – 20 | 0.05 – 0.20 | 16 |
 | `tabu_cap` | (nguyên sẵn, không đổi) | 5 – 20 | 5 – 20 | 16 |
-| `iter_k` | 0.5 | 32 – 44 | 16 – 22 | 13 |
+| `iter_k` | 1 | 16 – 22 | 16 – 22 | 7 |
 | `delta2` | 0.015 | 1 – 53 | 0.015 – 0.795 | 53 |
 | `delta3` | 0.01 | 1 – 80 | 0.01 – 0.80 | 80 |
 | `delta4` | 0.01 | 25 – 60 | 0.25 – 0.60 | 36 |
@@ -118,10 +118,10 @@ Mặc định `tune.R` dùng:
   1 replicate khác nhau cho đa dạng (ví dụ `50.10.1`, `50.20.2`, `50.30.3`,
   `50.40.4`; tương tự cho 100 và 200). Tách riêng khỏi bộ bạn dùng để báo
   cáo kết quả cuối cùng, tránh overfit tham số vào đúng bộ test.
-- **Ngân sách**: `MAX_EXPERIMENTS = 40000` lần chạy thuật toán — chỉnh trong
+- **Ngân sách**: `MAX_EXPERIMENTS = 35000` lần chạy thuật toán — chỉnh trong
   đầu file `tune.R` (khoá `MAX_EXPERIMENTS`). Nếu muốn test pipeline nhanh
   trước (kiểm tra không lỗi/không crash) thì tạm hạ xuống 500–1000, chạy
-  thử, rồi trả lại 40000 cho lần tune "thật". Mức này dư dả (gấp 2 lần
+  thử, rồi trả lại 35000 cho lần tune "thật". Mức này dư dả (gấp 1.75 lần
   ngân sách lần 2 cho cùng 6 tham số) để chắc chắn lấy đủ top 5 elite.
 - **Song song**: `N_PARALLEL = 20` (đặt cho máy 24 nhân, chừa 4 nhân cho hệ
   điều hành/tác vụ khác) — irace tự dùng cluster kiểu PSOCK, chạy được trên
