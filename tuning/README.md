@@ -118,10 +118,11 @@ Mặc định `tune.R` dùng:
   1 replicate khác nhau cho đa dạng (ví dụ `50.10.1`, `50.20.2`, `50.30.3`,
   `50.40.4`; tương tự cho 100 và 200). Tách riêng khỏi bộ bạn dùng để báo
   cáo kết quả cuối cùng, tránh overfit tham số vào đúng bộ test.
-- **Ngân sách**: `MAX_EXPERIMENTS = 22000` lần chạy thuật toán — chỉnh trong
+- **Ngân sách**: `MAX_EXPERIMENTS = 40000` lần chạy thuật toán — chỉnh trong
   đầu file `tune.R` (khoá `MAX_EXPERIMENTS`). Nếu muốn test pipeline nhanh
   trước (kiểm tra không lỗi/không crash) thì tạm hạ xuống 500–1000, chạy
-  thử, rồi trả lại 22000 cho lần tune "thật".
+  thử, rồi trả lại 40000 cho lần tune "thật". Mức này dư dả (gấp 2 lần
+  ngân sách lần 2 cho cùng 6 tham số) để chắc chắn lấy đủ top 5 elite.
 - **Song song**: `N_PARALLEL = 20` (đặt cho máy 24 nhân, chừa 4 nhân cho hệ
   điều hành/tác vụ khác) — irace tự dùng cluster kiểu PSOCK, chạy được trên
   Windows. Đổi lại nếu chạy trên máy khác có số nhân khác.
