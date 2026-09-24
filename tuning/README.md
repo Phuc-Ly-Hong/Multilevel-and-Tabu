@@ -46,32 +46,37 @@ theo yêu cầu — vẫn giữ cố định = 1.0 như code gốc, không nhậ
 
 ## 1b. Chốt cứng 3 tham số (không tune nữa)
 
-Theo yêu cầu, `max_levels = 5`, `tabu_factor = 0.25`, `delta1 = 0.4` được
-**chốt cứng** — không còn nằm trong `parameters.txt`, mà được truyền cố định
-trong `FIXED_ARGS` ở đầu `tune.R` cho mọi lần chạy. Chỉ còn **6 tham số**
-irace thật sự tune: `merge_ratio`, `tabu_cap`, `iter_k`, `delta2`, `delta3`,
-`delta4`.
+`max_levels = 5`, `tabu_factor = 0.25`, `delta1 = 0.8` được **chốt cứng** —
+không nằm trong `parameters.txt`, truyền cố định trong `FIXED_ARGS` ở đầu
+`tune.R`. Chỉ còn **5 tham số** irace thật sự tune: `merge_ratio`,
+`tabu_cap`, `iter_k`, `delta2`, `delta3`.
 
 ## 1c. Bước nhảy (step size) cho các tham số thực
 
 irace không hỗ trợ khai báo step-size trực tiếp cho tham số kiểu `r` (thực)
-trong `parameters.txt`, nên các tham số thực còn lại được biểu diễn dưới
-dạng **số bước nguyên** (`merge_ratio_steps`, `iter_k_steps`,
-`delta2_steps`, `delta3_steps`, `delta4_steps`) — `tune.R` tự nhân lại với
-độ dài bước trước khi truyền cho exe (xem `STEP_SIZES` trong `tune.R`):
+trong `parameters.txt`, nên các tham số thực được biểu diễn dưới dạng **số
+bước nguyên** (`merge_ratio_steps`, `iter_k_steps`, `delta2_steps`,
+`delta3_steps`) — `tune.R` tự nhân lại với độ dài bước trước khi truyền cho
+exe (xem `STEP_SIZES` trong `tune.R`):
 
-| Tham số | Bước nhảy | Miền số bước | Số giá trị khả dĩ |
-|---|---|---|---|
-| `merge_ratio` | 0.005 | 10 – 60 | 51 |
-| `tabu_cap` | (nguyên sẵn, không đổi) | 5 – 30 | 26 |
-| `iter_k` | 0.5 | 6 – 40 | 35 |
-| `delta2` | 0.01 | 5 – 60 | 56 |
-| `delta3` | 0.01 | 1 – 40 | 40 |
-| `delta4` | 0.01 | 5 – 60 | 56 |
+| Tham số | Bước nhảy | Miền số bước | Miền giá trị thực | Số giá trị khả dĩ |
+|---|---|---|---|---|
+| `merge_ratio` | 0.01 | 5 – 20 | 0.05 – 0.20 | 16 |
+| `tabu_cap` | (nguyên sẵn, không đổi) | 5 – 20 | 5 – 20 | 16 |
+| `iter_k` | 0.5 | 32 – 44 | 16 – 22 | 13 |
+| `delta2` | 0.015 | 1 – 53 | 0.015 – 0.795 | 53 |
+| `delta3` | 0.01 | 1 – 80 | 0.01 – 0.80 | 80 |
 
-`iter_k` dùng bước 0.5 thay vì 0.01 như các delta — vì miền của nó (3–20,
-biên độ 17) rộng hơn nhiều so với delta (biên độ ~0.4–0.55), nếu áp 0.01 sẽ
-ra tới 1701 giá trị khác nhau, không hợp lý so với các tham số còn lại.
+## 1d. Ràng buộc `delta1 > delta2 > delta3`
+
+Vì `delta1 = 0.8` cố định và miền `delta2` tối đa 0.795 (< 0.8), điều kiện
+`delta1 > delta2` luôn tự động đúng. Riêng `delta3 < delta2` **không khai
+báo được trực tiếp trong `parameters.txt`** (vì `delta2` và `delta3` dùng 2
+bước nhảy khác nhau — 0.015 vs 0.01 — không thể so sánh thẳng "số bước").
+Thay vào đó, `target.runner` trong `tune.R` tự kiểm tra sau khi quy đổi ra
+giá trị thực: nếu `delta3 >= delta2`, cấu hình bị phạt cost cực lớn
+(`1e12`) và **không chạy exe** (tiết kiệm thời gian cho cấu hình chắc chắn
+bị loại).
 
 ## 2. Cài đặt môi trường (chỉ cần làm 1 lần)
 
@@ -103,24 +108,22 @@ Rscript tune.R
 ```
 
 Mặc định `tune.R` dùng:
-- **Instance train**: 36 file trong `tuning/train-instances/`:
-  - toàn bộ `50.*.txt` (16 file) và `100.*.txt` (16 file)
-  - `200.*.txt`: mỗi nhóm "grid" (`.10`, `.20`, `.30`, `.40`) lấy 1 replicate
-    khác nhau cho đa dạng (`200.10.1`, `200.20.2`, `200.30.3`, `200.40.4`)
-  - **Không có size 500** (bỏ theo yêu cầu — quá chậm, chưa có số liệu để
-    ước lượng thời gian, để dành tune riêng sau nếu cần)
-  Tách riêng khỏi bộ bạn dùng để báo cáo kết quả cuối cùng, tránh overfit
-  tham số vào đúng bộ test.
-- **Ngân sách**: `MAX_EXPERIMENTS = 25000` lần chạy thuật toán — chỉnh trong
+- **Instance train**: 12 file trong `tuning/train-instances/` — mỗi size
+  (50, 100, 200) lấy 4 instance, mỗi nhóm "grid" (`.10`/`.20`/`.30`/`.40`)
+  1 replicate khác nhau cho đa dạng (ví dụ `50.10.1`, `50.20.2`, `50.30.3`,
+  `50.40.4`; tương tự cho 100 và 200). Tách riêng khỏi bộ bạn dùng để báo
+  cáo kết quả cuối cùng, tránh overfit tham số vào đúng bộ test.
+- **Ngân sách**: `MAX_EXPERIMENTS = 22000` lần chạy thuật toán — chỉnh trong
   đầu file `tune.R` (khoá `MAX_EXPERIMENTS`). Nếu muốn test pipeline nhanh
   trước (kiểm tra không lỗi/không crash) thì tạm hạ xuống 500–1000, chạy
-  thử, rồi trả lại 25000 cho lần tune "thật".
+  thử, rồi trả lại 22000 cho lần tune "thật".
 - **Song song**: `N_PARALLEL = 20` (đặt cho máy 24 nhân, chừa 4 nhân cho hệ
   điều hành/tác vụ khác) — irace tự dùng cluster kiểu PSOCK, chạy được trên
   Windows. Đổi lại nếu chạy trên máy khác có số nhân khác.
-- **Timeout mỗi lần chạy**: `PER_RUN_TIMEOUT = 600` giây — nới rộng hơn mức
-  mặc định vì có instance 200 khách hàng và chạy song song 20 tiến trình
-  cùng lúc có thể làm mỗi lần chạy chậm hơn do tranh chấp CPU/bộ nhớ.
+- **Timeout mỗi lần chạy**: `PER_RUN_TIMEOUT = 1500` giây (25 phút) — nới
+  rộng mạnh vì `iter_k` giờ luôn ở mức cao (16–22, gấp ~2x mặc định gốc
+  ~10), làm instance 200 khách hàng chạy rất chậm; cộng thêm hiệu ứng tranh
+  chấp CPU khi chạy song song 20 tiến trình.
 
 Kết quả:
 - `tuning/elite-configurations.csv` — vài bộ tham số tốt nhất (mặc định

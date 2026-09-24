@@ -1,25 +1,29 @@
 # File tham số cho irace — tune Multilevel_Tabu_no_lwt.exe
 #
-# CHOT CUNG (khong tune): max_levels=5, tabu_factor=0.25, delta1=0.4
-# -- ba tham so nay duoc gan cung trong tuning/tune.R (target.runner),
-#    khong xuat hien trong file nay.
+# CHOT CUNG (khong tune): max_levels=5, tabu_factor=0.25, delta1=0.8
+# -- gan cung trong tuning/tune.R (FIXED_ARGS), khong xuat hien o day.
 #
-# Cac tham so con lai duoc bieu dien duoi dang "so buoc nguyen" (vi irace
-# khong ho tro step-size cho tham so thuc truc tiep trong file nay). Gia
-# tri thuc te = so_buoc x buoc_nhay, duoc tune.R tinh lai truoc khi goi exe:
-#   merge_ratio = merge_ratio_steps * 0.005   (buoc 0.005)
-#   iter_k      = iter_k_steps      * 0.5     (buoc 0.5, mien rong nen buoc to hon)
-#   delta2      = delta2_steps      * 0.01    (buoc 0.01)
-#   delta3      = delta3_steps      * 0.01    (buoc 0.01)
-#   delta4      = delta4_steps      * 0.01    (buoc 0.01)
+# Cac tham so con lai bieu dien duoi dang "so buoc nguyen" (irace khong ho
+# tro step-size cho tham so thuc truc tiep). Gia tri thuc te = so_buoc x
+# buoc_nhay, duoc tune.R tinh lai truoc khi goi exe:
+#   merge_ratio = merge_ratio_steps * 0.01    (buoc 0.01,  mien 0.05-0.20)
+#   iter_k      = iter_k_steps      * 0.5     (buoc 0.5,   mien 16-22)
+#   delta2      = delta2_steps      * 0.015   (buoc 0.015, mien ~0.015-0.795)
+#   delta3      = delta3_steps      * 0.01    (buoc 0.01,  mien 0.01-0.80)
+#
+# Rang buoc: delta1(=0.8) > delta2 > delta3 -- delta2 < 0.8 luon dung do
+# mien cho phep da < 0.8; rieng delta3 < delta2 duoc kiem tra va phat trong
+# target.runner cua tune.R (khong the khai bao truc tiep o day vi delta2 va
+# delta3 dung 2 buoc nhay khac nhau, khong the so sanh thang so buoc).
+#
+# tabu_cap la tham so nguyen truc tiep, khong qua buoc nhay.
 #
 # Cot: name  switch  type  range/values
 # type: i = integer, r = real (lien tuc), c = categorical, o = ordinal
 #
 # name                    switch                          type  range
-merge_ratio_steps          "--merge_ratio_steps "          i     (10, 60)
-tabu_cap                   "--tabu_cap "                   i     (5, 30)
-iter_k_steps                "--iter_k_steps "                i     (6, 40)
-delta2_steps                "--delta2_steps "                i     (5, 60)
-delta3_steps                "--delta3_steps "                i     (1, 40)
-delta4_steps                "--delta4_steps "                i     (5, 60)
+merge_ratio_steps          "--merge_ratio_steps "          i     (5, 20)
+tabu_cap                   "--tabu_cap "                   i     (5, 20)
+iter_k_steps                "--iter_k_steps "                i     (32, 44)
+delta2_steps                "--delta2_steps "                i     (1, 53)
+delta3_steps                "--delta3_steps "                i     (1, 80)

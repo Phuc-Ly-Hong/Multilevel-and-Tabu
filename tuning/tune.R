@@ -23,8 +23,8 @@ suppressMessages(library(irace))
 # ---------------------------------------------------------------
 EXE_PATH        <- normalizePath(file.path("..", "src", "Multilevel_Tabu_no_lwt.exe"))
 INSTANCES_DIR   <- "train-instances"
-MAX_EXPERIMENTS <- 20000  # ngan sach so lan chay thuat toan (giam so voi lan truoc vi chi con 6 tham so can tune)
-PER_RUN_TIMEOUT <- 600    # giay, chan neu 1 lan chay bi treo/qua lau (noi rong vi co instance 200 + chay song song 20 tien trinh de cham hon do tranh chap CPU)
+MAX_EXPERIMENTS <- 22000  # ngan sach so lan chay thuat toan (5 tham so tune + rang buoc delta3<delta2 lam hao phi mot phan ngan sach)
+PER_RUN_TIMEOUT <- 1500   # giay (25 phut), noi rong manh vi iter_k gio luon cao (16-22, gap ~2x mac dinh cu) lam instance 200 rat cham
 N_PARALLEL      <- 20     # may 24 nhan, danh 20 nhan chay song song cho irace
 
 if (!file.exists(EXE_PATH)) {
@@ -42,7 +42,7 @@ cat("So instance dung de tune:", length(instance_files), "\n")
 # ---------------------------------------------------------------
 FIXED_ARGS <- c("--max_levels", "5",
                 "--tabu_factor", "0.25",
-                "--delta1", "0.4")
+                "--delta1", "0.8")
 
 # ---------------------------------------------------------------
 # Cac tham so con lai duoc irace tune duoi dang "so buoc nguyen" (xem
@@ -50,11 +50,10 @@ FIXED_ARGS <- c("--max_levels", "5",
 # moi truyen cho exe qua switch tuong ung ("_steps" bi bo di).
 # ---------------------------------------------------------------
 STEP_SIZES <- c(
-  merge_ratio = 0.005,
+  merge_ratio = 0.01,
   iter_k      = 0.5,
-  delta2      = 0.01,
-  delta3      = 0.01,
-  delta4      = 0.01
+  delta2      = 0.015,
+  delta3      = 0.01
 )
 
 # ---------------------------------------------------------------
@@ -62,14 +61,28 @@ STEP_SIZES <- c(
 # ---------------------------------------------------------------
 target.runner <- function(experiment, scenario) {
   conf <- experiment$configuration
-  args <- c(experiment$instance, "--seed", as.character(experiment$seed), FIXED_ARGS)
 
+  # Tinh gia tri thuc cua tung tham so tu "so buoc"
+  real_values <- list()
   for (base_name in names(STEP_SIZES)) {
     steps_name <- paste0(base_name, "_steps")
     if (steps_name %in% names(conf) && !is.na(conf[[steps_name]])) {
-      real_value <- round(STEP_SIZES[[base_name]] * conf[[steps_name]], 4)
-      args <- c(args, paste0("--", base_name), as.character(real_value))
+      real_values[[base_name]] <- round(STEP_SIZES[[base_name]] * conf[[steps_name]], 4)
     }
+  }
+
+  # Rang buoc delta1(=0.8) > delta2 > delta3: delta2 < 0.8 luon dung do
+  # mien cho phep (<=0.795), chi can kiem tra delta3 < delta2. Vi pham thi
+  # phat that nang, KHONG chay exe (tiet kiem thoi gian).
+  if (!is.null(real_values$delta2) && !is.null(real_values$delta3)) {
+    if (real_values$delta3 >= real_values$delta2) {
+      return(list(cost = 1e12, time = 0))
+    }
+  }
+
+  args <- c(experiment$instance, "--seed", as.character(experiment$seed), FIXED_ARGS)
+  for (base_name in names(real_values)) {
+    args <- c(args, paste0("--", base_name), as.character(real_values[[base_name]]))
   }
   if ("tabu_cap" %in% names(conf) && !is.na(conf[["tabu_cap"]])) {
     args <- c(args, "--tabu_cap", as.character(conf[["tabu_cap"]]))
