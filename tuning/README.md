@@ -48,16 +48,16 @@ theo yêu cầu — vẫn giữ cố định = 1.0 như code gốc, không nhậ
 
 `max_levels = 5`, `tabu_factor = 0.25`, `delta1 = 0.8` được **chốt cứng** —
 không nằm trong `parameters.txt`, truyền cố định trong `FIXED_ARGS` ở đầu
-`tune.R`. Chỉ còn **5 tham số** irace thật sự tune: `merge_ratio`,
-`tabu_cap`, `iter_k`, `delta2`, `delta3`.
+`tune.R`. Còn **6 tham số** irace thật sự tune: `merge_ratio`, `tabu_cap`,
+`iter_k`, `delta2`, `delta3`, `delta4`.
 
 ## 1c. Bước nhảy (step size) cho các tham số thực
 
 irace không hỗ trợ khai báo step-size trực tiếp cho tham số kiểu `r` (thực)
 trong `parameters.txt`, nên các tham số thực được biểu diễn dưới dạng **số
 bước nguyên** (`merge_ratio_steps`, `iter_k_steps`, `delta2_steps`,
-`delta3_steps`) — `tune.R` tự nhân lại với độ dài bước trước khi truyền cho
-exe (xem `STEP_SIZES` trong `tune.R`):
+`delta3_steps`, `delta4_steps`) — `tune.R` tự nhân lại với độ dài bước
+trước khi truyền cho exe (xem `STEP_SIZES` trong `tune.R`):
 
 | Tham số | Bước nhảy | Miền số bước | Miền giá trị thực | Số giá trị khả dĩ |
 |---|---|---|---|---|
@@ -66,6 +66,11 @@ exe (xem `STEP_SIZES` trong `tune.R`):
 | `iter_k` | 0.5 | 32 – 44 | 16 – 22 | 13 |
 | `delta2` | 0.015 | 1 – 53 | 0.015 – 0.795 | 53 |
 | `delta3` | 0.01 | 1 – 80 | 0.01 – 0.80 | 80 |
+| `delta4` | 0.01 | 25 – 60 | 0.25 – 0.60 | 36 |
+
+`delta4` được thu hẹp từ miền gốc 0.05–0.60 xuống 0.25–0.60, dựa trên dữ
+liệu 2 lần tune trước — mọi cấu hình elite (cả 2 lần) đều rơi vào khoảng
+0.37–0.52, dù các tham số khác thay đổi khá nhiều giữa 2 lần.
 
 ## 1d. Ràng buộc `delta1 > delta2 > delta3`
 

@@ -10,6 +10,9 @@
 #   iter_k      = iter_k_steps      * 0.5     (buoc 0.5,   mien 16-22)
 #   delta2      = delta2_steps      * 0.015   (buoc 0.015, mien ~0.015-0.795)
 #   delta3      = delta3_steps      * 0.01    (buoc 0.01,  mien 0.01-0.80)
+#   delta4      = delta4_steps      * 0.01    (buoc 0.01,  mien 0.25-0.60 -- thu hep tu
+#                                              du lieu 2 lan tune truoc, elite luon roi
+#                                              vao khoang 0.37-0.52)
 #
 # Rang buoc: delta1(=0.8) > delta2 > delta3 -- delta2 < 0.8 luon dung do
 # mien cho phep da < 0.8; rieng delta3 < delta2 duoc kiem tra va phat trong
@@ -27,3 +30,4 @@ tabu_cap                   "--tabu_cap "                   i     (5, 20)
 iter_k_steps                "--iter_k_steps "                i     (32, 44)
 delta2_steps                "--delta2_steps "                i     (1, 53)
 delta3_steps                "--delta3_steps "                i     (1, 80)
+delta4_steps                "--delta4_steps "                i     (25, 60)
