@@ -77,7 +77,7 @@ target.runner <- function(experiment, scenario) {
   # phat that nang, KHONG chay exe (tiet kiem thoi gian).
   if (!is.null(real_values$delta2) && !is.null(real_values$delta3)) {
     if (real_values$delta3 >= real_values$delta2) {
-      return(list(cost = 1e12, time = 0))
+      return(list(cost = 1e12, time = 0.001))  # irace bat buoc time > 0 tuyet doi
     }
   }
 
@@ -96,7 +96,7 @@ target.runner <- function(experiment, scenario) {
                               timeout = PER_RUN_TIMEOUT)),
     error = function(e) character(0)
   )
-  elapsed <- as.numeric(difftime(Sys.time(), start_time, units = "secs"))
+  elapsed <- max(as.numeric(difftime(Sys.time(), start_time, units = "secs")), 0.001)  # irace bat buoc time > 0 tuyet doi
 
   result_line <- grep("^IRACE_RESULT ", out, value = TRUE)
   if (length(result_line) == 0) {
