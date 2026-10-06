@@ -1570,7 +1570,7 @@ vector<tuple<double, int, int>> collect_merge_candidates(const LevelInfo& curren
                         (node_from.c1_or_c2 > 0 && node_to.c1_or_c2 > 0);
         
         if (same_type){
-            double distance = base_distance_matrix[idx_from][idx_to];
+            double distance = current_level.truck_time_matrix[idx_from][idx_to];
             candidates.emplace_back(make_tuple(distance, from_node, to_node));
             
         }

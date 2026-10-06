@@ -118,7 +118,7 @@ vector<double> weights = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
 vector<double> scorePi = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 vector<double> used_count = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 
-// Các tham số dưới đây có thể tune bằng irace (xem tuning/README.md).
+// Các tham số dưới đây có thể ghi đè qua dòng lệnh (--delta1..4, --tabu_factor, --tabu_cap).
 double delta1 = 0.3;
 double delta2 = 0.2;
 double delta3 = 0.1;
@@ -1579,7 +1579,7 @@ vector<tuple<double, int, int>> collect_merge_candidates(const LevelInfo& curren
                         (node_from.c1_or_c2 > 0 && node_to.c1_or_c2 > 0);
         
         if (same_type){
-            double distance = base_distance_matrix[idx_from][idx_to];
+            double distance = current_level.truck_time_matrix[idx_from][idx_to];
             candidates.emplace_back(make_tuple(distance, from_node, to_node));
             
         }
@@ -2194,11 +2194,11 @@ int main(int argc, char* argv[]) {
         dataset_path = argv[1];
         start_idx = 2;
     } else {
-        dataset_path = "D:\\New folder\\instances\\saleu-2022\\CMT1.vrp";
+        dataset_path = "D:\\New folder\\instances\\saleu-2022\\CMT2.vrp";
     }
     int trucks_arg = -1, drones_arg = -1;
 
-    // Parse các flag dạng "--ten_tham_so gia_tri" (dùng cho irace target-runner).
+    // Parse các flag dạng "--ten_tham_so gia_tri".
     for (int i = start_idx; i < argc; i++) {
         string key = argv[i];
         if (key.rfind("--", 0) != 0 || i + 1 >= argc) continue;
@@ -2228,7 +2228,7 @@ int main(int argc, char* argv[]) {
     int customers = num_nodes-1;
 
     // Ghi đè MAX_ITER (số vòng lặp/1 level) đã tính theo bậc thang kích thước,
-    // nếu có truyền --iter_k: MAX_ITER = K * số khách hàng (dùng cho irace).
+    // nếu có truyền --iter_k: MAX_ITER = K * số khách hàng.
     if (has_iter_k) MAX_ITER = max(1, (int)llround(iter_k_arg * customers));
 
     // Doi xe theo Mbiadou Saleu et al. (2022), muc 5.1: K = ceil(fleet/2) truck,
@@ -2280,10 +2280,6 @@ int main(int argc, char* argv[]) {
     print_solution(best_solution);
     cout << "RESULT " << instance_name << " " << fixed << setprecision(2)
          << best_solution.makespan << " " << setprecision(3) << elapsed_s << endl;
-
-    // Dòng dành riêng cho irace target-runner: phạt nặng nếu lời giải không khả thi.
-    double irace_objective = best_solution.fitness + (best_solution.is_feasible ? 0.0 : 1e6);
-    cout << "IRACE_RESULT " << fixed << setprecision(6) << irace_objective << endl;
 
     return 0;
 }
