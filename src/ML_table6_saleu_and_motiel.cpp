@@ -978,6 +978,17 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
         return (it != base_type_by_node.end()) ? it->second : -1;
     };
 
+    // Drone chi phuc vu 1 khach/chuyen: supernode (node gop o level tho) khong duoc len drone.
+    unordered_set<int> supernodes;
+    if (current_level != nullptr) {
+        for (const auto& node : current_level->nodes) {
+            if (merged_nodes_info.count(node.id)) supernodes.insert(node.id);
+        }
+    }
+    auto drone_forbidden = [&](int nid) -> bool {
+        return get_type_fast(nid) == 1 || supernodes.count(nid) > 0;
+    };
+
     vector<TabuMove> tabu_list; // danh sách các move bị tabu
     int no_improve_count = 0;
     int last_depot_opt_iter = 0;
@@ -1021,12 +1032,12 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                         for (size_t pos2 = 1; pos2 <= current_sol.route[v2].size(); pos2++) {
                             if (pos2 == current_sol.route[v2].size()){
                                 if (!vehicles[v2].is_drone) continue;
-                                if (get_type_fast(n1) == 1) continue;
+                                if (drone_forbidden(n1)) continue;
                                 if (v1 == v2) continue;
                             } else {
                                 if (v1 == v2) continue;
                                 if (pos2 == current_sol.route[v2].size() - 1) continue;
-                                if (get_type_fast(n1) == 1 && vehicles[v2].is_drone) continue;
+                                if (drone_forbidden(n1) && vehicles[v2].is_drone) continue;
                             }
 
                             vector<int> route_v1 = current_sol.route[v1];
@@ -1084,6 +1095,9 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                         for (size_t pos2 = 1; pos2 < current_sol.route[v2].size()-1; pos2++) {
                             int n2 = current_sol.route[v2][pos2];
                             if (n2 == depot_id || n1 == n2 || get_type_fast(n1) != get_type_fast(n2) || ((abs(int(pos1)-int(pos2)) <= 1) && (v1 == v2))) continue;
+                            if (v1 == v2 && vehicles[v1].is_drone) continue; // doi cho trong cung drone khong doi gi
+                            if (vehicles[v2].is_drone && drone_forbidden(n1)) continue;
+                            if (vehicles[v1].is_drone && drone_forbidden(n2)) continue;
 
                             vector<int> route_v1 = current_sol.route[v1];
                             vector<int> route_v2 = current_sol.route[v2];
@@ -1119,14 +1133,16 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
             }
         }
 
+        // Cac move 2-x va 2-opt chi danh cho truck: drone di 1 khach/chuyen nen khong co "cap khach lien nhau".
         if (move_type == "2-0") {
             for(size_t v1 = 0; v1 < vehicles.size(); v1++){
+                if (vehicles[v1].is_drone) continue;
                 for(size_t pos1 = 1; pos1 < current_sol.route[v1].size()-2; pos1++){
                     int n1 = current_sol.route[v1][pos1];
                     int n2 = current_sol.route[v1][pos1+1];
                     if (n1 == depot_id || n2 == depot_id) continue;
                     for (size_t v2 = 0; v2 < vehicles.size(); v2++){
-                        if (v1 == v2) continue;
+                        if (v1 == v2 || vehicles[v2].is_drone) continue;
                         if ((get_type_fast(n1) == 1 || get_type_fast(n2) == 1) && vehicles[v2].is_drone) continue;
                         for (size_t pos2 = 1; pos2 <= current_sol.route[v2].size(); pos2++){
                             if (pos2 == current_sol.route[v2].size() && !vehicles[v2].is_drone) {
@@ -1168,12 +1184,13 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
         // move 2-1
         if (move_type == "2-1") {
             for(size_t v1 = 0; v1 < vehicles.size(); v1++) {
+                if (vehicles[v1].is_drone) continue;
                 for(size_t pos1 = 1; pos1 < current_sol.route[v1].size() - 2; pos1++) {
                     int n1 = current_sol.route[v1][pos1];
                     int n2 = current_sol.route[v1][pos1+1];
                     if (n1 == depot_id || n2 == depot_id) continue;
                     for (size_t v2 = 0; v2 < vehicles.size(); v2++){
-                        if (v1 == v2) continue;
+                        if (v1 == v2 || vehicles[v2].is_drone) continue;
                         for (size_t pos2 = 1; pos2 < current_sol.route[v2].size()-1; pos2++){
                             int n3 = current_sol.route[v2][pos2];
                             if (n3 == depot_id) continue;
@@ -1213,12 +1230,13 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
 
         if (move_type == "2-2"){
             for (size_t v1 = 0; v1 < vehicles.size(); v1++) {
+                if (vehicles[v1].is_drone) continue;
                 for (size_t pos1 = 1; pos1 < current_sol.route[v1].size() -2; pos1++){
                     int n1 = current_sol.route[v1][pos1];
                     int n2 = current_sol.route[v1][pos1+1];
                     if (n1 == depot_id || n2 == depot_id) continue;
                     for (size_t v2 = 0; v2 < vehicles.size(); v2++){
-                        if (v1 == v2) continue;
+                        if (v1 == v2 || vehicles[v2].is_drone) continue;
                         for (size_t pos2 = 1; pos2 < current_sol.route[v2].size() - 2; pos2++){
                             int n3 = current_sol.route[v2][pos2];
                             int n4 = current_sol.route[v2][pos2+1];
@@ -1261,6 +1279,7 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
         if (move_type == "2-opt") {
             // Intra-route 2-opt (cùng xe)
             for(size_t v1 = 0; v1 < vehicles.size(); v1++) {
+                if (vehicles[v1].is_drone) continue;
                 for(size_t pos1 = 1; pos1 < current_sol.route[v1].size() - 1; pos1++) {
                     if (current_sol.route[v1][pos1] == depot_id) continue;
                     for(size_t pos2 = pos1 + 2; pos2 < current_sol.route[v1].size() - 1; pos2++) {
@@ -1301,7 +1320,9 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
             
             // Inter-route 2-opt (khác xe)
             for(size_t v1 = 0; v1 < vehicles.size(); v1++) {
+                if (vehicles[v1].is_drone) continue;
                 for(size_t v2 = v1 + 1; v2 < vehicles.size(); v2++) {
+                    if (vehicles[v2].is_drone) continue;
                     for(size_t pos1 = 1; pos1 < current_sol.route[v1].size() - 1; pos1++) {
                         if (current_sol.route[v1][pos1] == depot_id) continue;
                         for(size_t pos2 = 1; pos2 < current_sol.route[v2].size() - 1; pos2++) {
@@ -1551,6 +1572,7 @@ vector<tuple<double, int, int>> collect_merge_candidates(const LevelInfo& curren
     set<pair<int,int>> solution_edges;
     
     for (size_t v = 0; v < best_solution.route.size(); v++) {
+        if (vehicles[v].is_drone) continue; // drone di 1 khach/chuyen: khong co canh that de merge
         const vector<int>& route = best_solution.route[v];
         for (size_t i = 0; i < route.size() - 1; i++) {
             int from_node = route[i];
