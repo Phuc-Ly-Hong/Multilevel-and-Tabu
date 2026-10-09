@@ -91,10 +91,11 @@ vector<VehicleFamily> vehicles;
 map<int, MergedNodeInfo> merged_nodes_info;
 unordered_map<int, int> base_type_by_node;
 
-// Setup PDSMTSP / MT-PDSVRP (Mbiadou Saleu et al. 2022; Montemanni & Dell'Amico 2023):
-// truck di dung 1 tour theo khoang cach Manhattan, drone di-ve 1 khach/chuyen theo
-// Euclid, toc do = 1, khong gioi han bay, khong tai trong, moi khach drone-eligible.
-vector<double> drone_roundtrip; // 2 * Euclid(depot, c), chi so theo id goc
+// Setup PDSVRP / MT-PDSVRP (Raj et al. 2021; Montemanni & Dell'Amico 2023), bo du lieu
+// TSPLIB cua Mbiadou Saleu et al. (2018): truck di dung 1 tour theo khoang cach Manhattan,
+// drone di-ve 1 khach/chuyen theo Euclid; toc do, endurance doc tu header file;
+// khach co flag = 1 chi truck phuc vu (C1), flag = 0 drone-eligible (C2).
+vector<double> drone_roundtrip; // (Euclid(depot, c) + Euclid(c, depot)) / DRONE SPEED, chi so theo id goc
 string instance_name;
 
 int depot_id = 0;
@@ -150,8 +151,10 @@ void update_weights(){
     }
 }
 
-// Doc file CVRPLIB (.vrp). Depot (DEPOT_SECTION) -> id 0, khach -> id 1..n theo thu tu
-// trong file. Demand/CAPACITY bi bo qua (PDSMTSP khong co tai trong).
+// Doc file PDSTSP cua Mbiadou Saleu et al. (2018), vd att48_80_2_1_1.txt:
+//   5 dong header "KEY,value" (NUM DRONES, NUM TRUCKS, TRUCK SPEED, DRONE SPEED, DRONE ENDURANCE)
+//   roi moi dong "id x y flag": id 0 la depot, flag = 1 -> chi truck phuc vu.
+// id trong code = id trong file.
 void read_dataset(const string &filename){
     vector<Node> nodes;
     C1.clear();
@@ -163,45 +166,42 @@ void read_dataset(const string &filename){
         exit(1);
     }
 
-    map<int, pair<double, double>> coords;
-    int depot_file_id = -1;
-    string line, section;
+    double truck_speed = 1.0, drone_speed = 1.0;
+    double drone_endurance = numeric_limits<double>::infinity();
+    map<int, array<double, 3>> rows; // id -> {x, y, flag}
+    string line;
     while (getline(file, line)) {
-        istringstream ss(line);
-        string tok;
-        if (!(ss >> tok)) continue;
-        if (tok == "EOF") break;
-        if (tok.find("SECTION") != string::npos) { section = tok; continue; }
-        size_t colon = line.find(':');
-        if (colon != string::npos) {
-            if (tok.rfind("NAME", 0) == 0) {
-                string name = line.substr(colon + 1);
-                name.erase(0, name.find_first_not_of(" \t"));
-                name.erase(name.find_last_not_of(" \t\r") + 1);
-                instance_name = name;
-            }
+        size_t comma = line.find(',');
+        if (comma != string::npos) {
+            string key = line.substr(0, comma);
+            double val = atof(line.c_str() + comma + 1);
+            if (key == "TRUCK SPEED") truck_speed = val;
+            else if (key == "DRONE SPEED") drone_speed = val;
+            else if (key == "DRONE ENDURANCE") drone_endurance = val;
             continue;
         }
-        if (section == "NODE_COORD_SECTION") {
-            double x, y;
-            ss >> x >> y;
-            coords[stoi(tok)] = {x, y};
-        } else if (section == "DEPOT_SECTION") {
-            int id = stoi(tok);
-            if (id != -1 && depot_file_id == -1) depot_file_id = id;
-        }
+        istringstream ss(line);
+        int id;
+        double x, y, flag;
+        if (ss >> id >> x >> y >> flag) rows[id] = {x, y, flag};
     }
     file.close();
 
-    if (depot_file_id == -1 || !coords.count(depot_file_id)) {
-        cerr << "Khong tim thay depot trong " << filename << endl;
+    if (!rows.count(depot_id) || truck_speed <= 0 || drone_speed <= 0) {
+        cerr << "File " << filename << " sai dinh dang (thieu depot 0 hoac toc do <= 0)" << endl;
         exit(1);
     }
-    nodes.push_back({depot_id, coords[depot_file_id].first, coords[depot_file_id].second, -1.0});
-    int next_id = 1;
-    for (const auto& [file_id, xy] : coords) {
-        if (file_id == depot_file_id) continue;
-        nodes.push_back({next_id++, xy.first, xy.second, 1.0}); // moi khach deu drone-eligible
+    string stem = filename.substr(filename.find_last_of("/\\") + 1);
+    instance_name = stem.substr(0, stem.find_last_of('.'));
+
+    for (const auto& [id, r] : rows) {
+        if (id != (int)nodes.size()) {
+            cerr << "File " << filename << ": id khach phai lien tuc 0..n" << endl;
+            exit(1);
+        }
+        // c1_or_c2: 0 = C1 (chi truck), 1 = C2 (drone-eligible); depot = -1.
+        double type = (id == depot_id) ? -1.0 : (r[2] == 1 ? 0.0 : 1.0);
+        nodes.push_back({id, r[0], r[1], type});
     }
 
     // Dataset size logging removed for performance.
@@ -243,7 +243,7 @@ void read_dataset(const string &filename){
 
     // Node detail logging removed for performance.
 
-    // Euclid cho drone (va cho viec chon canh merge), Manhattan cho truck, toc do = 1.
+    // Truck: Manhattan / TRUCK SPEED; drone: Euclid / DRONE SPEED.
     const size_t n = nodes.size();
     base_distance_matrix.assign(n, vector<double>(n, 0.0));
     truck_times.assign(n, vector<double>(n, 0.0));
@@ -254,12 +254,16 @@ void read_dataset(const string &filename){
             double dx = nodes[i].x - nodes[j].x;
             double dy = nodes[i].y - nodes[j].y;
             base_distance_matrix[i][j] = sqrt(dx * dx + dy * dy);
-            drone_times[i][j] = base_distance_matrix[i][j];
-            truck_times[i][j] = fabs(dx) + fabs(dy);
+            drone_times[i][j] = base_distance_matrix[i][j] / drone_speed;
+            truck_times[i][j] = (fabs(dx) + fabs(dy)) / truck_speed;
         }
     }
     drone_roundtrip.assign(n, 0.0);
-    for (size_t c = 1; c < n; ++c) drone_roundtrip[c] = 2.0 * drone_times[depot_id][c];
+    for (size_t c = 1; c < n; ++c) {
+        drone_roundtrip[c] = drone_times[depot_id][c] + drone_times[c][depot_id];
+        // Chuyen di-ve vuot endurance thi khach khong phuc vu duoc bang drone.
+        if (drone_roundtrip[c] > drone_endurance + EPSILON) nodes[c].c1_or_c2 = 0.0;
+    }
 
     // Phân loại khách hàng
     for (const auto& node : nodes){
@@ -278,7 +282,7 @@ void read_dataset(const string &filename){
 }
 
 void print_solution(const Solution &sol){
-    cout << "Route details (id khach = id trong file .vrp - 1):" << endl;
+    cout << "Route details (id khach = id trong file):" << endl;
     for (size_t v = 0; v < sol.route.size(); v++) {
         const bool is_drone = vehicles[v].is_drone;
         cout << (is_drone ? "Drone " : "Truck ") << v << ": ";
@@ -2216,7 +2220,7 @@ int main(int argc, char* argv[]) {
         dataset_path = argv[1];
         start_idx = 2;
     } else {
-        dataset_path = "D:\\New folder\\instances\\saleu-2022\\CMT2.vrp";
+        dataset_path = "D:\\New folder\\instances\\data_bang7\\berlin52_80_2_1_1.txt";
     }
     int trucks_arg = -1, drones_arg = -1;
 
@@ -2253,25 +2257,10 @@ int main(int argc, char* argv[]) {
     // nếu có truyền --iter_k: MAX_ITER = K * số khách hàng.
     if (has_iter_k) MAX_ITER = max(1, (int)llround(iter_k_arg * customers));
 
-    // Doi xe theo Mbiadou Saleu et al. (2022), muc 5.1: K = ceil(fleet/2) truck,
-    // M = floor(fleet/2) drone; fleet lay tu hau to "-kN" cua ten, rieng bo CMT tra bang.
-    static const map<string, int> CMT_FLEET = {
-        {"CMT1", 5}, {"CMT2", 10}, {"CMT3", 8}, {"CMT4", 12}, {"CMT5", 17}};
-    int fleet = -1;
-    auto it_cmt = CMT_FLEET.find(instance_name);
-    if (it_cmt != CMT_FLEET.end()) {
-        fleet = it_cmt->second;
-    } else {
-        size_t pos = instance_name.rfind("-k");
-        if (pos != string::npos) fleet = atoi(instance_name.c_str() + pos + 2);
-    }
-    if (fleet <= 0 && (trucks_arg < 0 || drones_arg < 0)) {
-        cerr << "Khong xac dinh duoc so xe cho instance '" << instance_name
-             << "', hay truyen --trucks va --drones." << endl;
-        return 1;
-    }
-    int num_techs = trucks_arg >= 0 ? trucks_arg : (fleet + 1) / 2;
-    int num_drones = drones_arg >= 0 ? drones_arg : fleet / 2;
+    // Doi xe Bang 7 (Raj et al. 2021, Table 9): 2 truck, 2/4/6 drone truyen qua --drones.
+    // "NUM TRUCKS"/"NUM DRONES" trong header la cua bai PDSTSP goc nen khong dung.
+    int num_techs = trucks_arg >= 0 ? trucks_arg : 2;
+    int num_drones = drones_arg >= 0 ? drones_arg : 2;
 
     const double NO_FLIGHT_LIMIT = numeric_limits<double>::infinity();
     for (int i = 0; i < num_techs; ++i) {
@@ -2281,7 +2270,8 @@ int main(int argc, char* argv[]) {
         vehicles.push_back({ num_techs + i + 1, 1.0, true, NO_FLIGHT_LIMIT }); // drone
     }
     cout << "Instance " << instance_name << ": " << customers << " customers, "
-         << num_techs << " trucks, " << num_drones << " drones" << endl;
+         << num_techs << " trucks, " << num_drones << " drones, "
+         << C1.size() << " truck-only" << endl;
 
     /*vector<vector<int>> test_routes = {
         // 3 Technicians

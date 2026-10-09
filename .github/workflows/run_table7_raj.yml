@@ -1,0 +1,230 @@
+name: Table 7 - Tabu Multi-Level tren Raj MT-PDSTSP (2 truck)
+
+# Chay khi push file nay / code ML_table7 len Method_B, hoac bam "Run workflow" trong tab Actions.
+on:
+  push:
+    branches: [Method_B]
+    paths:
+      - '.github/workflows/run_table7_raj.yml'
+      - 'src/ML_table7_Raj_montiel.cpp'
+  workflow_dispatch:
+
+permissions:
+  contents: write   # de job summarize commit + push ket qua len repo
+  actions: read
+
+concurrency:
+  group: table7-raj-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  compile:
+    name: Compile ML_table7
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Compile executable
+        run: |
+          g++ -O3 -std=c++17 -o ml_table7 src/ML_table7_Raj_montiel.cpp
+          chmod +x ml_table7
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: table7-executable
+          path: ml_table7
+          retention-days: 7
+
+  run:
+    name: ${{ matrix.instance }} D${{ matrix.drones }} run${{ matrix.run_id }}
+    needs: compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        instance: ["att48", "berlin52", "eil101", "gr120", "pr152", "gr229"]
+        drones: [2, 4, 6]
+        run_id: [1, 2, 3]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download executable
+        uses: actions/download-artifact@v4
+        with:
+          name: table7-executable
+
+      - name: Run algorithm (2 truck, seed = run_id)
+        run: |
+          chmod +x ml_table7
+          LOG="${{ matrix.instance }}_d${{ matrix.drones }}_run${{ matrix.run_id }}.txt"
+          echo "=== ${{ matrix.instance }} 2 truck ${{ matrix.drones }} drone, run ${{ matrix.run_id }}/3 ==="
+
+          set +e
+          timeout 350m ./ml_table7 "instances/data_bang7/${{ matrix.instance }}_80_2_1_1.txt" \
+            --trucks 2 --drones ${{ matrix.drones }} --seed ${{ matrix.run_id }} > "$LOG" 2>&1
+          EXIT_CODE=$?
+          set -e
+
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "EXIT_CODE $EXIT_CODE" >> "$LOG"
+          fi
+          cat "$LOG"
+
+      - name: Upload log
+        uses: actions/upload-artifact@v4
+        with:
+          name: table7-log-${{ matrix.instance }}-d${{ matrix.drones }}-run${{ matrix.run_id }}
+          path: ${{ matrix.instance }}_d${{ matrix.drones }}_run${{ matrix.run_id }}.txt
+          retention-days: 30
+
+  summarize:
+    name: Table 7 CSV + push
+    needs: run
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all logs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: table7-log-*
+          path: results/data_bang7/logs
+          merge-multiple: true
+
+      - name: Build CSV
+        run: |
+          python3 <<'EOF'
+          import csv, re, statistics
+          from pathlib import Path
+
+          # Best Ref = min(Raj MILP, BP, MH, Montemanni MT-3IDX_UB, MT-2IDX_UB), 2 truck, thu tu nhu Bang 7.
+          # OPTIMAL: Montemanni & Dell'Amico (2023) Table 2 da chung minh toi uu.
+          BEST_REF = {
+              ("att48", 2): 16940.18, ("att48", 4): 16500.00, ("att48", 6): 16500.00,
+              ("berlin52", 2): 3285.00, ("berlin52", 4): 2995.00, ("berlin52", 6): 2995.00,
+              ("eil101", 2): 293.00, ("eil101", 4): 248.00, ("eil101", 6): 212.00,
+              ("gr120", 2): 735.00, ("gr120", 4): 646.00, ("gr120", 6): 549.00,
+              ("pr152", 2): 41371.00, ("pr152", 4): 41295.58, ("pr152", 6): 37413.00,
+              ("gr229", 2): 1064.97, ("gr229", 4): 1064.97, ("gr229", 6): 1056.10,
+          }
+          OPTIMAL = {("att48", 2), ("att48", 4), ("att48", 6),
+                     ("berlin52", 2), ("berlin52", 4), ("berlin52", 6), ("eil101", 2)}
+          RUNS = 3
+
+          HEADER_RE = re.compile(r"^Instance\s+\S+:\s+(\d+) customers,\s+(\d+) trucks,\s+(\d+) drones", re.M)
+          VEHICLE_RE = re.compile(r"^(Truck|Drone)\s+(\d+):\s*(.*?)\s*\(time\s+([^)]+)\)\s*$", re.M)
+          RESULT_RE = re.compile(r"^RESULT\s+\S+\s+(\S+)\s+(\S+)", re.M)
+          EXIT_RE = re.compile(r"^EXIT_CODE\s+(\d+)", re.M)
+
+          log_dir = Path("results/data_bang7/logs")
+          out_dir = Path("results/data_bang7")
+
+          def write_csv(path, rows):
+              with path.open("w", newline="", encoding="utf-8") as f:
+                  w = csv.DictWriter(f, fieldnames=list(rows[0]))
+                  w.writeheader()
+                  w.writerows(rows)
+
+          # ---- 1 dong / 1 lan chay, kem loi giai chi tiet ----
+          runs, routes = [], []
+          for (name, drones) in BEST_REF:
+              for k in range(1, RUNS + 1):
+                  path = log_dir / f"{name}_d{drones}_run{k}.txt"
+                  row = {"Instance": name, "Drones": drones, "Run": k, "Seed": k, "Customers": "",
+                         "Trucks": "", "Makespan": "", "Time(s)": "", "Status": "", "Solution": ""}
+                  if not path.exists():
+                      row["Status"] = "MISSING"
+                      runs.append(row)
+                      continue
+                  text = path.read_text(encoding="utf-8", errors="ignore")
+
+                  h = HEADER_RE.search(text)
+                  if h:
+                      row.update(Customers=h.group(1), Trucks=h.group(2))
+
+                  vehicles = VEHICLE_RE.findall(text)
+                  for kind, vid, nodes, t in vehicles:
+                      routes.append({"Instance": name, "Drones": drones, "Run": k, "Vehicle": vid,
+                                     "Type": kind, "Route": nodes, "RouteTime": t.strip()})
+                  row["Solution"] = " | ".join(f"{kind} {vid}: {nodes} (time {t.strip()})"
+                                               for kind, vid, nodes, t in vehicles)
+
+                  res, ex = RESULT_RE.search(text), EXIT_RE.search(text)
+                  if res:
+                      row.update({"Makespan": f"{float(res.group(1)):.2f}",
+                                  "Time(s)": f"{float(res.group(2)):.3f}", "Status": "OK"})
+                  elif ex and ex.group(1) == "124":
+                      row["Status"] = "TIMEOUT"
+                  else:
+                      row["Status"] = f"ERROR(exit {ex.group(1)})" if ex else "ERROR"
+                  runs.append(row)
+
+          # ---- Bang 7: Best / Mean / STD / Time / BestRef / Gap ----
+          summary = []
+          for (name, drones), ref in BEST_REF.items():
+              ok = [r for r in runs if r["Instance"] == name and r["Drones"] == drones and r["Status"] == "OK"]
+              vals = [float(r["Makespan"]) for r in ok]
+              times = [float(r["Time(s)"]) for r in ok]
+              row = {"Instance": name, "Drones": drones, "Best": "", "Mean": "", "STD": "", "Time(s)": "",
+                     "BestRef": f"{ref:.2f}", "RefOptimal": "yes" if (name, drones) in OPTIMAL else "",
+                     "Gap(%)": "", "RunsOK": f"{len(ok)}/{RUNS}"}
+              if ok:
+                  best = min(vals)
+                  row.update({"Best": f"{best:.2f}",
+                              "Mean": f"{statistics.mean(vals):.2f}",
+                              "STD": f"{statistics.stdev(vals):.2f}" if len(vals) > 1 else "0.00",
+                              "Time(s)": f"{statistics.mean(times):.2f}",
+                              "Gap(%)": f"{100.0 * (best - ref) / ref:.2f}"})
+              summary.append(row)
+
+          write_csv(out_dir / "table7_runs.csv", runs)
+          if routes:
+              write_csv(out_dir / "table7_routes.csv", routes)
+          write_csv(out_dir / "table7_summary.csv", summary)
+
+          print(f"{'Instance':10s} {'D':>2s} {'Best':>10s} {'Mean':>10s} {'STD':>8s} {'Time(s)':>8s} {'BestRef':>10s} {'Gap(%)':>7s} {'OK':>4s}")
+          for r in summary:
+              print(f"{r['Instance']:10s} {r['Drones']:>2d} {r['Best']:>10s} {r['Mean']:>10s} {r['STD']:>8s} "
+                    f"{r['Time(s)']:>8s} {r['BestRef']:>10s} {r['Gap(%)']:>7s} {r['RunsOK']:>4s}")
+              if r["RefOptimal"] and r["Gap(%)"] and float(r["Gap(%)"]) < -0.01:
+                  print(f"!! {r['Instance']} D{r['Drones']}: tot hon gia tri TOI UU da chung minh -> kiem tra lai loi giai")
+          for r in runs:
+              if r["Status"] != "OK":
+                  print(f"!! {r['Instance']} D{r['Drones']} run{r['Run']}: {r['Status']}")
+          EOF
+
+      - name: Upload CSV artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: table7-raj-results
+          path: results/data_bang7
+          retention-days: 30
+
+      - name: Commit and push results
+        run: |
+          BRANCH="${GITHUB_REF_NAME}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add results/data_bang7
+          if git diff --cached --quiet; then
+            echo "Khong co thay doi de commit"
+            exit 0
+          fi
+          git commit -m "Ket qua Bang 7 (Raj, 2 truck): 6 instance x 3 muc drone x 3 lan chay [run ${GITHUB_RUN_ID}]"
+          for i in 1 2 3 4 5; do
+            git pull --rebase origin "$BRANCH" && git push origin "HEAD:$BRANCH" && exit 0
+            echo "Push loi, thu lai lan $i..."
+            sleep $((i * 5))
+          done
+          exit 1
