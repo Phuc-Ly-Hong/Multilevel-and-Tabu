@@ -1,60 +1,68 @@
-# Tune Multilevel_Tabu_no_lwt b?ng irace
+﻿# Tune Multilevel_Tabu_no_lwt bằng irace
 
-## Mi?n tham s?
+## Miền tham số
 
-Alpha 1?4 trong y?u c?u t??ng ?ng `delta1..delta4` trong C++, kh?ng ph?i
-`alpha1` d?ng ph?t vi ph?m drone trong fitness.
+Alpha 1–4 trong yêu cầu tương ứng `delta1..delta4` trong C++, không phải `alpha1` dùng phạt vi phạm drone trong fitness.
 
-| Tham s? | Gi? tr? | S? l?a ch?n |
+| Tham số | Giá trị | Số lựa chọn |
 |---|---|---:|
 | max_levels | 4, 5, 6 | 3 |
-| merge_ratio | 0.05?0.20, b??c 0.01 (gi? mi?n c? ?? ch? k?t qu? irace) | 16 |
+| merge_ratio | 5–10%, bước 1% (0.05–0.10, bước 0.01) | 6 |
 | iter_k | 15, 16, 17, 18 | 4 |
-| delta1 | 0.8, c? ??nh | 1 |
+| delta1 | 0.8, cố định | 1 |
 | delta2 | 0.4, 0.5, 0.6, 0.7 | 4 |
 | delta3 | 0.1, 0.2, 0.3 | 3 |
-| tabu1 | 0.05?0.09, b??c 0.01 | 5 |
-| tabu2 | 0.10?0.12, b??c 0.01 | 3 |
+| tabu1 | 0.05–0.09, bước 0.01 | 5 |
+| tabu2 | 0.10–0.12, bước 0.01 | 3 |
 | delta4 | 0.1, 0.3, 0.5, 0.7 | 4 |
 
-`MAX_ITER = round(iter_k * s? kh?ch h?ng g?c)`, d?ng c?ng gi?i h?n ? c?c level.
-Thu?t to?n c? th? d?ng s?m theo ?i?u ki?n kh?ng c?i thi?n.
-`max_levels` gi? nguy?n ngh?a hi?n c? trong C++: ch? s? level t?i ?a, b?t ??u ? 0;
-4 cho ph?p c?c level 0?4 n?u ?? kh? n?ng n?n. ??y kh?ng ph?i cam k?t t?o ?? level.
+`merge_ratio_steps` trong `parameters.txt` nhận số nguyên từ 5 đến 10. Runner nhân với 0.01 trước khi truyền `--merge_ratio` cho chương trình C++.
 
-Tenure is sampled uniformly for each accepted move from the inclusive integer
-interval [max(1, ceil(tabu1*n)), max(1, ceil(tabu2*n))], where n excludes the
-depot at the current level. The move and its reverse receive the same tenure.
-Both bounds affect sampling; rounding may make distinct factors equivalent
-on small levels. The existing --seed also controls tenure sampling.
+`MAX_ITER = round(iter_k * số khách hàng gốc)`, dùng cùng giới hạn ở các level. Thuật toán có thể dừng sớm theo điều kiện không cải thiện.
 
-## Kh?ng gian t?m ki?m v? ng?n s?ch
+`max_levels` là chỉ số level tối đa, bắt đầu từ 0: giá trị 4 cho phép các level 0–4 nếu đủ khả năng nén; số level thực tế có thể ít hơn.
 
-T?ng s? t? h?p: `3 * 16 * 4 * 4 * 3 * 5 * 3 * 4 = 138240`.
-Both tabu bounds now affect behavior; no factor-of-five reduction applies.
+Mỗi move được chọn nhận tenure ngẫu nhiên đều trong khoảng số nguyên:
 
-12 instance hu?n luy?n hi?n c?: v?t c?n to?n mi?n v?i 1 seed/instance c?n
-`138240 * 12 = 1658880` l?n ch?y. Irace lo?i d?n c?u h?nh n?n kh?ng c?n v?t c?n.
+```text
+[max(1, ceil(tabu1 * n)), max(1, ceil(tabu2 * n))]
+```
 
-Ng?n s?ch kh?i ??u ?? xu?t: 20000 l??t ch?y, 20 worker; ??y l? l?a ch?n th?c
-h?nh ?? b?t ??u, kh?ng ph?i c?ng th?c ??m b?o t?m ???c 5 c?u h?nh t?i ?u.
-C? th? ch?y th? ng?n s?ch 1000?2000 ?? ?o th?i gian v? t? l? timeout tr??c.
-Kh?ng t? kh?i ch?y tuning d?i khi ch? chu?n b? c?u h?nh.
+`n` là số khách hàng ở level hiện tại, không tính depot. Move và move đảo nhận cùng tenure. Cả hai cận đều ảnh hưởng việc chọn tenure; làm tròn có thể khiến các hệ số khác nhau cho cùng cận ở level nhỏ. `--seed` cũng điều khiển việc chọn tenure ngẫu nhiên.
 
-`minNbSurvival=5` ??t ng??ng d?ng race; kh?ng b?o ??m tr? ??ng 5 elite ho?c
-ch?t l??ng t?i ?u. Script l?u to?n b? elite theo th? t? irace tr? v? v? xu?t
-5 d?ng ??u ?? ??i sang gi? tr? th?t; n?u thi?u 5 th? c?nh b?o, kh?ng th?m c?u
-h?nh b? lo?i ?? l?p ch?.
+## Không gian tìm kiếm và ngân sách
 
-??c l??ng l? t??ng: `gi? = ng?n_s?ch * gi?y_trung_b?nh / (worker * 3600)`.
-V?i 20000 l??t / 20 worker: trung b?nh 60 gi?y -> 16.7 gi?; 300 gi?y ->
-83.3 gi?; 900 gi?y -> 250 gi?. Th?c t? c? overhead, t?i CPU v? ch? k?t th?c race.
-??nh gi? l?i 5 c?u h?nh tr?n c?ng 12 instance ? 10 seed c?n th?m 600 l??t;
-?? ??nh gi? kh? n?ng t?ng qu?t, d?ng m?t t?p instance ri?ng ch?a d?ng ?? tune.
+Tổng số tổ hợp: **3 × 6 × 4 × 4 × 3 × 5 × 3 × 4 = 51.840**.
 
-## Ch?y
+Với 12 instance huấn luyện, vét cạn toàn miền với 1 seed/instance cần **51.840 × 12 = 622.080 lượt chạy**. Irace loại dần cấu hình nên không cần vét cạn.
 
-T? th? m?c g?c, build l?i executable sau khi ??i C++:
+Cấu hình hiện tại trong `tune.R`: **25.000 lượt chạy**, **20 worker**, timeout **1.500 giây/lượt**. Một lượt tương ứng một cấu hình, một instance và một seed. Ngân sách này không bảo đảm tìm được 5 cấu hình tối ưu.
+
+`minNbSurvival = 5` đặt ngưỡng dừng mỗi race, không bảo đảm trả đúng 5 elite khác nhau. Script lưu toàn bộ elite theo thứ tự irace trả về và xuất tối đa 5 dòng đầu đã đổi sang giá trị thật. Nếu thiếu 5 elite, script cảnh báo.
+
+Ước lượng thời gian lý tưởng:
+
+```text
+giờ = ngân_sách * giây_trung_bình / (worker * 3600)
+```
+
+Với 25.000 lượt và 20 worker:
+
+| Thời gian trung bình mỗi lượt | Tổng thời gian ước tính |
+|---|---:|
+| 1 phút | 20,8 giờ |
+| 2 phút | 41,7 giờ |
+| 5 phút | 104,2 giờ (4,3 ngày) |
+| 10 phút | 208,3 giờ (8,7 ngày) |
+| 15 phút | 312,5 giờ (13 ngày) |
+
+Các số này chưa tính thời gian điều phối, tải CPU và chờ kết thúc race. Cần đo trên máy chạy thực tế để chọn dòng ước lượng phù hợp. Thu hẹp miền nén không làm ngân sách 25.000 lượt tự giảm theo.
+
+Đánh giá lại 5 cấu hình trên cùng 12 instance × 10 seed cần thêm 600 lượt. Để đánh giá khả năng tổng quát, dùng tập instance riêng chưa dùng để tune.
+
+## Chạy
+
+Từ thư mục gốc, build lại executable sau khi đổi C++:
 
 ```powershell
 g++ -O2 -std=c++17 -o src/Multilevel_Tabu_no_lwt.exe src/Multilevel_Tabu_no_lwt.cpp
@@ -62,12 +70,14 @@ cd tuning
 Rscript tune.R
 ```
 
-C?n R v? package irace. Ch?nh `MAX_EXPERIMENTS`, `N_PARALLEL`,
-`PER_RUN_TIMEOUT` trong tune.R khi c?n. Runner ??c d?ng `IRACE_RESULT`;
-timeout/crash/thi?u k?t qu? nh?n cost 1e12.
+Cần R và package irace. Chỉnh `MAX_EXPERIMENTS`, `N_PARALLEL`, `PER_RUN_TIMEOUT` trong `tune.R` khi cần. Runner đọc dòng `IRACE_RESULT`; timeout, crash hoặc thiếu kết quả nhận cost `1e12`.
 
-K?t qu?: `elite-configurations.csv` (tham s? g?c c?a irace), `elite-top5.csv`
-(5 elite ??u v?i tham s? th?t), `irace-log.Rdata` (log ??y ??).
-Kh?ng d?ng trung b?nh chi ph? tr?n c?c t?p instance kh?c nhau ?? x?p h?ng l?i elite.
+Kết quả:
 
-T?i li?u irace: https://mlopez-ibanez.github.io/irace/reference/defaultScenario.html
+- `elite-configurations.csv`: elite với tham số gốc của irace.
+- `elite-top5.csv`: tối đa 5 elite đầu với tham số thật.
+- `irace-log.Rdata`: log đầy đủ.
+
+Không dùng trung bình chi phí trên các tập instance khác nhau để xếp hạng lại elite.
+
+Tài liệu: [Cấu hình scenario của irace](https://mlopez-ibanez.github.io/irace/reference/defaultScenario.html).
