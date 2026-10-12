@@ -3,7 +3,7 @@ name: Table 7 - Tabu Multi-Level tren Raj MT-PDSTSP (2 truck)
 # Chay khi push file nay / code ML_table7 len Method_B, hoac bam "Run workflow" trong tab Actions.
 on:
   push:
-    branches: [Method_B]
+    branches: [Method_Ba]
     paths:
       - '.github/workflows/run_table7_raj.yml'
       - 'src/ML_table7_Raj_montiel.cpp'

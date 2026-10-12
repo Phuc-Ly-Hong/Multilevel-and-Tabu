@@ -1,162 +1,73 @@
-# Tune tham số Multilevel_Tabu_no_lwt bằng irace
+# Tune Multilevel_Tabu_no_lwt b?ng irace
 
-Thư mục này chứa toàn bộ setup để dùng **irace** dò tham số tự động cho
-`src/Multilevel_Tabu_no_lwt.cpp`.
+## Mi?n tham s?
 
-## 1. Các thay đổi đã làm trong file C++
+Alpha 1?4 trong y?u c?u t??ng ?ng `delta1..delta4` trong C++, kh?ng ph?i
+`alpha1` d?ng ph?t vi ph?m drone trong fitness.
 
-`main()` giờ nhận thêm các flag dạng `--ten_tham_so gia_tri` (thứ tự không
-quan trọng), bên cạnh cách gọi cũ `exe <instance>`:
+| Tham s? | Gi? tr? | S? l?a ch?n |
+|---|---|---:|
+| max_levels | 4, 5, 6 | 3 |
+| merge_ratio | 0.05?0.20, b??c 0.01 (gi? mi?n c? ?? ch? k?t qu? irace) | 16 |
+| iter_k | 15, 16, 17, 18 | 4 |
+| delta1 | 0.8, c? ??nh | 1 |
+| delta2 | 0.4, 0.5, 0.6, 0.7 | 4 |
+| delta3 | 0.1, 0.2, 0.3 | 3 |
+| tabu1 | 0.05?0.09, b??c 0.01 | 5 |
+| tabu2 | 0.10?0.12, b??c 0.01 | 3 |
+| delta4 | 0.1, 0.3, 0.5, 0.7 | 4 |
 
-```
-Multilevel_Tabu_no_lwt.exe <instance.txt> [--seed N]
-    [--max_levels N] [--merge_ratio F]
-    [--tabu_factor F] [--tabu_cap N]
-    [--iter_k F]
-    [--delta1 F] [--delta2 F] [--delta3 F] [--delta4 F]
-```
+`MAX_ITER = round(iter_k * s? kh?ch h?ng g?c)`, d?ng c?ng gi?i h?n ? c?c level.
+Thu?t to?n c? th? d?ng s?m theo ?i?u ki?n kh?ng c?i thi?n.
+`max_levels` gi? nguy?n ngh?a hi?n c? trong C++: ch? s? level t?i ?a, b?t ??u ? 0;
+4 cho ph?p c?c level 0?4 n?u ?? kh? n?ng n?n. ??y kh?ng ph?i cam k?t t?o ?? level.
 
-Cuối chương trình, ngoài các log cũ, chương trình in thêm đúng một dòng:
+Tenure is sampled uniformly for each accepted move from the inclusive integer
+interval [max(1, ceil(tabu1*n)), max(1, ceil(tabu2*n))], where n excludes the
+depot at the current level. The move and its reverse receive the same tenure.
+Both bounds affect sampling; rounding may make distinct factors equivalent
+on small levels. The existing --seed also controls tenure sampling.
 
-```
-IRACE_RESULT <giá_trị_mục_tiêu>
-```
+## Kh?ng gian t?m ki?m v? ng?n s?ch
 
-trong đó giá trị = `fitness` của lời giải tốt nhất, cộng thêm phạt `1e6` nếu
-lời giải không khả thi (`is_feasible == false`). Đây là dòng mà script tune
-đọc để biết cấu hình nào tốt hơn.
+T?ng s? t? h?p: `3 * 16 * 4 * 4 * 3 * 5 * 3 * 4 = 138240`.
+Both tabu bounds now affect behavior; no factor-of-five reduction applies.
 
-Các tham số/biến toàn cục mới thêm vào code (trước đây là hằng số cứng):
+12 instance hu?n luy?n hi?n c?: v?t c?n to?n mi?n v?i 1 seed/instance c?n
+`138240 * 12 = 1658880` l?n ch?y. Irace lo?i d?n c?u h?nh n?n kh?ng c?n v?t c?n.
 
-| Biến C++ | Trước đây | Bây giờ |
-|---|---|---|
-| `delta1..delta4` | `const double` cố định | biến, override qua `--delta1`..`--delta4` |
-| `TABU_TENURE` | `min(ceil(n/4), 10)` | `min(ceil(n * TABU_TENURE_FACTOR), TABU_TENURE_CAP)`, tune qua `--tabu_factor`, `--tabu_cap` |
-| `MAX_ITER` (số vòng lặp/1 level) | bậc thang cố định theo kích thước instance (dòng 189-220), tương đương K≈10 (500/50=1000/100=2000/200=10) | ghi đè bằng `--iter_k F`: `MAX_ITER = round(K × số_khách_hàng)`, tự scale theo size thay vì 1 số tuyệt đối cố định |
-| seed RNG | luôn `time(nullptr)` | dùng `--seed` nếu có (bắt buộc để irace tái lập kết quả) |
+Ng?n s?ch kh?i ??u ?? xu?t: 20000 l??t ch?y, 20 worker; ??y l? l?a ch?n th?c
+h?nh ?? b?t ??u, kh?ng ph?i c?ng th?c ??m b?o t?m ???c 5 c?u h?nh t?i ?u.
+C? th? ch?y th? ng?n s?ch 1000?2000 ?? ?o th?i gian v? t? l? timeout tr??c.
+Kh?ng t? kh?i ch?y tuning d?i khi ch? chu?n b? c?u h?nh.
 
-`max_no_improve_segment` (dòng ~973, giá trị cố định = 8) **không đưa vào
-tune** theo yêu cầu — vẫn giữ nguyên hằng số cứng như code gốc.
+`minNbSurvival=5` ??t ng??ng d?ng race; kh?ng b?o ??m tr? ??ng 5 elite ho?c
+ch?t l??ng t?i ?u. Script l?u to?n b? elite theo th? t? irace tr? v? v? xu?t
+5 d?ng ??u ?? ??i sang gi? tr? th?t; n?u thi?u 5 th? c?nh b?o, kh?ng th?m c?u
+h?nh b? lo?i ?? l?p ch?.
 
-`alpha1` (hệ số phạt drone_violation trong fitness) **không đưa vào tune**
-theo yêu cầu — vẫn giữ cố định = 1.0 như code gốc, không nhận flag CLI nữa.
+??c l??ng l? t??ng: `gi? = ng?n_s?ch * gi?y_trung_b?nh / (worker * 3600)`.
+V?i 20000 l??t / 20 worker: trung b?nh 60 gi?y -> 16.7 gi?; 300 gi?y ->
+83.3 gi?; 900 gi?y -> 250 gi?. Th?c t? c? overhead, t?i CPU v? ch? k?t th?c race.
+??nh gi? l?i 5 c?u h?nh tr?n c?ng 12 instance ? 10 seed c?n th?m 600 l??t;
+?? ??nh gi? kh? n?ng t?ng qu?t, d?ng m?t t?p instance ri?ng ch?a d?ng ?? tune.
 
-`alpha2` và `Beta` (dòng ~100-101) hiện **không được dùng ở đâu trong code**
-— tôi để nguyên, chưa đưa vào tune vì chúng chưa có tác dụng gì với fitness.
+## Ch?y
 
-## 1b. Chốt cứng 3 tham số (không tune nữa)
-
-`max_levels = 5`, `tabu_factor = 0.25`, `delta1 = 0.8` được **chốt cứng** —
-không nằm trong `parameters.txt`, truyền cố định trong `FIXED_ARGS` ở đầu
-`tune.R`. Còn **6 tham số** irace thật sự tune: `merge_ratio`, `tabu_cap`,
-`iter_k`, `delta2`, `delta3`, `delta4`.
-
-## 1c. Bước nhảy (step size) cho các tham số thực
-
-irace không hỗ trợ khai báo step-size trực tiếp cho tham số kiểu `r` (thực)
-trong `parameters.txt`, nên các tham số thực được biểu diễn dưới dạng **số
-bước nguyên** (`merge_ratio_steps`, `iter_k_steps`, `delta2_steps`,
-`delta3_steps`, `delta4_steps`) — `tune.R` tự nhân lại với độ dài bước
-trước khi truyền cho exe (xem `STEP_SIZES` trong `tune.R`):
-
-| Tham số | Bước nhảy | Miền số bước | Miền giá trị thực | Số giá trị khả dĩ |
-|---|---|---|---|---|
-| `merge_ratio` | 0.01 | 5 – 20 | 0.05 – 0.20 | 16 |
-| `tabu_cap` | (nguyên sẵn, không đổi) | 5 – 20 | 5 – 20 | 16 |
-| `iter_k` | 1 | 16 – 22 | 16 – 22 | 7 |
-| `delta2` | 0.015 | 1 – 53 | 0.015 – 0.795 | 53 |
-| `delta3` | 0.01 | 1 – 80 | 0.01 – 0.80 | 80 |
-| `delta4` | 0.01 | 25 – 60 | 0.25 – 0.60 | 36 |
-
-`delta4` được thu hẹp từ miền gốc 0.05–0.60 xuống 0.25–0.60, dựa trên dữ
-liệu 2 lần tune trước — mọi cấu hình elite (cả 2 lần) đều rơi vào khoảng
-0.37–0.52, dù các tham số khác thay đổi khá nhiều giữa 2 lần.
-
-## 1d. Ràng buộc `delta1 > delta2 > delta3`
-
-Vì `delta1 = 0.8` cố định và miền `delta2` tối đa 0.795 (< 0.8), điều kiện
-`delta1 > delta2` luôn tự động đúng. Riêng `delta3 < delta2` **không khai
-báo được trực tiếp trong `parameters.txt`** (vì `delta2` và `delta3` dùng 2
-bước nhảy khác nhau — 0.015 vs 0.01 — không thể so sánh thẳng "số bước").
-Thay vào đó, `target.runner` trong `tune.R` tự kiểm tra sau khi quy đổi ra
-giá trị thực: nếu `delta3 >= delta2`, cấu hình bị phạt cost cực lớn
-(`1e12`) và **không chạy exe** (tiết kiệm thời gian cho cấu hình chắc chắn
-bị loại).
-
-## 2. Cài đặt môi trường (chỉ cần làm 1 lần)
-
-1. Cài **R**: tải tại https://cran.r-project.org/bin/windows/base/ (bản mới
-   nhất), cài xong nhớ tick "Add R to PATH" hoặc tự thêm `Rscript.exe`
-   (thường ở `C:\Program Files\R\R-x.x.x\bin`) vào PATH.
-2. Mở PowerShell, cài gói irace:
-   ```powershell
-   Rscript -e "install.packages('irace', repos='https://cloud.r-project.org')"
-   ```
-3. Build lại executable với code đã sửa:
-   ```powershell
-   g++ -O2 -std=c++17 -o src/Multilevel_Tabu_no_lwt.exe src/Multilevel_Tabu_no_lwt.cpp
-   ```
-   > Lưu ý: khi tôi build thử trên máy này, linker (`ld.exe` của MSYS2/MinGW)
-   > báo lỗi `ld returned 116 exit status` — kể cả với 1 file "hello world"
-   > trống, nên đây là vấn đề môi trường (rất có thể Windows Defender / một
-   > antivirus đang khoá file `.exe` mới tạo), không phải lỗi trong code.
-   > Nếu bạn gặp lại lỗi này: thử build lại lần nữa (đôi khi transient), hoặc
-   > thêm thư mục `D:\New folder` vào danh sách loại trừ của Windows Defender
-   > (Windows Security → Virus & threat protection → Exclusions), rồi build
-   > lại.
-
-## 3. Chạy tuning
+T? th? m?c g?c, build l?i executable sau khi ??i C++:
 
 ```powershell
+g++ -O2 -std=c++17 -o src/Multilevel_Tabu_no_lwt.exe src/Multilevel_Tabu_no_lwt.cpp
 cd tuning
 Rscript tune.R
 ```
 
-Mặc định `tune.R` dùng:
-- **Instance train**: 12 file trong `tuning/train-instances/` — mỗi size
-  (50, 100, 200) lấy 4 instance, mỗi nhóm "grid" (`.10`/`.20`/`.30`/`.40`)
-  1 replicate khác nhau cho đa dạng (ví dụ `50.10.1`, `50.20.2`, `50.30.3`,
-  `50.40.4`; tương tự cho 100 và 200). Tách riêng khỏi bộ bạn dùng để báo
-  cáo kết quả cuối cùng, tránh overfit tham số vào đúng bộ test.
-- **Ngân sách**: `MAX_EXPERIMENTS = 35000` lần chạy thuật toán — chỉnh trong
-  đầu file `tune.R` (khoá `MAX_EXPERIMENTS`). Nếu muốn test pipeline nhanh
-  trước (kiểm tra không lỗi/không crash) thì tạm hạ xuống 500–1000, chạy
-  thử, rồi trả lại 35000 cho lần tune "thật". Mức này dư dả (gấp 1.75 lần
-  ngân sách lần 2 cho cùng 6 tham số) để chắc chắn lấy đủ top 5 elite.
-- **Song song**: `N_PARALLEL = 20` (đặt cho máy 24 nhân, chừa 4 nhân cho hệ
-  điều hành/tác vụ khác) — irace tự dùng cluster kiểu PSOCK, chạy được trên
-  Windows. Đổi lại nếu chạy trên máy khác có số nhân khác.
-- **Timeout mỗi lần chạy**: `PER_RUN_TIMEOUT = 1500` giây (25 phút) — nới
-  rộng mạnh vì `iter_k` giờ luôn ở mức cao (16–22, gấp ~2x mặc định gốc
-  ~10), làm instance 200 khách hàng chạy rất chậm; cộng thêm hiệu ứng tranh
-  chấp CPU khi chạy song song 20 tiến trình.
+C?n R v? package irace. Ch?nh `MAX_EXPERIMENTS`, `N_PARALLEL`,
+`PER_RUN_TIMEOUT` trong tune.R khi c?n. Runner ??c d?ng `IRACE_RESULT`;
+timeout/crash/thi?u k?t qu? nh?n cost 1e12.
 
-Kết quả:
-- `tuning/elite-configurations.csv` — vài bộ tham số tốt nhất (mặc định
-  irace trả ~5-7 bộ ngang nhau về thống kê).
-- `tuning/irace-log.Rdata` — log đầy đủ, có thể mở lại bằng
-  `irace::plotResults` hoặc phân tích thêm sau này.
+K?t qu?: `elite-configurations.csv` (tham s? g?c c?a irace), `elite-top5.csv`
+(5 elite ??u v?i tham s? th?t), `irace-log.Rdata` (log ??y ??).
+Kh?ng d?ng trung b?nh chi ph? tr?n c?c t?p instance kh?c nhau ?? x?p h?ng l?i elite.
 
-## 4. Dùng kết quả
-
-Sau khi có `elite-configurations.csv`, lấy bộ tham số hàng đầu (thường là
-dòng đầu, `.ID. = 1` hoặc xếp theo cột thứ tự) rồi:
-
-- **Cách nhanh**: gọi trực tiếp exe với các flag đó khi chạy thí nghiệm thật
-  (ví dụ sửa `scripts/run_experiments.py` để truyền thêm các flag này khi
-  gọi `Multilevel_Tabu_no_lwt.exe`).
-- **Cách "chốt cứng"**: sửa giá trị mặc định trong code C++ (dòng khai báo
-  `delta1..delta4`, `TABU_TENURE_FACTOR`, `TABU_TENURE_CAP`, `alpha1`,
-  `MERGE_RATIO`, `MAX_LEVELS`) thành giá trị tune
-  được, rồi build lại — để không cần truyền flag nữa trong các lần chạy sau.
-
-## 5. Mở rộng thêm
-
-- Muốn tune riêng theo từng nhóm kích thước bài toán (giống OSP paper tune
-  riêng UC-1/UC-2/UC-3): tạo thêm thư mục instance train khác (vd
-  `train-instances-large/`) và chạy `tune.R` riêng cho từng bộ, chỉnh
-  `INSTANCES_DIR` ở đầu file.
-- Muốn thêm tham số mới vào tune: (1) thêm biến global trong `.cpp`, (2)
-  thêm nhánh `else if (key == "--ten_moi") ...` trong `main()`, (3) thêm
-  dòng trong `parameters.txt`, (4) thêm dòng vào `switch_map` trong
-  `tune.R`.
+T?i li?u irace: https://mlopez-ibanez.github.io/irace/reference/defaultScenario.html

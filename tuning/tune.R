@@ -23,8 +23,8 @@ suppressMessages(library(irace))
 # ---------------------------------------------------------------
 EXE_PATH        <- normalizePath(file.path("..", "src", "Multilevel_Tabu_no_lwt.exe"))
 INSTANCES_DIR   <- "train-instances"
-MAX_EXPERIMENTS <- 35000  # ngan sach so lan chay thuat toan (6 tham so tune, du du de chac chan lay du top 5 elite)
-PER_RUN_TIMEOUT <- 1500   # giay (25 phut), noi rong manh vi iter_k gio luon cao (16-22, gap ~2x mac dinh cu) lam instance 200 rat cham
+MAX_EXPERIMENTS <- 25000  # Initial search budget, not a guarantee of elite quality.
+PER_RUN_TIMEOUT <- 1500   # Seconds per run; inspect timeout rate after a pilot.
 N_PARALLEL      <- 20     # may 24 nhan, danh 20 nhan chay song song cho irace
 
 if (!file.exists(EXE_PATH)) {
@@ -38,24 +38,12 @@ if (length(instance_files) == 0) stop("Khong co instance nao trong ", INSTANCES_
 cat("So instance dung de tune:", length(instance_files), "\n")
 
 # ---------------------------------------------------------------
-# 3 tham so chot cung (khong tune), luon truyen y het cho moi lan chay
+# Fixed parameters: requested alpha1 maps to delta1, not the fitness penalty alpha1.
+# Tenure is sampled within tabu1/tabu2 bounds for each accepted move.
 # ---------------------------------------------------------------
-FIXED_ARGS <- c("--max_levels", "5",
-                "--tabu_factor", "0.25",
-                "--delta1", "0.8")
-
-# ---------------------------------------------------------------
-# Cac tham so con lai duoc irace tune duoi dang "so buoc nguyen" (xem
-# parameters.txt) -- can nhan lai voi buoc nhay de ra gia tri thuc, roi
-# moi truyen cho exe qua switch tuong ung ("_steps" bi bo di).
-# ---------------------------------------------------------------
-STEP_SIZES <- c(
-  merge_ratio = 0.01,
-  iter_k      = 1,
-  delta2      = 0.015,
-  delta3      = 0.01,
-  delta4      = 0.01
-)
+FIXED_ARGS <- c("--delta1", "0.8")
+STEP_SIZES <- c(merge_ratio = 0.01, tabu1 = 0.01, tabu2 = 0.01)
+DIRECT_PARAMS <- c("max_levels", "iter_k", "delta2", "delta3", "delta4")
 
 # ---------------------------------------------------------------
 # target-runner: chay 1 lan thuat toan voi 1 bo tham so + 1 instance + 1 seed
@@ -72,21 +60,12 @@ target.runner <- function(experiment, scenario) {
     }
   }
 
-  # Rang buoc delta1(=0.8) > delta2 > delta3: delta2 < 0.8 luon dung do
-  # mien cho phep (<=0.795), chi can kiem tra delta3 < delta2. Vi pham thi
-  # phat that nang, KHONG chay exe (tiet kiem thoi gian).
-  if (!is.null(real_values$delta2) && !is.null(real_values$delta3)) {
-    if (real_values$delta3 >= real_values$delta2) {
-      return(list(cost = 1e12, time = 0.001))  # irace bat buoc time > 0 tuyet doi
-    }
-  }
-
-  args <- c(experiment$instance, "--seed", as.character(experiment$seed), FIXED_ARGS)
+  args <- c(shQuote(experiment$instance), "--seed", as.character(experiment$seed), FIXED_ARGS)
   for (base_name in names(real_values)) {
     args <- c(args, paste0("--", base_name), as.character(real_values[[base_name]]))
   }
-  if ("tabu_cap" %in% names(conf) && !is.na(conf[["tabu_cap"]])) {
-    args <- c(args, "--tabu_cap", as.character(conf[["tabu_cap"]]))
+  for (name in DIRECT_PARAMS) {
+    args <- c(args, paste0("--", name), as.character(conf[[name]]))
   }
 
   start_time <- Sys.time()
@@ -120,6 +99,8 @@ scenario <- defaultScenario(list(
   instances      = instance_files,
   maxExperiments = MAX_EXPERIMENTS,
   parallel       = N_PARALLEL,
+  minNbSurvival  = 5,
+  elitist        = 1,
   logFile        = "irace-log.Rdata",
   seed           = 4321,
   parameters     = parameters
@@ -132,5 +113,17 @@ cat("\n=== Cac cau hinh tot nhat (elite configurations) ===\n")
 print(elite)
 
 write.csv(elite, file = "elite-configurations.csv", row.names = FALSE)
+# Keep irace's returned order; do not rank costs from different instance subsets.
+elite_real <- elite
+for (name in names(STEP_SIZES)) {
+  steps_name <- paste0(name, "_steps")
+  elite_real[[name]] <- round(as.numeric(elite_real[[steps_name]]) * STEP_SIZES[[name]], 4)
+  elite_real[[steps_name]] <- NULL
+}
+elite_real$delta1 <- 0.8
+write.csv(head(elite_real, 5), file = "elite-top5.csv", row.names = FALSE)
+if (nrow(elite) < 5) {
+  warning("irace returned fewer than 5 elites; elite-top5.csv contains only actual elites.")
+}
 cat("\nDa luu vao tuning/elite-configurations.csv\n")
 cat("Va log day du (co the mo lai bang irace::plotElite / irace::iraceResults) o tuning/irace-log.Rdata\n")

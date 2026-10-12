@@ -121,8 +121,9 @@ double delta2 = 0.2;
 double delta3 = 0.1;
 double delta4 = 0.3;
 
-double TABU_TENURE_FACTOR = 0.25; // TABU_TENURE = ceil(num_nodes * factor), chặn bởi cap
-int TABU_TENURE_CAP = 10;
+double TABU_TENURE_FACTOR = 0.25; // Clamp tenure using customer-scaled bounds.
+double tabu1 = 0.10; // Minimum tenure factor per customer.
+double tabu2 = 0.25; // Maximum tenure factor per customer.
 
 int select_move_type(){
     double total_weight = accumulate(weights.begin(), weights.end(), 0.0);
@@ -249,7 +250,6 @@ void read_dataset(const string &filename){
     }
     // Dataset stats logging removed for performance.
     num_nodes = nodes.size();
-    TABU_TENURE = min((int)ceil(num_nodes * TABU_TENURE_FACTOR), TABU_TENURE_CAP);
 }
 
 void print_solution(const Solution &sol){
@@ -947,6 +947,10 @@ int count_customers_in_vehicle(const Solution& sol, size_t vehicle_idx) {
 }
 
 Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
+    const int num_customer = max(1, num_nodes - 1); // Exclude depot; use current level.
+    const int min_tenure = max(1, (int)ceil(tabu1 * num_customer));
+    const int max_tenure = max(min_tenure, (int)ceil(tabu2 * num_customer));
+    TABU_TENURE = max(min_tenure, min((int)ceil(num_customer * TABU_TENURE_FACTOR), max_tenure));
     if (current_level != nullptr) update_node_index_cache(*current_level);
 
     Solution best_sol = initial_sol;
@@ -2197,13 +2201,19 @@ int main(int argc, char* argv[]) {
         else if (key == "--max_levels") { MAX_LEVELS = max(1, atoi(val.c_str())); USE_MANUAL_SEGMENT_CONFIG = true; }
         else if (key == "--merge_ratio") { double r = atof(val.c_str()); if (r > 1.0) r /= 100.0; MERGE_RATIO = min(0.95, max(0.01, r)); }
         else if (key == "--tabu_factor") TABU_TENURE_FACTOR = atof(val.c_str());
-        else if (key == "--tabu_cap") TABU_TENURE_CAP = max(1, atoi(val.c_str()));
+        else if (key == "--tabu1") tabu1 = atof(val.c_str());
+        else if (key == "--tabu2" || key == "--tabu_cap") tabu2 = atof(val.c_str());
         else if (key == "--delta1") delta1 = atof(val.c_str());
         else if (key == "--delta2") delta2 = atof(val.c_str());
         else if (key == "--delta3") delta3 = atof(val.c_str());
         else if (key == "--delta4") delta4 = atof(val.c_str());
         else if (key == "--iter_k") { iter_k_arg = atof(val.c_str()); has_iter_k = true; }
         else if (key == "--seed") { seed_arg = (unsigned int)strtoul(val.c_str(), nullptr, 10); has_seed = true; }
+    }
+
+    if (!isfinite(tabu1) || !isfinite(tabu2) || tabu1 <= 0 || tabu2 < tabu1) {
+        cerr << "Invalid tabu bounds: require 0 < tabu1 <= tabu2." << endl;
+        return 1;
     }
 
     srand(has_seed ? seed_arg : (unsigned int)time(nullptr));

@@ -3,7 +3,7 @@ name: Table 6 - Tabu Multi-Level tren Saleu 2022
 # Chay khi push file nay / code ML_table6 len Method_B, hoac bam "Run workflow" trong tab Actions.
 on:
   push:
-    branches: [Method_B]
+    branches: [Method_Ba]
     paths:
       - '.github/workflows/run_table6_saleu.yml'
       - 'src/ML_table6_saleu_and_motiel.cpp'
