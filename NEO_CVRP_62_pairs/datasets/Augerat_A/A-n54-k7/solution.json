@@ -1,0 +1,167 @@
+{
+  "dataset": "Augerat_A",
+  "instance": "A-n54-k7",
+  "dimension": 54,
+  "capacity": 100,
+  "depot_node_id": 1,
+  "route_customer_index_base": 1,
+  "route_to_vrp_node_mapping": "node_id = route_customer_id + 1",
+  "objective_published": 1167.0,
+  "is_optimal": null,
+  "optimality_note": "Not independently established",
+  "routes": [
+    [
+      29,
+      26,
+      45,
+      21,
+      33,
+      9,
+      38
+    ],
+    [
+      11,
+      19,
+      8,
+      31,
+      40,
+      48,
+      37,
+      32
+    ],
+    [
+      14,
+      2,
+      12,
+      27,
+      6,
+      16
+    ],
+    [
+      13,
+      22,
+      3,
+      53,
+      44
+    ],
+    [
+      43,
+      4,
+      28,
+      7,
+      39,
+      50,
+      5,
+      18
+    ],
+    [
+      30,
+      25,
+      47,
+      51,
+      24,
+      42,
+      46,
+      41,
+      34,
+      52
+    ],
+    [
+      23,
+      20,
+      49,
+      36,
+      1,
+      17,
+      10,
+      15,
+      35
+    ]
+  ],
+  "routes_vrp_node_ids": [
+    [
+      30,
+      27,
+      46,
+      22,
+      34,
+      10,
+      39
+    ],
+    [
+      12,
+      20,
+      9,
+      32,
+      41,
+      49,
+      38,
+      33
+    ],
+    [
+      15,
+      3,
+      13,
+      28,
+      7,
+      17
+    ],
+    [
+      14,
+      23,
+      4,
+      54,
+      45
+    ],
+    [
+      44,
+      5,
+      29,
+      8,
+      40,
+      51,
+      6,
+      19
+    ],
+    [
+      31,
+      26,
+      48,
+      52,
+      25,
+      43,
+      47,
+      42,
+      35,
+      53
+    ],
+    [
+      24,
+      21,
+      50,
+      37,
+      2,
+      18,
+      11,
+      16,
+      36
+    ]
+  ],
+  "route_loads": [
+    98,
+    97,
+    99,
+    98,
+    95,
+    95,
+    87
+  ],
+  "checks": {
+    "customer_coverage_unique": true,
+    "capacity": true,
+    "routes_parsed": true,
+    "status": "PASS"
+  },
+  "original_instance_archive": "A-VRP (1).zip",
+  "original_solution_archive": "A-VRP-sol (3).zip"
+}

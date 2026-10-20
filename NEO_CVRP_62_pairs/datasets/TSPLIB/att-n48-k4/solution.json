@@ -1,0 +1,140 @@
+{
+  "dataset": "TSPLIB",
+  "instance": "att-n48-k4",
+  "dimension": 48,
+  "capacity": 15,
+  "depot_node_id": 1,
+  "route_customer_index_base": 1,
+  "route_to_vrp_node_mapping": "node_id = route_customer_id + 1",
+  "objective_published": 40002.0,
+  "is_optimal": true,
+  "optimality_note": "Explicit Optimal value in instance COMMENT matches solution cost",
+  "routes": [
+    [
+      21,
+      46,
+      20,
+      29,
+      42,
+      17,
+      26,
+      19,
+      36,
+      6,
+      27,
+      7,
+      18,
+      35,
+      12
+    ],
+    [
+      33,
+      40,
+      16,
+      22,
+      1,
+      8,
+      9,
+      37,
+      30,
+      43,
+      45,
+      32,
+      15,
+      39,
+      3
+    ],
+    [
+      13,
+      11,
+      23,
+      14
+    ],
+    [
+      47,
+      5,
+      28,
+      2,
+      41,
+      25,
+      4,
+      34,
+      44,
+      10,
+      24,
+      31,
+      38
+    ]
+  ],
+  "routes_vrp_node_ids": [
+    [
+      22,
+      47,
+      21,
+      30,
+      43,
+      18,
+      27,
+      20,
+      37,
+      7,
+      28,
+      8,
+      19,
+      36,
+      13
+    ],
+    [
+      34,
+      41,
+      17,
+      23,
+      2,
+      9,
+      10,
+      38,
+      31,
+      44,
+      46,
+      33,
+      16,
+      40,
+      4
+    ],
+    [
+      14,
+      12,
+      24,
+      15
+    ],
+    [
+      48,
+      6,
+      29,
+      3,
+      42,
+      26,
+      5,
+      35,
+      45,
+      11,
+      25,
+      32,
+      39
+    ]
+  ],
+  "route_loads": [
+    15,
+    15,
+    4,
+    13
+  ],
+  "checks": {
+    "customer_coverage_unique": true,
+    "capacity": true,
+    "routes_parsed": true,
+    "status": "PASS"
+  },
+  "original_instance_archive": "TSPLIB.zip",
+  "original_solution_archive": "TSPLIB-Sol.zip"
+}

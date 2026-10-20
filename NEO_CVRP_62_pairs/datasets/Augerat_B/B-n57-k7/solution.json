@@ -1,0 +1,173 @@
+{
+  "dataset": "Augerat_B",
+  "instance": "B-n57-k7",
+  "dimension": 57,
+  "capacity": 100,
+  "depot_node_id": 1,
+  "route_customer_index_base": 1,
+  "route_to_vrp_node_mapping": "node_id = route_customer_id + 1",
+  "objective_published": 1153.0,
+  "is_optimal": true,
+  "optimality_note": "Explicit Optimal value in instance COMMENT matches solution cost",
+  "routes": [
+    [
+      16,
+      24,
+      41,
+      34,
+      17,
+      19,
+      26,
+      56
+    ],
+    [
+      48,
+      45,
+      6,
+      31,
+      11,
+      15
+    ],
+    [
+      22,
+      14,
+      7,
+      43,
+      20,
+      47,
+      32
+    ],
+    [
+      27,
+      49,
+      44,
+      21,
+      10,
+      3,
+      13,
+      33
+    ],
+    [
+      37,
+      39,
+      52,
+      50,
+      42,
+      30,
+      2,
+      55,
+      1
+    ],
+    [
+      28,
+      25,
+      8,
+      9,
+      51,
+      38,
+      36,
+      53,
+      12,
+      18
+    ],
+    [
+      5,
+      46,
+      23,
+      4,
+      40,
+      29,
+      35,
+      54
+    ]
+  ],
+  "routes_vrp_node_ids": [
+    [
+      17,
+      25,
+      42,
+      35,
+      18,
+      20,
+      27,
+      57
+    ],
+    [
+      49,
+      46,
+      7,
+      32,
+      12,
+      16
+    ],
+    [
+      23,
+      15,
+      8,
+      44,
+      21,
+      48,
+      33
+    ],
+    [
+      28,
+      50,
+      45,
+      22,
+      11,
+      4,
+      14,
+      34
+    ],
+    [
+      38,
+      40,
+      53,
+      51,
+      43,
+      31,
+      3,
+      56,
+      2
+    ],
+    [
+      29,
+      26,
+      9,
+      10,
+      52,
+      39,
+      37,
+      54,
+      13,
+      19
+    ],
+    [
+      6,
+      47,
+      24,
+      5,
+      41,
+      30,
+      36,
+      55
+    ]
+  ],
+  "route_loads": [
+    100,
+    99,
+    100,
+    100,
+    98,
+    100,
+    100
+  ],
+  "checks": {
+    "customer_coverage_unique": true,
+    "capacity": true,
+    "routes_parsed": true,
+    "status": "PASS"
+  },
+  "original_instance_archive": "B-VRP.zip",
+  "original_solution_archive": "B-VRP-sol.zip"
+}

@@ -1,0 +1,133 @@
+{
+  "dataset": "TSPLIB",
+  "instance": "swiss-n42-k5",
+  "dimension": 42,
+  "capacity": 9,
+  "depot_node_id": 1,
+  "route_customer_index_base": 1,
+  "route_to_vrp_node_mapping": "node_id = route_customer_id + 1",
+  "objective_published": 1668.0,
+  "is_optimal": true,
+  "optimality_note": "Explicit Optimal value in instance COMMENT matches solution cost",
+  "routes": [
+    [
+      28,
+      29,
+      39,
+      21,
+      40,
+      24,
+      22,
+      38,
+      30
+    ],
+    [
+      1,
+      6,
+      4,
+      3,
+      2,
+      27
+    ],
+    [
+      18,
+      12,
+      11,
+      25,
+      10,
+      41,
+      23,
+      9,
+      8
+    ],
+    [
+      32,
+      34,
+      33,
+      20,
+      35,
+      36,
+      17,
+      31
+    ],
+    [
+      7,
+      37,
+      15,
+      16,
+      14,
+      19,
+      13,
+      5,
+      26
+    ]
+  ],
+  "routes_vrp_node_ids": [
+    [
+      29,
+      30,
+      40,
+      22,
+      41,
+      25,
+      23,
+      39,
+      31
+    ],
+    [
+      2,
+      7,
+      5,
+      4,
+      3,
+      28
+    ],
+    [
+      19,
+      13,
+      12,
+      26,
+      11,
+      42,
+      24,
+      10,
+      9
+    ],
+    [
+      33,
+      35,
+      34,
+      21,
+      36,
+      37,
+      18,
+      32
+    ],
+    [
+      8,
+      38,
+      16,
+      17,
+      15,
+      20,
+      14,
+      6,
+      27
+    ]
+  ],
+  "route_loads": [
+    9,
+    6,
+    9,
+    8,
+    9
+  ],
+  "checks": {
+    "customer_coverage_unique": true,
+    "capacity": true,
+    "routes_parsed": true,
+    "status": "PASS"
+  },
+  "original_instance_archive": "TSPLIB.zip",
+  "original_solution_archive": "TSPLIB-Sol.zip"
+}

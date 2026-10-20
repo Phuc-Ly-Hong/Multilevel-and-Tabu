@@ -1,0 +1,134 @@
+{
+  "dataset": "Fisher",
+  "instance": "F-n45-k4",
+  "dimension": 45,
+  "capacity": 2010,
+  "depot_node_id": 1,
+  "route_customer_index_base": 1,
+  "route_to_vrp_node_mapping": "node_id = route_customer_id + 1",
+  "objective_published": 724.0,
+  "is_optimal": null,
+  "optimality_note": "Not independently established",
+  "routes": [
+    [
+      43,
+      44,
+      28,
+      33,
+      29,
+      27,
+      6,
+      5,
+      7,
+      35,
+      3,
+      4,
+      14,
+      13,
+      12,
+      11,
+      18,
+      17,
+      10
+    ],
+    [
+      42,
+      30,
+      41,
+      32,
+      31,
+      34,
+      40,
+      39,
+      36,
+      38,
+      37
+    ],
+    [
+      24,
+      9,
+      15,
+      1,
+      2,
+      16
+    ],
+    [
+      20,
+      21,
+      25,
+      26,
+      23,
+      22,
+      19,
+      8
+    ]
+  ],
+  "routes_vrp_node_ids": [
+    [
+      44,
+      45,
+      29,
+      34,
+      30,
+      28,
+      7,
+      6,
+      8,
+      36,
+      4,
+      5,
+      15,
+      14,
+      13,
+      12,
+      19,
+      18,
+      11
+    ],
+    [
+      43,
+      31,
+      42,
+      33,
+      32,
+      35,
+      41,
+      40,
+      37,
+      39,
+      38
+    ],
+    [
+      25,
+      10,
+      16,
+      2,
+      3,
+      17
+    ],
+    [
+      21,
+      22,
+      26,
+      27,
+      24,
+      23,
+      20,
+      9
+    ]
+  ],
+  "route_loads": [
+    1594,
+    2004,
+    1612,
+    2010
+  ],
+  "checks": {
+    "customer_coverage_unique": true,
+    "capacity": true,
+    "routes_parsed": true,
+    "status": "PASS"
+  },
+  "original_instance_archive": "F-VRP.zip",
+  "original_solution_archive": "F-Vrp-sol.zip"
+}

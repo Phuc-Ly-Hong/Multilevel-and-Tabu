@@ -1,0 +1,71 @@
+{
+  "dataset": "TSPLIB",
+  "instance": "ulysses-n16-k3",
+  "dimension": 16,
+  "capacity": 5,
+  "depot_node_id": 1,
+  "route_customer_index_base": 1,
+  "route_to_vrp_node_mapping": "node_id = route_customer_id + 1",
+  "objective_published": 30492.0,
+  "is_optimal": null,
+  "optimality_note": "Not independently established",
+  "routes": [
+    [
+      10,
+      8,
+      9,
+      6,
+      5
+    ],
+    [
+      14,
+      13,
+      12,
+      11,
+      4
+    ],
+    [
+      3,
+      1,
+      2,
+      15,
+      7
+    ]
+  ],
+  "routes_vrp_node_ids": [
+    [
+      11,
+      9,
+      10,
+      7,
+      6
+    ],
+    [
+      15,
+      14,
+      13,
+      12,
+      5
+    ],
+    [
+      4,
+      2,
+      3,
+      16,
+      8
+    ]
+  ],
+  "route_loads": [
+    5,
+    5,
+    5
+  ],
+  "checks": {
+    "customer_coverage_unique": true,
+    "capacity": true,
+    "routes_parsed": true,
+    "status": "PASS"
+  },
+  "original_instance_archive": "TSPLIB.zip",
+  "original_solution_archive": "TSPLIB-Sol.zip"
+}

@@ -1,0 +1,125 @@
+name: NEO CVRP - ML (5 seeds)
+
+on:
+  push:
+    branches: [Method_B]
+    paths:
+      - '.github/workflows/run_neo_*.yml'
+      - 'src/ML_NEO_CVRP.cpp'
+      - 'src/Tabu_Neo.cpp'
+      - 'scripts/neo_workflow.py'
+      - 'scripts/check_neo_solution.py'
+      - 'NEO_CVRP_62_pairs/**'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'benchmark: 62 instances x 5 seeds; compare-only: merge existing artifacts'
+        type: choice
+        options: [benchmark, compare-only]
+        default: benchmark
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: neo-ml-${{ github.ref }}-${{ inputs.mode || 'benchmark' }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: ${{ inputs.mode != 'compare-only' }}
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Plan one job per instance
+        id: plan
+        run: |
+          MATRIX=$(python3 scripts/neo_workflow.py plan)
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+      - name: Compile ML NEO
+        run: g++ -O2 -std=c++17 -o neo_solver src/ML_NEO_CVRP.cpp
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neo-ml-executable
+          path: neo_solver
+          overwrite: true
+          retention-days: 7
+
+  run:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    name: ML ${{ matrix.instance }} - seeds 4321-4325
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: neo-ml-executable
+      - name: Run five paired seeds
+        env:
+          INSTANCE_PATH: ${{ matrix.path }}
+          INSTANCE_NAME: ${{ matrix.instance }}
+        run: |
+          chmod +x neo_solver
+          mkdir -p output
+          timeout 310m ./neo_solver "$INSTANCE_PATH" \
+            --runs 5 --seed 4321 --iter_k 16 --max_levels 4 --merge_ratio 0.10 \
+            --tabu_factor 0.25 --tabu1 0.10 --tabu2 0.25 \
+            --delta1 0.3 --delta2 0.2 --delta3 0.1 --delta4 0.3 \
+            --csv "output/$INSTANCE_NAME.csv" > "output/$INSTANCE_NAME.log" 2>&1
+      - name: Upload CSV and diagnostic log even on failure
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: neo-ml-part-${{ matrix.instance }}
+          path: output/
+          if-no-files-found: warn
+          overwrite: true
+          retention-days: 30
+
+  summarize:
+    needs: [prepare, run]
+    if: ${{ !cancelled() && (inputs.mode == 'compare-only' || needs.prepare.result == 'success') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download per-instance results
+        if: ${{ inputs.mode != 'compare-only' }}
+        uses: actions/download-artifact@v4
+        with:
+          pattern: neo-ml-part-*
+          path: work/parts
+          merge-multiple: true
+      - name: Validate 310 runs and choose best of five
+        if: ${{ inputs.mode != 'compare-only' }}
+        run: python3 scripts/neo_workflow.py summarize --algorithm ml --parts work/parts --output work/ml
+      - name: Upload runs.csv, best.csv and public reference
+        if: ${{ !cancelled() && inputs.mode != 'compare-only' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: neo-ml-results
+          path: work/ml/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 30
+      - name: Compare ML best vs Tabu best vs recomputed public routes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/neo_workflow.py compare-remote --algorithm ml --current-dir work/ml --output work/comparison
+      - name: Upload combined comparison if both workflows are ready
+        uses: actions/upload-artifact@v4
+        with:
+          name: neo-ml-vs-tabu-comparison
+          path: |
+            work/comparison/ML_vs_Tabu_vs_public.csv
+            work/comparison/summary.md
+          if-no-files-found: warn
+          overwrite: true
+          retention-days: 30

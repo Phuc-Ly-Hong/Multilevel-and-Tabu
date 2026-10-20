@@ -1,0 +1,199 @@
+{
+  "dataset": "Augerat_A",
+  "instance": "A-n65-k9",
+  "dimension": 65,
+  "capacity": 100,
+  "depot_node_id": 1,
+  "route_customer_index_base": 1,
+  "route_to_vrp_node_mapping": "node_id = route_customer_id + 1",
+  "objective_published": 1174.0,
+  "is_optimal": null,
+  "optimality_note": "Not independently established",
+  "routes": [
+    [
+      55,
+      29,
+      62,
+      39,
+      51,
+      17
+    ],
+    [
+      45,
+      61,
+      42,
+      38,
+      2,
+      41,
+      16,
+      50,
+      60
+    ],
+    [
+      21,
+      25,
+      52,
+      24,
+      13,
+      12,
+      1,
+      33
+    ],
+    [
+      49,
+      4,
+      3,
+      36,
+      35,
+      37,
+      30
+    ],
+    [
+      47,
+      34,
+      31,
+      26,
+      6,
+      64,
+      46
+    ],
+    [
+      28,
+      23,
+      57,
+      48,
+      54,
+      63,
+      11,
+      7
+    ],
+    [
+      44,
+      59,
+      40,
+      58,
+      20,
+      32
+    ],
+    [
+      5,
+      53,
+      56,
+      10,
+      8,
+      19,
+      18
+    ],
+    [
+      43,
+      27,
+      14,
+      9,
+      22,
+      15
+    ]
+  ],
+  "routes_vrp_node_ids": [
+    [
+      56,
+      30,
+      63,
+      40,
+      52,
+      18
+    ],
+    [
+      46,
+      62,
+      43,
+      39,
+      3,
+      42,
+      17,
+      51,
+      61
+    ],
+    [
+      22,
+      26,
+      53,
+      25,
+      14,
+      13,
+      2,
+      34
+    ],
+    [
+      50,
+      5,
+      4,
+      37,
+      36,
+      38,
+      31
+    ],
+    [
+      48,
+      35,
+      32,
+      27,
+      7,
+      65,
+      47
+    ],
+    [
+      29,
+      24,
+      58,
+      49,
+      55,
+      64,
+      12,
+      8
+    ],
+    [
+      45,
+      60,
+      41,
+      59,
+      21,
+      33
+    ],
+    [
+      6,
+      54,
+      57,
+      11,
+      9,
+      20,
+      19
+    ],
+    [
+      44,
+      28,
+      15,
+      10,
+      23,
+      16
+    ]
+  ],
+  "route_loads": [
+    85,
+    99,
+    98,
+    98,
+    100,
+    100,
+    100,
+    100,
+    97
+  ],
+  "checks": {
+    "customer_coverage_unique": true,
+    "capacity": true,
+    "routes_parsed": true,
+    "status": "PASS"
+  },
+  "original_instance_archive": "A-VRP (1).zip",
+  "original_solution_archive": "A-VRP-sol (3).zip"
+}

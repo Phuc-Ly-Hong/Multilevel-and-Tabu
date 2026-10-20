@@ -1,0 +1,123 @@
+{
+  "dataset": "Augerat_A",
+  "instance": "A-n37-k5",
+  "dimension": 37,
+  "capacity": 100,
+  "depot_node_id": 1,
+  "route_customer_index_base": 1,
+  "route_to_vrp_node_mapping": "node_id = route_customer_id + 1",
+  "objective_published": 669.0,
+  "is_optimal": true,
+  "optimality_note": "Explicit Optimal value in instance COMMENT matches solution cost",
+  "routes": [
+    [
+      22,
+      13,
+      10,
+      6,
+      5,
+      33,
+      4,
+      7
+    ],
+    [
+      1,
+      12,
+      2,
+      19,
+      20,
+      23,
+      14,
+      17
+    ],
+    [
+      36,
+      29,
+      32,
+      28,
+      31,
+      30,
+      15
+    ],
+    [
+      3,
+      24,
+      9,
+      11,
+      27,
+      8,
+      25,
+      35,
+      18,
+      26,
+      34
+    ],
+    [
+      21,
+      16
+    ]
+  ],
+  "routes_vrp_node_ids": [
+    [
+      23,
+      14,
+      11,
+      7,
+      6,
+      34,
+      5,
+      8
+    ],
+    [
+      2,
+      13,
+      3,
+      20,
+      21,
+      24,
+      15,
+      18
+    ],
+    [
+      37,
+      30,
+      33,
+      29,
+      32,
+      31,
+      16
+    ],
+    [
+      4,
+      25,
+      10,
+      12,
+      28,
+      9,
+      26,
+      36,
+      19,
+      27,
+      35
+    ],
+    [
+      22,
+      17
+    ]
+  ],
+  "route_loads": [
+    96,
+    98,
+    83,
+    91,
+    39
+  ],
+  "checks": {
+    "customer_coverage_unique": true,
+    "capacity": true,
+    "routes_parsed": true,
+    "status": "PASS"
+  },
+  "original_instance_archive": "A-VRP (1).zip",
+  "original_solution_archive": "A-VRP-sol (3).zip"
+}

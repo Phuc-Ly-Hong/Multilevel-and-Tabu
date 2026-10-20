@@ -1,0 +1,183 @@
+{
+  "dataset": "Augerat_B",
+  "instance": "B-n57-k9",
+  "dimension": 57,
+  "capacity": 100,
+  "depot_node_id": 1,
+  "route_customer_index_base": 1,
+  "route_to_vrp_node_mapping": "node_id = route_customer_id + 1",
+  "objective_published": 1598.0,
+  "is_optimal": null,
+  "optimality_note": "Not independently established",
+  "routes": [
+    [
+      31,
+      55,
+      9,
+      28,
+      18,
+      27,
+      1
+    ],
+    [
+      32,
+      40,
+      3,
+      50,
+      46,
+      22
+    ],
+    [
+      4,
+      30,
+      49,
+      35,
+      48,
+      38,
+      12
+    ],
+    [
+      53,
+      29,
+      41,
+      21,
+      36,
+      47,
+      5
+    ],
+    [
+      43,
+      54,
+      52,
+      24,
+      45,
+      17,
+      10
+    ],
+    [
+      42,
+      44,
+      16,
+      23,
+      2,
+      20,
+      7
+    ],
+    [
+      33,
+      11,
+      37,
+      25,
+      51,
+      15,
+      8
+    ],
+    [
+      6,
+      56
+    ],
+    [
+      14,
+      34,
+      19,
+      39,
+      26,
+      13
+    ]
+  ],
+  "routes_vrp_node_ids": [
+    [
+      32,
+      56,
+      10,
+      29,
+      19,
+      28,
+      2
+    ],
+    [
+      33,
+      41,
+      4,
+      51,
+      47,
+      23
+    ],
+    [
+      5,
+      31,
+      50,
+      36,
+      49,
+      39,
+      13
+    ],
+    [
+      54,
+      30,
+      42,
+      22,
+      37,
+      48,
+      6
+    ],
+    [
+      44,
+      55,
+      53,
+      25,
+      46,
+      18,
+      11
+    ],
+    [
+      43,
+      45,
+      17,
+      24,
+      3,
+      21,
+      8
+    ],
+    [
+      34,
+      12,
+      38,
+      26,
+      52,
+      16,
+      9
+    ],
+    [
+      7,
+      57
+    ],
+    [
+      15,
+      35,
+      20,
+      40,
+      27,
+      14
+    ]
+  ],
+  "route_loads": [
+    99,
+    100,
+    100,
+    72,
+    94,
+    96,
+    100,
+    43,
+    99
+  ],
+  "checks": {
+    "customer_coverage_unique": true,
+    "capacity": true,
+    "routes_parsed": true,
+    "status": "PASS"
+  },
+  "original_instance_archive": "B-VRP.zip",
+  "original_solution_archive": "B-VRP-sol.zip"
+}

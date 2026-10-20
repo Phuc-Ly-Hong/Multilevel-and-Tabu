@@ -1,0 +1,81 @@
+{
+  "dataset": "TSPLIB",
+  "instance": "gr-n21-k3",
+  "dimension": 21,
+  "capacity": 7,
+  "depot_node_id": 1,
+  "route_customer_index_base": 1,
+  "route_to_vrp_node_mapping": "node_id = route_customer_id + 1",
+  "objective_published": 3704.0,
+  "is_optimal": true,
+  "optimality_note": "Explicit Optimal value in instance COMMENT matches solution cost",
+  "routes": [
+    [
+      19,
+      20,
+      1,
+      2,
+      8,
+      4,
+      15
+    ],
+    [
+      18,
+      16,
+      9,
+      17,
+      12,
+      13,
+      14
+    ],
+    [
+      6,
+      7,
+      5,
+      11,
+      10,
+      3
+    ]
+  ],
+  "routes_vrp_node_ids": [
+    [
+      20,
+      21,
+      2,
+      3,
+      9,
+      5,
+      16
+    ],
+    [
+      19,
+      17,
+      10,
+      18,
+      13,
+      14,
+      15
+    ],
+    [
+      7,
+      8,
+      6,
+      12,
+      11,
+      4
+    ]
+  ],
+  "route_loads": [
+    7,
+    7,
+    6
+  ],
+  "checks": {
+    "customer_coverage_unique": true,
+    "capacity": true,
+    "routes_parsed": true,
+    "status": "PASS"
+  },
+  "original_instance_archive": "TSPLIB.zip",
+  "original_solution_archive": "TSPLIB-Sol.zip"
+}

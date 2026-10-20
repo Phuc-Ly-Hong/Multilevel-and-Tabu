@@ -1,0 +1,85 @@
+{
+  "dataset": "Christofides_Eilon",
+  "instance": "E-n23-k3",
+  "dimension": 23,
+  "capacity": 4500,
+  "depot_node_id": 1,
+  "route_customer_index_base": 1,
+  "route_to_vrp_node_mapping": "node_id = route_customer_id + 1",
+  "objective_published": 569.0,
+  "is_optimal": true,
+  "optimality_note": "Explicit Optimal value in instance COMMENT matches solution cost",
+  "routes": [
+    [
+      21,
+      4,
+      5,
+      8,
+      9,
+      7
+    ],
+    [
+      18,
+      19,
+      20,
+      22,
+      17,
+      14,
+      15,
+      16,
+      3,
+      2,
+      1,
+      6,
+      11,
+      12
+    ],
+    [
+      13,
+      10
+    ]
+  ],
+  "routes_vrp_node_ids": [
+    [
+      22,
+      5,
+      6,
+      9,
+      10,
+      8
+    ],
+    [
+      19,
+      20,
+      21,
+      23,
+      18,
+      15,
+      16,
+      17,
+      4,
+      3,
+      2,
+      7,
+      12,
+      13
+    ],
+    [
+      14,
+      11
+    ]
+  ],
+  "route_loads": [
+    2575,
+    3264,
+    4350
+  ],
+  "checks": {
+    "customer_coverage_unique": true,
+    "capacity": true,
+    "routes_parsed": true,
+    "status": "PASS"
+  },
+  "original_instance_archive": "CE-VRP.zip",
+  "original_solution_archive": "CE-VRP-sol.zip"
+}

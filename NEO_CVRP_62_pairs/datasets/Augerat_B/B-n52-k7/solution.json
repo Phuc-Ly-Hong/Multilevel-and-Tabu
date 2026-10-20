@@ -1,0 +1,163 @@
+{
+  "dataset": "Augerat_B",
+  "instance": "B-n52-k7",
+  "dimension": 52,
+  "capacity": 100,
+  "depot_node_id": 1,
+  "route_customer_index_base": 1,
+  "route_to_vrp_node_mapping": "node_id = route_customer_id + 1",
+  "objective_published": 747.0,
+  "is_optimal": true,
+  "optimality_note": "Explicit Optimal value in instance COMMENT matches solution cost",
+  "routes": [
+    [
+      21,
+      11,
+      28,
+      3,
+      31,
+      24,
+      39,
+      14,
+      45,
+      4
+    ],
+    [
+      2,
+      48,
+      9,
+      16,
+      46,
+      13,
+      26
+    ],
+    [
+      47,
+      51,
+      7,
+      43,
+      35,
+      33
+    ],
+    [
+      44,
+      10,
+      5,
+      8,
+      27,
+      29,
+      37
+    ],
+    [
+      40,
+      42,
+      20,
+      30,
+      18,
+      1,
+      36
+    ],
+    [
+      25,
+      6,
+      41
+    ],
+    [
+      23,
+      12,
+      50,
+      22,
+      17,
+      49,
+      15,
+      19,
+      34,
+      32,
+      38
+    ]
+  ],
+  "routes_vrp_node_ids": [
+    [
+      22,
+      12,
+      29,
+      4,
+      32,
+      25,
+      40,
+      15,
+      46,
+      5
+    ],
+    [
+      3,
+      49,
+      10,
+      17,
+      47,
+      14,
+      27
+    ],
+    [
+      48,
+      52,
+      8,
+      44,
+      36,
+      34
+    ],
+    [
+      45,
+      11,
+      6,
+      9,
+      28,
+      30,
+      38
+    ],
+    [
+      41,
+      43,
+      21,
+      31,
+      19,
+      2,
+      37
+    ],
+    [
+      26,
+      7,
+      42
+    ],
+    [
+      24,
+      13,
+      51,
+      23,
+      18,
+      50,
+      16,
+      20,
+      35,
+      33,
+      39
+    ]
+  ],
+  "route_loads": [
+    92,
+    100,
+    87,
+    99,
+    96,
+    38,
+    94
+  ],
+  "checks": {
+    "customer_coverage_unique": true,
+    "capacity": true,
+    "routes_parsed": true,
+    "status": "PASS"
+  },
+  "original_instance_archive": "B-VRP.zip",
+  "original_solution_archive": "B-VRP-sol.zip"
+}

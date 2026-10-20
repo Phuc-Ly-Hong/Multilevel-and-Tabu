@@ -1,0 +1,102 @@
+{
+  "dataset": "TSPLIB",
+  "instance": "bayg-n29-k4",
+  "dimension": 29,
+  "capacity": 8,
+  "depot_node_id": 1,
+  "route_customer_index_base": 1,
+  "route_to_vrp_node_mapping": "node_id = route_customer_id + 1",
+  "objective_published": 2050.0,
+  "is_optimal": true,
+  "optimality_note": "Explicit Optimal value in instance COMMENT matches solution cost",
+  "routes": [
+    [
+      5,
+      4,
+      28,
+      2,
+      25,
+      8,
+      11,
+      27
+    ],
+    [
+      18,
+      10,
+      21,
+      16,
+      13,
+      17,
+      14,
+      3
+    ],
+    [
+      7,
+      26,
+      22,
+      6,
+      24,
+      15,
+      23
+    ],
+    [
+      20,
+      1,
+      19,
+      9,
+      12
+    ]
+  ],
+  "routes_vrp_node_ids": [
+    [
+      6,
+      5,
+      29,
+      3,
+      26,
+      9,
+      12,
+      28
+    ],
+    [
+      19,
+      11,
+      22,
+      17,
+      14,
+      18,
+      15,
+      4
+    ],
+    [
+      8,
+      27,
+      23,
+      7,
+      25,
+      16,
+      24
+    ],
+    [
+      21,
+      2,
+      20,
+      10,
+      13
+    ]
+  ],
+  "route_loads": [
+    8,
+    8,
+    7,
+    5
+  ],
+  "checks": {
+    "customer_coverage_unique": true,
+    "capacity": true,
+    "routes_parsed": true,
+    "status": "PASS"
+  },
+  "original_instance_archive": "TSPLIB.zip",
+  "original_solution_archive": "TSPLIB-Sol.zip"
+}
