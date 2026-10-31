@@ -105,9 +105,10 @@ int TABU_TENURE;
 int MAX_NO_IMPROVE;
 double EPSILON = 1e-6;
 
-int MAX_LEVELS = 4;
+int MAX_LEVELS = 5;
+const int DEFAULT_ITER_K = 15; // irace elite 3549: iterations per Tabu call = K * original customers.
 bool USE_MANUAL_SEGMENT_CONFIG = false;
-double MERGE_RATIO = 0.10;
+double MERGE_RATIO = 0.05;
 
 // Adaptive parameters
 vector<string> MOVE_SET = {"1-0", "1-1", "2-0", "2-1", "2-2", "2-opt"};
@@ -116,14 +117,14 @@ vector<double> scorePi = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 vector<double> used_count = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 
 // Các tham số dưới đây có thể tune bằng irace (xem tuning/README.md).
-double delta1 = 0.3;
-double delta2 = 0.2;
+double delta1 = 0.8;
+double delta2 = 0.6;
 double delta3 = 0.1;
-double delta4 = 0.3;
+double delta4 = 0.1;
 
 double TABU_TENURE_FACTOR = 0.25; // Clamp tenure using customer-scaled bounds.
-double tabu1 = 0.10; // Minimum tenure factor per customer.
-double tabu2 = 0.25; // Maximum tenure factor per customer.
+double tabu1 = 0.07; // Minimum tenure factor per customer.
+double tabu2 = 0.11; // Maximum tenure factor per customer.
 
 int select_move_type(){
     double total_weight = accumulate(weights.begin(), weights.end(), 0.0);
@@ -188,39 +189,33 @@ void read_dataset(const string &filename){
     file.close();
 
     // Dataset size logging removed for performance.
+    MAX_ITER = max(1, DEFAULT_ITER_K * (int(nodes.size()) - 1));
     if (nodes.size() > 1000) {
         // Bộ rất lớn (> 1000)
-        MAX_ITER = 50000;
         MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 1000) {
         // Bộ 1000 (501-1000)
-        MAX_ITER = 25000;
         MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 500) {
         // Bộ 500 (201-500)
-        MAX_ITER = 5000;
         MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 200) {
         // Bộ 200 (101-200)
-        MAX_ITER = 2000;
         MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 100) {
         // Bộ 100 (100)
-        MAX_ITER = 1000;
         MAX_NO_IMPROVE = 500000;
     }
     else if (nodes.size() >= 50) {
         // Bộ 50 (50-99)
-        MAX_ITER = 500;
         MAX_NO_IMPROVE = 500000;
     }
     else {
         // Bộ nhỏ (6-49)
-        MAX_ITER = 500;
         MAX_NO_IMPROVE = 500000;
     }
 

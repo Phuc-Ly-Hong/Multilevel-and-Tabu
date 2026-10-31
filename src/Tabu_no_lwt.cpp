@@ -65,8 +65,14 @@ double Beta = 0.5; // tham số điều chỉnh hệ số hàm phạt
 
 int MAX_ITER;
 int TABU_TENURE;
-int MAX_NO_IMPROVE = 700000;
 double EPSILON = 1e-6;
+// Match Multilevel_Tabu_no_lwt: up to (2 * depth + 1) Tabu calls.
+int MATCHED_MAX_LEVELS = 5;
+double ITER_K = 15;
+long long ITERATIONS_USED = 0;
+double TABU_TENURE_FACTOR = 0.25;
+double tabu1 = 0.07;
+double tabu2 = 0.11;
 
 // Adaptive parameters
 vector<string> MOVE_SET = {"1-0", "1-1", "2-0", "2-1", "2-2", "2-opt"};
@@ -74,10 +80,10 @@ vector<double> weights = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
 vector<double> scorePi = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 vector<double> used_count = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 
-const double delta1 = 0.3;
-const double delta2 = 0.2;
-const double delta3 = 0.1;
-const double delta4 = 0.3;
+double delta1 = 0.8;
+double delta2 = 0.6;
+double delta3 = 0.1;
+double delta4 = 0.1;
 
 int select_move_type(){
     double total_weight = accumulate(weights.begin(), weights.end(), 0.0);
@@ -141,41 +147,6 @@ void read_dataset(const string &filename){
     file.close();
 
     cout << "Read " << nodes.size() << " nodes (including depot)." << endl;
-    if (nodes.size() > 1000) {
-        // Bộ rất lớn (> 1000)
-        MAX_ITER = 50000;
-        //SEGMENT_LENGTH = 5000;
-    }
-    else if (nodes.size() >= 1000) {
-        // Bộ 1000 (501-1000)
-        MAX_ITER = 200000;
-        //SEGMENT_LENGTH = 2500;
-    }
-    else if (nodes.size() >= 500) {
-        // Bộ 500 (201-500)
-        MAX_ITER = 45000;
-        //SEGMENT_LENGTH = 1250;
-    }
-    else if (nodes.size() >= 200) {
-        // Bộ 200 (101-200)
-        MAX_ITER = 18000;
-        //SEGMENT_LENGTH = 600;
-    }
-    else if (nodes.size() >= 100) {
-        // Bộ 100 (100)
-        MAX_ITER = 9000;
-        //SEGMENT_LENGTH = 100;
-    }
-    else if (nodes.size() >= 50) {
-        // Bộ 50 (50-99)
-        MAX_ITER = 4500;
-        //SEGMENT_LENGTH = 50;
-    }
-    else {
-        // Bộ nhỏ (6-49)
-        MAX_ITER = 4500;
-        //SEGMENT_LENGTH = 50;
-    }
     for (const auto& node : nodes) {
         if (node.id == depot_id) {
             cout << "Node id: " << node.id << " (depot), x: " << node.x << ", y: " << node.y << endl;
@@ -212,7 +183,6 @@ void read_dataset(const string &filename){
     }
     cout << "C1 size: " << C1.size() << ", C2 size: " << C2.size() << endl;
     num_nodes = nodes.size();
-    TABU_TENURE = min((int)ceil(num_nodes/4.0), 10);
 }
 
 void print_solution(const Solution &sol){
@@ -792,19 +762,22 @@ int count_customers_in_vehicle(const Solution& sol, size_t vehicle_idx) {
 }
 
 Solution tabu_search(){
+    const int num_customer = max(1, num_nodes - 1);
+    const int min_tenure = max(1, (int)ceil(tabu1 * num_customer));
+    const int max_tenure = max(min_tenure, (int)ceil(tabu2 * num_customer));
+    TABU_TENURE = max(min_tenure, min((int)ceil(num_customer * TABU_TENURE_FACTOR), max_tenure));
+    ITERATIONS_USED = 0;
     Solution initial_sol = init_greedy_solution();
     Solution best_sol = initial_sol;
     Solution current_sol = initial_sol;
 
     vector<TabuMove> tabu_list; // danh sách các move bị tabu
-    int no_improve_count = 0;
     int last_depot_opt_iter = 0;
-    int no_improve_segment_length = 0;
-    const int max_no_improve_segment = 8; 
 
     vector<string> move_types = {"1-0", "1-1", "2-0", "2-1", "2-2", "2-opt"};
     
-    for (int iter = 0; iter < MAX_ITER && no_improve_count < MAX_NO_IMPROVE; iter++){
+    for (int iter = 0; iter < MAX_ITER; iter++){
+        ++ITERATIONS_USED;
         double best_Neighbor_fitness = DBL_MAX;
         Solution best_Neighbor_sol = current_sol;
         double current_fitness = current_sol.fitness;
@@ -1242,17 +1215,14 @@ Solution tabu_search(){
             
             if (current_sol.is_feasible && current_sol.fitness < best_sol.fitness - EPSILON){
                 best_sol = current_sol;
-                no_improve_count = 0;
                 scorePi[move_type_idx] += delta1;
                 segment_improved = true;
             } else if (current_sol.fitness < current_fitness - EPSILON) {
                 scorePi[move_type_idx] += delta2;
-                no_improve_count++;
             } else {
                 scorePi[move_type_idx] += delta3;
-                no_improve_count++;
             }
-        } else no_improve_count++;
+        }
 
         update_weights();
     }
@@ -1260,29 +1230,70 @@ Solution tabu_search(){
 }
 
 int main(int argc, char* argv[]){
-    srand(time(nullptr));
-    string dataset_path;
-
-    if (argc > 1) {
-        dataset_path = argv[1];
-    } else {
-        dataset_path = "D:\\New folder\\instances\\50.10.1.txt"; 
+    try {
+    string dataset_path = "D:\\New folder\\instances\\50.10.1.txt";
+    unsigned int seed = static_cast<unsigned int>(time(nullptr));
+    long long budget_override = -1;
+    int next_arg = 1;
+    if (next_arg < argc && string(argv[next_arg]).rfind("--", 0) != 0)
+        dataset_path = argv[next_arg++];
+    // Preserve the legacy positional total-iteration override.
+    if (next_arg < argc && string(argv[next_arg]).rfind("--", 0) != 0) {
+        long long legacy_budget = stoll(argv[next_arg++]);
+        if (legacy_budget > 0) budget_override = legacy_budget;
     }
-
-    read_dataset(dataset_path);
-
-    if (argc > 2) {
-        int override_max_iter = atoi(argv[2]);
-        if (override_max_iter > 0) {
-            MAX_ITER = override_max_iter;
+    for (int i = next_arg; i < argc; ++i) {
+        string key = argv[i];
+        if (key == "--help") {
+            cout << "Tabu_no_lwt [instance.txt] [total_iterations] [options]\n"
+                 << "--instance FILE --seed S --iter_k K --max_levels L\n"
+                 << "--budget B (alias --max_iter): total Tabu iterations\n"
+                 << "--tabu1 F --tabu2 F --tabu_factor F --delta1 F --delta2 F --delta3 F --delta4 F\n"
+                 << "Defaults match elite 3549: K=15, matched ML depth=5; budget=165*customers.\n"
+                 << "Use the same explicit --seed for this program and Multilevel_Tabu_no_lwt.\n";
+            return 0;
         }
+        if (i + 1 >= argc) throw invalid_argument("Missing value for " + key);
+        string val = argv[++i];
+        if (key == "--instance") dataset_path = val;
+        else if (key == "--seed") seed = static_cast<unsigned int>(stoul(val));
+        else if (key == "--iter_k") ITER_K = stod(val);
+        else if (key == "--max_levels") MATCHED_MAX_LEVELS = stoi(val);
+        else if (key == "--budget" || key == "--max_iter") budget_override = stoll(val);
+        else if (key == "--tabu1") tabu1 = stod(val);
+        else if (key == "--tabu2" || key == "--tabu_cap") tabu2 = stod(val);
+        else if (key == "--tabu_factor") TABU_TENURE_FACTOR = stod(val);
+        else if (key == "--delta1") delta1 = stod(val);
+        else if (key == "--delta2") delta2 = stod(val);
+        else if (key == "--delta3") delta3 = stod(val);
+        else if (key == "--delta4") delta4 = stod(val);
+        else throw invalid_argument("Unknown option: " + key);
     }
+    if (!isfinite(ITER_K) || ITER_K <= 0 || MATCHED_MAX_LEVELS < 1 || MATCHED_MAX_LEVELS > 100
+        || budget_override < -1)
+        throw invalid_argument("Require iter_k > 0, 1 <= max_levels <= 100 and budget >= 0");
+    if (!isfinite(tabu1) || !isfinite(tabu2) || tabu1 <= 0 || tabu2 < tabu1)
+        throw invalid_argument("Require 0 < tabu1 <= tabu2");
+    if (!isfinite(TABU_TENURE_FACTOR) || TABU_TENURE_FACTOR < 0)
+        throw invalid_argument("Invalid tabu_factor");
+    for (double delta : {delta1, delta2, delta3, delta4})
+        if (!isfinite(delta) || delta < 0 || delta > 1) throw invalid_argument("Invalid delta");
+    srand(seed);
+    read_dataset(dataset_path);
+    double phase_value = ITER_K * (num_nodes - 1);
+    if (!isfinite(phase_value) || phase_value > numeric_limits<int>::max())
+        throw invalid_argument("Phase iteration count is too large");
+    long long phase_iterations = max(1LL, llround(phase_value));
+    long long total_budget = budget_override >= 0 ? budget_override
+        : phase_iterations * (2LL * MATCHED_MAX_LEVELS + 1);
+    if (total_budget > numeric_limits<int>::max()) throw invalid_argument("Total iteration budget is too large");
+    MAX_ITER = static_cast<int>(total_budget);
+    cout << "\n=== CONFIGURATION ===\nMAX_ITER: " << MAX_ITER << '\n';
+    cout << "CONFIG seed=" << seed << " iter_k=" << ITER_K
+         << " matched_max_levels=" << MATCHED_MAX_LEVELS << " phase_max_iter=" << phase_iterations
+         << " iteration_budget=" << MAX_ITER << " tabu1=" << tabu1 << " tabu2=" << tabu2
+         << " delta1=" << delta1 << " delta2=" << delta2 << " delta3=" << delta3 << " delta4=" << delta4 << '\n';
 
-    cout << "\n=== CONFIGURATION ===" << endl;
-    cout << "MAX_ITER: " << MAX_ITER << endl;
-
-    printf(" %d\n", MAX_ITER);
- 
     // Khởi tạo danh sách xe 
     vehicles.clear();
     int customers = num_nodes-1;
@@ -1325,9 +1336,14 @@ int main(int argc, char* argv[]){
 
     Solution sol = tabu_search();
     print_solution(sol);
+    cout << "SEARCH iterations_used=" << ITERATIONS_USED << " tabu_tenure=" << TABU_TENURE << " tabu_calls=1" << endl;
     if (sol.drone_violation > EPSILON) {
         print_drone_violation_details(sol);
     }
 
     return 0;
+    } catch (const exception& exc) {
+        cerr << "Error: " << exc.what() << endl;
+        return 1;
+    }
 }

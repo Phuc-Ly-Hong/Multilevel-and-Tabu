@@ -2,7 +2,7 @@ name: NEO CVRP - ML (5 seeds)
 
 on:
   push:
-    branches: [Method_B]
+    branches: [Method_Ba]
     paths:
       - '.github/workflows/run_neo_*.yml'
       - 'src/ML_NEO_CVRP.cpp'
@@ -70,9 +70,9 @@ jobs:
           chmod +x neo_solver
           mkdir -p output
           timeout 310m ./neo_solver "$INSTANCE_PATH" \
-            --runs 5 --seed 4321 --iter_k 16 --max_levels 4 --merge_ratio 0.10 \
-            --tabu_factor 0.25 --tabu1 0.10 --tabu2 0.25 \
-            --delta1 0.3 --delta2 0.2 --delta3 0.1 --delta4 0.3 \
+            --runs 5 --seed 4321 --iter_k 15 --max_levels 5 --merge_ratio 0.05 \
+            --tabu_factor 0.25 --tabu1 0.07 --tabu2 0.11 \
+            --delta1 0.8 --delta2 0.6 --delta3 0.1 --delta4 0.1 \
             --csv "output/$INSTANCE_NAME.csv" > "output/$INSTANCE_NAME.log" 2>&1
       - name: Upload CSV and diagnostic log even on failure
         if: ${{ always() }}
