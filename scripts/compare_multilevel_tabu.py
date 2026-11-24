@@ -62,6 +62,7 @@ def summarize(rows, expected):
               "Mean": statistics.mean(float(r["makespan"]) for r in accepted) if accepted else "",
               "Worst": max(float(r["makespan"]) for r in accepted) if accepted else "",
               "Best_run": best["run"] if best else "", "Best_seed": best.get("seed", "") if best else "",
+              "Best_solution": best.get("solution", "") if best else "",
               "Best_runtime_s": runtime(best) if best else "",
               "Mean_runtime_valid_s": statistics.mean(runtime(r) for r in accepted) if accepted else "",
               "Statuses": json.dumps(dict(Counter(r.get("feasible", "UNKNOWN") for r in rows)), sort_keys=True),
@@ -102,6 +103,7 @@ def compare(tabu_rows, ml_rows, group, output, sha="local", run_ids=None):
         row.update({"ML_" + k: v for k, v in ml.items()})
         row["Gap_best_ML_vs_Tabu_pct"] = 100*(ml["Best"]-tabu["Best"])/tabu["Best"] if comparable else ""
         row["Gap_mean_ML_vs_Tabu_pct"] = 100*(ml["Mean"]-tabu["Mean"])/tabu["Mean"] if comparable else ""
+        row["Gap_mean_time_ML_vs_Tabu_pct"] = 100*(ml["Mean_runtime_valid_s"]-tabu["Mean_runtime_valid_s"])/tabu["Mean_runtime_valid_s"] if comparable and tabu["Mean_runtime_valid_s"] > 0 else ""
         row["Winner_best"] = ("ML" if ml["Best"] < tabu["Best"] else "TABU" if ml["Best"] > tabu["Best"] else "TIE") if comparable else "NOT_COMPARABLE"
         row["Mean_runtime_ratio_ML_over_Tabu"] = ml["Mean_runtime_valid_s"]/tabu["Mean_runtime_valid_s"] if comparable and tabu["Mean_runtime_valid_s"] > 0 else ""
         row["Source_sha"] = sha
@@ -111,9 +113,24 @@ def compare(tabu_rows, ml_rows, group, output, sha="local", run_ids=None):
     out = Path(output)
     out.mkdir(parents=True, exist_ok=True)
     path = out / f"COMPARE_ML_vs_TABU_{group}.csv"
+    simple = []
+    for row in result:
+        short = {"Instance": row["Instance"],
+                 "Tabu_Best": row["Tabu_Best"], "ML_Best": row["ML_Best"],
+                 "Gap_Best_pct": row["Gap_best_ML_vs_Tabu_pct"],
+                 "Tabu_Mean": row["Tabu_Mean"], "ML_Mean": row["ML_Mean"],
+                 "Gap_Mean_pct": row["Gap_mean_ML_vs_Tabu_pct"],
+                 "Tabu_Mean_time_s": row["Tabu_Mean_runtime_valid_s"],
+                 "ML_Mean_time_s": row["ML_Mean_runtime_valid_s"],
+                 "Gap_Mean_time_pct": row["Gap_mean_time_ML_vs_Tabu_pct"],
+                 "Tabu_Valid_runs": row["Tabu_Valid_runs"], "ML_Valid_runs": row["ML_Valid_runs"],
+                 "Status": row["Comparison_status"], "Winner": row["Winner_best"]}
+        simple.append({k: round(v, 4) if isinstance(v, float) else v for k, v in short.items()})
     with path.open("w", encoding="utf-8-sig", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=list(result[0]))
-        writer.writeheader(); writer.writerows(result)
+        writer = csv.DictWriter(stream, fieldnames=list(simple[0]))
+        writer.writeheader(); writer.writerows(simple)
+    # Keep provenance and diagnostics outside the short comparison table.
+    (out / f"comparison_details_{group}.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     complete = [r for r in result if r["Comparison_status"] == "COMPLETE"]
     counts = Counter(r["Winner_best"] for r in complete)
     text = (f"ML vs Tabu {group}: {len(complete)}/{len(result)} instances have all {expected} feasible runs on both sides. "
@@ -121,7 +138,9 @@ def compare(tabu_rows, ml_rows, group, output, sha="local", run_ids=None):
             "Gap (%) = 100 * (ML - Tabu) / Tabu; negative favors ML. Compare makespan, not penalized fitness. "
             "PARTIAL comparisons use different numbers of feasible runs; inspect counts before interpreting. "
             "Timeout/error/infeasible/duplicate runs are excluded from best and mean. "
-            "Runtime averages cover feasible runs only. Same commit does not establish equal actual iterations/time limits.\n")
+            "Runtime averages cover feasible runs only. Gap_Mean_time_pct compares the two mean runtimes; "
+            "negative means ML is faster. Full diagnostics and best solutions (when available) are in comparison_details JSON. "
+            "Same commit does not establish equal actual iterations/time limits.\n")
     (out / f"summary_{group}.md").write_text(text, encoding="utf-8")
     print(text)
     if os.environ.get("GITHUB_STEP_SUMMARY"):

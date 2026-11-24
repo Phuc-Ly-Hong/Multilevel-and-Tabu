@@ -1,4 +1,5 @@
 #include<bits/stdc++.h>
+#include "tabu_tenure.h"
 using namespace std;
 
 struct Node {
@@ -96,6 +97,7 @@ constexpr double DRONE_SPEED = 0.83;
 
 int depot_id = 0;
 int num_nodes = 0;
+int ORIGINAL_CUSTOMERS = 0; // Fixed at input size; never reduced by coarsening.
 double alpha1 = 1.0; // tham số hàm phạt thứ nhất
 double alpha2 = 1.0; // tham số hàm phạt thứ hai
 double Beta = 0.5; // tham số điều chỉnh hệ số hàm phạt
@@ -122,7 +124,6 @@ double delta2 = 0.6;
 double delta3 = 0.1;
 double delta4 = 0.1;
 
-double TABU_TENURE_FACTOR = 0.25; // Clamp tenure using customer-scaled bounds.
 double tabu1 = 0.07; // Minimum tenure factor per customer.
 double tabu2 = 0.11; // Maximum tenure factor per customer.
 
@@ -245,6 +246,7 @@ void read_dataset(const string &filename){
     }
     // Dataset stats logging removed for performance.
     num_nodes = nodes.size();
+    ORIGINAL_CUSTOMERS = num_nodes - 1;
 }
 
 void print_solution(const Solution &sol){
@@ -942,10 +944,8 @@ int count_customers_in_vehicle(const Solution& sol, size_t vehicle_idx) {
 }
 
 Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
-    const int num_customer = max(1, num_nodes - 1); // Exclude depot; use current level.
-    const int min_tenure = max(1, (int)ceil(tabu1 * num_customer));
-    const int max_tenure = max(min_tenure, (int)ceil(tabu2 * num_customer));
-    TABU_TENURE = max(min_tenure, min((int)ceil(num_customer * TABU_TENURE_FACTOR), max_tenure));
+    const auto tenure_limits = tabu_tenure::bounds(ORIGINAL_CUSTOMERS, tabu1, tabu2);
+    TABU_TENURE = tenure_limits.first; // Placeholder until the first accepted move.
     if (current_level != nullptr) update_node_index_cache(*current_level);
 
     Solution best_sol = initial_sol;
@@ -1408,6 +1408,10 @@ Solution tabu_search(Solution initial_sol, const LevelInfo *current_level){
                     ++it;
                 }
             }
+            // One draw per accepted move, using ORIGINAL customer count at every level.
+            // Forward and reverse tabu records describe the same move and share tenure.
+            TABU_TENURE = tabu_tenure::sample(ORIGINAL_CUSTOMERS, tabu1, tabu2);
+            best_move.tenure = TABU_TENURE;
             tabu_list.push_back(best_move);
             /*cout << "Tabu move added: type=" << best_move.type
                  << ", customer1=" << best_move.customer_id1
@@ -2195,7 +2199,10 @@ int main(int argc, char* argv[]) {
         if (key == "--instance") dataset_path = val;
         else if (key == "--max_levels") { MAX_LEVELS = max(1, atoi(val.c_str())); USE_MANUAL_SEGMENT_CONFIG = true; }
         else if (key == "--merge_ratio") { double r = atof(val.c_str()); if (r > 1.0) r /= 100.0; MERGE_RATIO = min(0.95, max(0.01, r)); }
-        else if (key == "--tabu_factor") TABU_TENURE_FACTOR = atof(val.c_str());
+        else if (key == "--tabu_factor") {
+            cerr << "--tabu_factor is no longer used; tenure is sampled from --tabu1/--tabu2 bounds." << endl;
+            return 1;
+        }
         else if (key == "--tabu1") tabu1 = atof(val.c_str());
         else if (key == "--tabu2" || key == "--tabu_cap") tabu2 = atof(val.c_str());
         else if (key == "--delta1") delta1 = atof(val.c_str());
@@ -2214,6 +2221,10 @@ int main(int argc, char* argv[]) {
     srand(has_seed ? seed_arg : (unsigned int)time(nullptr));
 
     read_dataset(dataset_path);
+    const auto tenure_limits = tabu_tenure::bounds(ORIGINAL_CUSTOMERS, tabu1, tabu2);
+    cout << "TENURE_CONFIG original_customers=" << ORIGINAL_CUSTOMERS
+         << " tenure_min=" << tenure_limits.first << " tenure_max=" << tenure_limits.second
+         << " tenure_policy=random_per_move" << endl;
 
     // Khởi tạo danh sách xe
     vehicles.clear();

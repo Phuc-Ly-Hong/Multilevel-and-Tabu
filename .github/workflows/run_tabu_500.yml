@@ -92,6 +92,7 @@ jobs:
         run: |
           python3 <<'EOF'
           import re, json, os
+          from scripts.parse_tabu_solution import read_solution
 
           instance = "${{ matrix.instance }}"
           run_id = int("${{ matrix.run_id }}")
@@ -159,6 +160,7 @@ jobs:
 
           result = parse_output("output.txt", "runtime.txt")
           result["run"] = run_id
+          result.update(read_solution("output.txt"))
 
           with open("results.json", "w") as f:
             json.dump({"instance": instance, "runs": [result]}, f, indent=2)
@@ -205,7 +207,9 @@ jobs:
                 "capacity_violation": run.get("capacity_violation", ""),
                 "waiting_violation": run.get("waiting_violation", ""),
                 "fitness": run.get("fitness", ""),
-                "feasible": run.get("feasible", "")
+                "feasible": run.get("feasible", ""),
+                "solution": run.get("solution", ""),
+                "solution_status": run.get("solution_status", "MISSING")
               })
 
           out_file = "summary_500.csv"
@@ -221,7 +225,9 @@ jobs:
                 "capacity_violation",
                 "waiting_violation",
                 "fitness",
-                "feasible"
+                "feasible",
+                "solution",
+                "solution_status"
               ]
             )
             writer.writeheader()

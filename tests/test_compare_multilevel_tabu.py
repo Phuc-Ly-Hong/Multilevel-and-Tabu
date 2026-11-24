@@ -12,7 +12,9 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(ROOT))
 import compare_multilevel_tabu as compare
+from scripts.parse_tabu_solution import parse_solution
 
 
 class ComparisonTests(unittest.TestCase):
@@ -50,6 +52,34 @@ class ComparisonTests(unittest.TestCase):
         self.assertEqual(r["Winner_best"], "ML")
         self.assertEqual(r["Same_seed_set"], "YES")
         self.assertEqual(r["Comparison_status"], "COMPLETE")
+        short = compare.read_rows(self.output / "COMPARE_ML_vs_TABU_50_100.csv")[0]
+        self.assertEqual(len(short), 14)
+        self.assertEqual(float(short["Gap_Best_pct"]), -10)
+        self.assertEqual(float(short["Gap_Mean_time_pct"]), 0)
+        self.assertEqual(list(short)[1:4], ["Tabu_Best", "ML_Best", "Gap_Best_pct"])
+
+    def test_gap_of_mean_time_and_best_solution(self):
+        ml=self.rows(False,cost=90)
+        for row in ml:
+            row["runtime"]="1"
+            row["solution"]="[[0,1,2,0],[0,3,0]]"
+        compare.compare(self.rows(),ml,"50_100",self.output)
+        short=compare.read_rows(self.output / "COMPARE_ML_vs_TABU_50_100.csv")[0]
+        self.assertEqual(float(short["Gap_Mean_time_pct"]),-50)
+        details=json.loads((self.output / "comparison_details_50_100.json").read_text())
+        self.assertEqual(details[0]["ML_Best_solution"],ml[0]["solution"])
+
+    def test_final_solution_extraction(self):
+        text=("Route details:\nVehicle 0: 0 9 0\nMakespan: 12\nFitness: 12\n"
+              "Route details:\nVehicle 0: 0 1 2 0\nVehicle 1: 0 3 0 4 0\n"
+              "Makespan: 10\nDrone violation: 0\nFitness: 10\nSEARCH iterations_used=10\n")
+        parsed=parse_solution(text)
+        self.assertEqual(parsed["solution_status"],"PARSED")
+        self.assertEqual(json.loads(parsed["solution"]),[[0,1,2,0],[0,3,0,4,0]])
+        for suffix in ("TIMEOUT\n","ERROR_EXIT_CODE_1\n"):
+            self.assertEqual(parse_solution(text+suffix)["solution"],"")
+        self.assertEqual(parse_solution("Route details:\nVehicle 0: 0 1 0\n")["solution"],"")
+        self.assertEqual(parse_solution(text+"Route details:\nVehicle 0: 0 1 0\n")["solution"],"")
 
     def test_200_three_runs_and_missing_instances(self):
         rows = compare.compare(self.rows(False,200), self.rows(False,200,95), "200", self.output)
@@ -122,7 +152,7 @@ class ComparisonTests(unittest.TestCase):
                         for job in data["jobs"].values() for step in job.get("steps",[])
                         if "python3 <<'EOF'" in step.get("run","")]
                 for run in range(1,6):
-                    content="Makespan: 10\nDrone violation: 0\nFitness: 10\n"
+                    content="Route details:\nVehicle 0: 0 1 2 0\nVehicle 1: 0 3 0\nMakespan: 10\nDrone violation: 0\nFitness: 10\n"
                     if run==2:content+="TIMEOUT\n"
                     if run==3:content+="ERROR_EXIT_CODE_1\n"
                     Path(f"output_run{run}.txt").write_text(content)
@@ -132,6 +162,8 @@ class ComparisonTests(unittest.TestCase):
                     exec(compile(block.replace("${{ matrix.instance }}",instance),name,"exec"),{})
                     result=json.loads(Path("results.json").read_text())
                     self.assertEqual(result["runs"][0]["seed"],1,name)
+                    self.assertEqual(json.loads(result["runs"][0]["solution"]),[[0,1,2,0],[0,3,0]],name)
+                    self.assertEqual(result["runs"][1]["solution"],"",name)
                     self.assertEqual(result["runs"][1]["feasible"],"TIMEOUT",name)
                     self.assertEqual(result["runs"][2]["feasible"],"ERROR",name)
                 artifact="results/part" if "_200" in name else ("multilevel-result-" if "multilevel" in name else "tabu-result-")+instance
@@ -141,6 +173,34 @@ class ComparisonTests(unittest.TestCase):
                 path=next(Path(".").glob("*.csv"))
                 row=compare.read_rows(path)[0]
                 self.assertEqual(row.get("Seed",row.get("seed")),"1",name)
+                self.assertEqual(json.loads(row.get("Solution",row.get("solution"))),[[0,1,2,0],[0,3,0]],name)
+        finally:
+            os.chdir(previous)
+
+    def test_500_workflows_keep_solution_in_csv(self):
+        try:
+            import yaml
+        except ImportError:
+            self.skipTest("PyYAML is needed only for workflow integration checks")
+        previous=Path.cwd()
+        try:
+            for name in ("run_tabu_500.yml","run_ml_500.yml"):
+                folder=self.output/name;folder.mkdir();os.chdir(folder)
+                data=yaml.load((ROOT/".github/workflows"/name).read_text(encoding="utf-8"),Loader=yaml.BaseLoader)
+                blocks=[step["run"].split("python3 <<'EOF'",1)[1].rsplit("EOF",1)[0]
+                        for job in data["jobs"].values() for step in job.get("steps",[])
+                        if "python3 <<'EOF'" in step.get("run","")]
+                Path("output.txt").write_text("Route details:\nVehicle 0: 0 1 2 0\nVehicle 1: 0 3 0\nMakespan: 10\nDrone violation: 0\nFitness: 10\n")
+                Path("runtime.txt").write_text("1.0")
+                code=blocks[0].replace("${{ matrix.instance }}","500.10.1").replace("${{ matrix.run_id }}","1")
+                exec(compile(code,name,"exec"),{})
+                result=json.loads(Path("results.json").read_text())
+                self.assertEqual(result["runs"][0]["solution_status"],"PARSED",name)
+                target=Path("results/part");target.mkdir(parents=True)
+                shutil.copyfile("results.json",target/"results.json")
+                exec(compile(blocks[-1],name,"exec"),{})
+                row=compare.read_rows(next(Path(".").glob("*.csv")))[0]
+                self.assertEqual(json.loads(row["solution"]),[[0,1,2,0],[0,3,0]],name)
         finally:
             os.chdir(previous)
 

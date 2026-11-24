@@ -1,4 +1,5 @@
 #include<bits/stdc++.h>
+#include "tabu_tenure.h"
 using namespace std;
 
 struct Node {
@@ -59,6 +60,7 @@ constexpr double DRONE_SPEED = 0.83;
 
 int depot_id = 0;
 int num_nodes = 0;
+int ORIGINAL_CUSTOMERS = 0; // Fixed at input size; never reduced by coarsening.
 double alpha1 = 1.0; // tham số hàm phạt thứ nhất
 double alpha2 = 1.0; // tham số hàm phạt thứ hai
 double Beta = 0.5; // tham số điều chỉnh hệ số hàm phạt
@@ -70,7 +72,6 @@ double EPSILON = 1e-6;
 int MATCHED_MAX_LEVELS = 5;
 double ITER_K = 15;
 long long ITERATIONS_USED = 0;
-double TABU_TENURE_FACTOR = 0.25;
 double tabu1 = 0.07;
 double tabu2 = 0.11;
 
@@ -183,6 +184,7 @@ void read_dataset(const string &filename){
     }
     cout << "C1 size: " << C1.size() << ", C2 size: " << C2.size() << endl;
     num_nodes = nodes.size();
+    ORIGINAL_CUSTOMERS = num_nodes - 1;
 }
 
 void print_solution(const Solution &sol){
@@ -762,10 +764,8 @@ int count_customers_in_vehicle(const Solution& sol, size_t vehicle_idx) {
 }
 
 Solution tabu_search(){
-    const int num_customer = max(1, num_nodes - 1);
-    const int min_tenure = max(1, (int)ceil(tabu1 * num_customer));
-    const int max_tenure = max(min_tenure, (int)ceil(tabu2 * num_customer));
-    TABU_TENURE = max(min_tenure, min((int)ceil(num_customer * TABU_TENURE_FACTOR), max_tenure));
+    const auto tenure_limits = tabu_tenure::bounds(ORIGINAL_CUSTOMERS, tabu1, tabu2);
+    TABU_TENURE = tenure_limits.first; // Placeholder until the first accepted move.
     ITERATIONS_USED = 0;
     Solution initial_sol = init_greedy_solution();
     Solution best_sol = initial_sol;
@@ -1166,6 +1166,10 @@ Solution tabu_search(){
                     ++it;
                 }
             }
+            // One draw per accepted move, using ORIGINAL customer count at every level.
+            // Forward and reverse tabu records describe the same move and share tenure.
+            TABU_TENURE = tabu_tenure::sample(ORIGINAL_CUSTOMERS, tabu1, tabu2);
+            best_move.tenure = TABU_TENURE;
             tabu_list.push_back(best_move);
             /*cout << "Tabu move added: type=" << best_move.type
                  << ", customer1=" << best_move.customer_id1
@@ -1248,7 +1252,7 @@ int main(int argc, char* argv[]){
             cout << "Tabu_no_lwt [instance.txt] [total_iterations] [options]\n"
                  << "--instance FILE --seed S --iter_k K --max_levels L\n"
                  << "--budget B (alias --max_iter): total Tabu iterations\n"
-                 << "--tabu1 F --tabu2 F --tabu_factor F --delta1 F --delta2 F --delta3 F --delta4 F\n"
+                 << "--tabu1 F --tabu2 F --delta1 F --delta2 F --delta3 F --delta4 F\n"
                  << "Defaults match elite 3549: K=15, matched ML depth=5; budget=165*customers.\n"
                  << "Use the same explicit --seed for this program and Multilevel_Tabu_no_lwt.\n";
             return 0;
@@ -1262,7 +1266,6 @@ int main(int argc, char* argv[]){
         else if (key == "--budget" || key == "--max_iter") budget_override = stoll(val);
         else if (key == "--tabu1") tabu1 = stod(val);
         else if (key == "--tabu2" || key == "--tabu_cap") tabu2 = stod(val);
-        else if (key == "--tabu_factor") TABU_TENURE_FACTOR = stod(val);
         else if (key == "--delta1") delta1 = stod(val);
         else if (key == "--delta2") delta2 = stod(val);
         else if (key == "--delta3") delta3 = stod(val);
@@ -1274,12 +1277,11 @@ int main(int argc, char* argv[]){
         throw invalid_argument("Require iter_k > 0, 1 <= max_levels <= 100 and budget >= 0");
     if (!isfinite(tabu1) || !isfinite(tabu2) || tabu1 <= 0 || tabu2 < tabu1)
         throw invalid_argument("Require 0 < tabu1 <= tabu2");
-    if (!isfinite(TABU_TENURE_FACTOR) || TABU_TENURE_FACTOR < 0)
-        throw invalid_argument("Invalid tabu_factor");
     for (double delta : {delta1, delta2, delta3, delta4})
         if (!isfinite(delta) || delta < 0 || delta > 1) throw invalid_argument("Invalid delta");
     srand(seed);
     read_dataset(dataset_path);
+    const auto tenure_limits = tabu_tenure::bounds(ORIGINAL_CUSTOMERS, tabu1, tabu2);
     double phase_value = ITER_K * (num_nodes - 1);
     if (!isfinite(phase_value) || phase_value > numeric_limits<int>::max())
         throw invalid_argument("Phase iteration count is too large");
@@ -1292,6 +1294,8 @@ int main(int argc, char* argv[]){
     cout << "CONFIG seed=" << seed << " iter_k=" << ITER_K
          << " matched_max_levels=" << MATCHED_MAX_LEVELS << " phase_max_iter=" << phase_iterations
          << " iteration_budget=" << MAX_ITER << " tabu1=" << tabu1 << " tabu2=" << tabu2
+         << " original_customers=" << ORIGINAL_CUSTOMERS << " tenure_min=" << tenure_limits.first
+         << " tenure_max=" << tenure_limits.second << " tenure_policy=random_per_move"
          << " delta1=" << delta1 << " delta2=" << delta2 << " delta3=" << delta3 << " delta4=" << delta4 << '\n';
 
     // Khởi tạo danh sách xe 

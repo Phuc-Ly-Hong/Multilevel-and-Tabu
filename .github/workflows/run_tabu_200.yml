@@ -93,6 +93,7 @@ jobs:
       run: |
         python3 <<'EOF'
         import re, json, os
+        from scripts.parse_tabu_solution import read_solution
         instance = "${{ matrix.instance }}"
         
         def find_metric_last(pattern, content):
@@ -143,6 +144,7 @@ jobs:
             result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
             result["run"] = run
             result["seed"] = run
+            result.update(read_solution(f"output_run{run}.txt"))
             runs.append(result)
         
         with open("results.json", "w") as f:
@@ -217,6 +219,7 @@ jobs:
       run: |
         python3 <<'EOF'
         import re, json, os
+        from scripts.parse_tabu_solution import read_solution
         instance = "${{ matrix.instance }}"
         
         def find_metric_last(pattern, content):
@@ -267,6 +270,7 @@ jobs:
             result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
             result["run"] = run
             result["seed"] = run
+            result.update(read_solution(f"output_run{run}.txt"))
             runs.append(result)
         
         with open("results.json", "w") as f:
@@ -341,6 +345,7 @@ jobs:
       run: |
         python3 <<'EOF'
         import re, json, os
+        from scripts.parse_tabu_solution import read_solution
         instance = "${{ matrix.instance }}"
         
         def find_metric_last(pattern, content):
@@ -391,6 +396,7 @@ jobs:
             result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
             result["run"] = run
             result["seed"] = run
+            result.update(read_solution(f"output_run{run}.txt"))
             runs.append(result)
         
         with open("results.json", "w") as f:
@@ -465,6 +471,7 @@ jobs:
       run: |
         python3 <<'EOF'
         import re, json, os
+        from scripts.parse_tabu_solution import read_solution
         instance = "${{ matrix.instance }}"
         
         def find_metric_last(pattern, content):
@@ -515,6 +522,7 @@ jobs:
             result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
             result["run"] = run
             result["seed"] = run
+            result.update(read_solution(f"output_run{run}.txt"))
             runs.append(result)
         
         with open("results.json", "w") as f:
@@ -569,7 +577,9 @@ jobs:
                     "capacity_violation": run.get("capacity_violation", ""),
                     "waiting_violation": run.get("waiting_violation", ""),
                     "fitness": run.get("fitness", ""),
-                    "feasible": run.get("feasible", "")
+                    "feasible": run.get("feasible", ""),
+                    "solution": run.get("solution", ""),
+                    "solution_status": run.get("solution_status", "MISSING")
                 })
 
         out_file = "summary_200.csv"
@@ -587,7 +597,9 @@ jobs:
                     "capacity_violation",
                     "waiting_violation",
                     "fitness",
-                    "feasible"
+                    "feasible",
+                    "solution",
+                    "solution_status"
                 ]
             )
             writer.writeheader()

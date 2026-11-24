@@ -72,6 +72,7 @@ jobs:
         run: |
           python3 <<'EOF'
           import re, json, os
+          from scripts.parse_tabu_solution import read_solution
           instance = "${{ matrix.instance }}"
 
           def find_metric_last(pattern, content):
@@ -131,6 +132,7 @@ jobs:
             result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
             result["run"] = run
             result["seed"] = run
+            result.update(read_solution(f"output_run{run}.txt"))
             runs.append(result)
           with open("results.json", "w") as f:
             json.dump({"instance": instance, "runs": runs}, f, indent=2)
@@ -181,6 +183,7 @@ jobs:
         run: |
           python3 <<'EOF'
           import re, json, os
+          from scripts.parse_tabu_solution import read_solution
           instance = "${{ matrix.instance }}"
 
           def find_metric_last(pattern, content):
@@ -240,6 +243,7 @@ jobs:
             result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
             result["run"] = run
             result["seed"] = run
+            result.update(read_solution(f"output_run{run}.txt"))
             runs.append(result)
           with open("results.json", "w") as f:
             json.dump({"instance": instance, "runs": runs}, f, indent=2)
@@ -290,6 +294,7 @@ jobs:
         run: |
           python3 <<'EOF'
           import re, json, os
+          from scripts.parse_tabu_solution import read_solution
           instance = "${{ matrix.instance }}"
 
           def find_metric_last(pattern, content):
@@ -327,6 +332,7 @@ jobs:
             result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
             result["run"] = run
             result["seed"] = run
+            result.update(read_solution(f"output_run{run}.txt"))
             runs.append(result)
           with open("results.json", "w") as f:
             json.dump({"instance": instance, "runs": runs}, f, indent=2)
@@ -377,6 +383,7 @@ jobs:
         run: |
           python3 <<'EOF'
           import re, json, os
+          from scripts.parse_tabu_solution import read_solution
           instance = "${{ matrix.instance }}"
 
           def find_metric_last(pattern, content):
@@ -414,6 +421,7 @@ jobs:
             result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
             result["run"] = run
             result["seed"] = run
+            result.update(read_solution(f"output_run{run}.txt"))
             runs.append(result)
           with open("results.json", "w") as f:
             json.dump({"instance": instance, "runs": runs}, f, indent=2)
@@ -461,7 +469,7 @@ jobs:
           with open("TABU_RESULTS.csv", "w", newline="") as f:
             cols = [
               "Instance", "Source_sha", "Size", "Replica", "Run", "Seed", "Runtime_s", "Makespan",
-              "Drone_Violation", "Capacity_Violation", "Waiting_Violation", "Fitness", "Feasible",
+              "Drone_Violation", "Capacity_Violation", "Waiting_Violation", "Fitness", "Feasible", "Solution", "Solution_status",
             ]
             writer = csv.DictWriter(f, fieldnames=cols)
             writer.writeheader()
@@ -487,6 +495,8 @@ jobs:
                   "Waiting_Violation": run_data["waiting_violation"],
                   "Fitness": run_data["fitness"],
                   "Feasible": run_data["feasible"],
+                  "Solution": run_data.get("solution", ""),
+                  "Solution_status": run_data.get("solution_status", "MISSING"),
                 })
 
           if all_data:
