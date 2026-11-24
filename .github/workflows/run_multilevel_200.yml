@@ -69,7 +69,13 @@ jobs:
         
         for run in {1..3}; do
           START_TIME=$(date +%s.%N)
-          timeout 30m ./multilevel_tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1 || echo "TIMEOUT" >> output_run${run}.txt
+          EXIT_CODE=0
+          timeout 30m ./multilevel_tabu instances/${{ matrix.instance }}.txt --seed "$run" > output_run${run}.txt 2>&1 || EXIT_CODE=$?
+          if [ "$EXIT_CODE" -eq 124 ]; then
+            echo "TIMEOUT" >> output_run${run}.txt
+          elif [ "$EXIT_CODE" -ne 0 ]; then
+            echo "ERROR_EXIT_CODE_$EXIT_CODE" >> output_run${run}.txt
+          fi
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
           
@@ -91,7 +97,7 @@ jobs:
                 with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
                 
-                if "TIMEOUT" in content or not content or "Fitness:" not in content:
+                if "TIMEOUT" in content or "ERROR_EXIT_CODE" in content or not content or "Fitness:" not in content:
                     runtime = 1800.0  # 30 phút
                     if os.path.exists(runtime_file):
                         with open(runtime_file, "r") as f:
@@ -103,7 +109,7 @@ jobs:
                         "capacity_violation": 0.0,
                         "waiting_violation": 0.0,
                         "fitness": float('inf'),
-                        "feasible": "TIMEOUT"
+                        "feasible": "ERROR" if "ERROR_EXIT_CODE" in content else "TIMEOUT"
                     }
                 
                 runtime = 0.0
@@ -139,6 +145,7 @@ jobs:
         for run in range(1, 4):
           result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
           result["run"] = run
+          result["seed"] = run
           runs.append(result)
         
         with open("results.json", "w") as f:
@@ -188,7 +195,13 @@ jobs:
         
         for run in {1..3}; do
           START_TIME=$(date +%s.%N)
-          timeout 30m ./multilevel_tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1 || echo "TIMEOUT" >> output_run${run}.txt
+          EXIT_CODE=0
+          timeout 30m ./multilevel_tabu instances/${{ matrix.instance }}.txt --seed "$run" > output_run${run}.txt 2>&1 || EXIT_CODE=$?
+          if [ "$EXIT_CODE" -eq 124 ]; then
+            echo "TIMEOUT" >> output_run${run}.txt
+          elif [ "$EXIT_CODE" -ne 0 ]; then
+            echo "ERROR_EXIT_CODE_$EXIT_CODE" >> output_run${run}.txt
+          fi
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
           
@@ -210,7 +223,7 @@ jobs:
                 with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
                 
-                if "TIMEOUT" in content or not content or "Fitness:" not in content:
+                if "TIMEOUT" in content or "ERROR_EXIT_CODE" in content or not content or "Fitness:" not in content:
                     runtime = 1800.0  # 30 phút
                     if os.path.exists(runtime_file):
                         with open(runtime_file, "r") as f:
@@ -222,7 +235,7 @@ jobs:
                         "capacity_violation": 0.0,
                         "waiting_violation": 0.0,
                         "fitness": float('inf'),
-                        "feasible": "TIMEOUT"
+                        "feasible": "ERROR" if "ERROR_EXIT_CODE" in content else "TIMEOUT"
                     }
                 
                 runtime = 0.0
@@ -258,6 +271,7 @@ jobs:
         for run in range(1, 4):
           result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
           result["run"] = run
+          result["seed"] = run
           runs.append(result)
         
         with open("results.json", "w") as f:
@@ -307,7 +321,13 @@ jobs:
         
         for run in {1..3}; do
           START_TIME=$(date +%s.%N)
-          timeout 30m ./multilevel_tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1 || echo "TIMEOUT" >> output_run${run}.txt
+          EXIT_CODE=0
+          timeout 30m ./multilevel_tabu instances/${{ matrix.instance }}.txt --seed "$run" > output_run${run}.txt 2>&1 || EXIT_CODE=$?
+          if [ "$EXIT_CODE" -eq 124 ]; then
+            echo "TIMEOUT" >> output_run${run}.txt
+          elif [ "$EXIT_CODE" -ne 0 ]; then
+            echo "ERROR_EXIT_CODE_$EXIT_CODE" >> output_run${run}.txt
+          fi
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
           
@@ -329,7 +349,7 @@ jobs:
                 with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
                 
-                if "TIMEOUT" in content or not content or "Fitness:" not in content:
+                if "TIMEOUT" in content or "ERROR_EXIT_CODE" in content or not content or "Fitness:" not in content:
                     runtime = 1800.0  # 30 phút
                     if os.path.exists(runtime_file):
                         with open(runtime_file, "r") as f:
@@ -341,7 +361,7 @@ jobs:
                         "capacity_violation": 0.0,
                         "waiting_violation": 0.0,
                         "fitness": float('inf'),
-                        "feasible": "TIMEOUT"
+                        "feasible": "ERROR" if "ERROR_EXIT_CODE" in content else "TIMEOUT"
                     }
                 
                 runtime = 0.0
@@ -377,6 +397,7 @@ jobs:
         for run in range(1, 4):
           result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
           result["run"] = run
+          result["seed"] = run
           runs.append(result)
         
         with open("results.json", "w") as f:
@@ -426,7 +447,13 @@ jobs:
         
         for run in {1..3}; do
           START_TIME=$(date +%s.%N)
-          timeout 30m ./multilevel_tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1 || echo "TIMEOUT" >> output_run${run}.txt
+          EXIT_CODE=0
+          timeout 30m ./multilevel_tabu instances/${{ matrix.instance }}.txt --seed "$run" > output_run${run}.txt 2>&1 || EXIT_CODE=$?
+          if [ "$EXIT_CODE" -eq 124 ]; then
+            echo "TIMEOUT" >> output_run${run}.txt
+          elif [ "$EXIT_CODE" -ne 0 ]; then
+            echo "ERROR_EXIT_CODE_$EXIT_CODE" >> output_run${run}.txt
+          fi
           END_TIME=$(date +%s.%N)
           echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
           
@@ -448,7 +475,7 @@ jobs:
                 with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
                 
-                if "TIMEOUT" in content or not content or "Fitness:" not in content:
+                if "TIMEOUT" in content or "ERROR_EXIT_CODE" in content or not content or "Fitness:" not in content:
                     runtime = 1800.0  # 30 phút
                     if os.path.exists(runtime_file):
                         with open(runtime_file, "r") as f:
@@ -460,7 +487,7 @@ jobs:
                         "capacity_violation": 0.0,
                         "waiting_violation": 0.0,
                         "fitness": float('inf'),
-                        "feasible": "TIMEOUT"
+                        "feasible": "ERROR" if "ERROR_EXIT_CODE" in content else "TIMEOUT"
                     }
                 
                 runtime = 0.0
@@ -496,6 +523,7 @@ jobs:
         for run in range(1, 4):
           result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
           result["run"] = run
+          result["seed"] = run
           runs.append(result)
         
         with open("results.json", "w") as f:
@@ -516,9 +544,11 @@ jobs:
   summarize:
     name: Multilevel-200 Summary CSV
     needs: [run-200-batch1, run-200-batch2, run-200-batch3, run-200-batch4]
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
 
     steps:
+    - uses: actions/checkout@v4
     - name: Download all results
       uses: actions/download-artifact@v4
       with:
@@ -528,7 +558,7 @@ jobs:
     - name: Build summary CSV
       run: |
         python3 <<'EOF'
-        import csv, glob, json
+        import csv, glob, json, os
 
         rows = []
         for path in sorted(glob.glob("results/**/*.json", recursive=True)):
@@ -538,7 +568,9 @@ jobs:
             for run in data.get("runs", []):
                 rows.append({
                     "instance": instance,
+                    "source_sha": os.environ.get("GITHUB_SHA", ""),
                     "run": run.get("run", ""),
+                    "seed": run.get("seed", ""),
                     "runtime": run.get("runtime", ""),
                     "makespan": run.get("makespan", ""),
                     "drone_violation": run.get("drone_violation", ""),
@@ -554,7 +586,9 @@ jobs:
                 f,
                 fieldnames=[
                     "instance",
+                    "source_sha",
                     "run",
+                    "seed",
                     "runtime",
                     "makespan",
                     "drone_violation",
@@ -576,3 +610,16 @@ jobs:
         name: multilevel-200-summary
         path: summary_200.csv
         retention-days: 30
+
+    - name: Compare Multilevel Tabu vs Tabu (best, mean and runtime)
+      continue-on-error: true
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: python3 scripts/compare_multilevel_tabu.py --remote --group 200 --output comparison
+    - name: Upload comparison when both algorithms have results
+      uses: actions/upload-artifact@v4
+      with:
+        name: compare-ml-vs-tabu-200
+        path: comparison/
+        if-no-files-found: warn
+        retention-days: 90

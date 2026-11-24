@@ -41,7 +41,7 @@ jobs:
     name: Tabu-200-B1 ${{ matrix.instance }}
     needs: compile
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 300  # Three runs of up to 90 minutes, plus setup and upload
     
     strategy:
       fail-fast: false
@@ -71,8 +71,8 @@ jobs:
           echo "=== Run $run/3 for ${{ matrix.instance }} ==="
           START_TIME=$(date +%s.%N)
           
-          timeout 90m ./tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
-          EXIT_CODE=$?
+          EXIT_CODE=0
+          timeout 90m ./tabu instances/${{ matrix.instance }}.txt --seed "$run" > output_run${run}.txt 2>&1 || EXIT_CODE=$?
           
           END_TIME=$(date +%s.%N)
           RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
@@ -112,7 +112,7 @@ jobs:
                 if "TIMEOUT" in content:
                     status = "TIMEOUT"
                 elif "ERROR_EXIT_CODE" in content:
-                    status = "CRASH"
+                    status = "ERROR"
                 elif not content or "Fitness:" not in content:
                     status = "CRASH" if runtime < 1.0 else "NO_OUTPUT"
                 else:
@@ -142,6 +142,7 @@ jobs:
         for run in range(1, 4):
             result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
             result["run"] = run
+            result["seed"] = run
             runs.append(result)
         
         with open("results.json", "w") as f:
@@ -164,7 +165,7 @@ jobs:
     name: Tabu-200-B2 ${{ matrix.instance }}
     needs: compile
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 300  # Three runs of up to 90 minutes, plus setup and upload
     
     strategy:
       fail-fast: false
@@ -194,8 +195,8 @@ jobs:
           echo "=== Run $run/3 for ${{ matrix.instance }} ==="
           START_TIME=$(date +%s.%N)
           
-          timeout 90m ./tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
-          EXIT_CODE=$?
+          EXIT_CODE=0
+          timeout 90m ./tabu instances/${{ matrix.instance }}.txt --seed "$run" > output_run${run}.txt 2>&1 || EXIT_CODE=$?
           
           END_TIME=$(date +%s.%N)
           RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
@@ -235,7 +236,7 @@ jobs:
                 if "TIMEOUT" in content:
                     status = "TIMEOUT"
                 elif "ERROR_EXIT_CODE" in content:
-                    status = "CRASH"
+                    status = "ERROR"
                 elif not content or "Fitness:" not in content:
                     status = "CRASH" if runtime < 1.0 else "NO_OUTPUT"
                 else:
@@ -265,6 +266,7 @@ jobs:
         for run in range(1, 4):
             result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
             result["run"] = run
+            result["seed"] = run
             runs.append(result)
         
         with open("results.json", "w") as f:
@@ -287,7 +289,7 @@ jobs:
     name: Tabu-200-B3 ${{ matrix.instance }}
     needs: compile
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 300  # Three runs of up to 90 minutes, plus setup and upload
     
     strategy:
       fail-fast: false
@@ -317,8 +319,8 @@ jobs:
           echo "=== Run $run/3 for ${{ matrix.instance }} ==="
           START_TIME=$(date +%s.%N)
           
-          timeout 90m ./tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
-          EXIT_CODE=$?
+          EXIT_CODE=0
+          timeout 90m ./tabu instances/${{ matrix.instance }}.txt --seed "$run" > output_run${run}.txt 2>&1 || EXIT_CODE=$?
           
           END_TIME=$(date +%s.%N)
           RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
@@ -358,7 +360,7 @@ jobs:
                 if "TIMEOUT" in content:
                     status = "TIMEOUT"
                 elif "ERROR_EXIT_CODE" in content:
-                    status = "CRASH"
+                    status = "ERROR"
                 elif not content or "Fitness:" not in content:
                     status = "CRASH" if runtime < 1.0 else "NO_OUTPUT"
                 else:
@@ -388,6 +390,7 @@ jobs:
         for run in range(1, 4):
             result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
             result["run"] = run
+            result["seed"] = run
             runs.append(result)
         
         with open("results.json", "w") as f:
@@ -410,7 +413,7 @@ jobs:
     name: Tabu-200-B4 ${{ matrix.instance }}
     needs: compile
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 300  # Three runs of up to 90 minutes, plus setup and upload
     
     strategy:
       fail-fast: false
@@ -440,8 +443,8 @@ jobs:
           echo "=== Run $run/3 for ${{ matrix.instance }} ==="
           START_TIME=$(date +%s.%N)
           
-          timeout 90m ./tabu instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
-          EXIT_CODE=$?
+          EXIT_CODE=0
+          timeout 90m ./tabu instances/${{ matrix.instance }}.txt --seed "$run" > output_run${run}.txt 2>&1 || EXIT_CODE=$?
           
           END_TIME=$(date +%s.%N)
           RUNTIME=$(echo "$END_TIME - $START_TIME" | bc)
@@ -481,7 +484,7 @@ jobs:
                 if "TIMEOUT" in content:
                     status = "TIMEOUT"
                 elif "ERROR_EXIT_CODE" in content:
-                    status = "CRASH"
+                    status = "ERROR"
                 elif not content or "Fitness:" not in content:
                     status = "CRASH" if runtime < 1.0 else "NO_OUTPUT"
                 else:
@@ -511,6 +514,7 @@ jobs:
         for run in range(1, 4):
             result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
             result["run"] = run
+            result["seed"] = run
             runs.append(result)
         
         with open("results.json", "w") as f:
@@ -532,9 +536,11 @@ jobs:
   summarize:
     name: Tabu-200 Summary CSV
     needs: [run-200-batch1, run-200-batch2, run-200-batch3, run-200-batch4]
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
 
     steps:
+    - uses: actions/checkout@v4
     - name: Download all results
       uses: actions/download-artifact@v4
       with:
@@ -544,7 +550,7 @@ jobs:
     - name: Build summary CSV
       run: |
         python3 <<'EOF'
-        import csv, glob, json
+        import csv, glob, json, os
 
         rows = []
         for path in sorted(glob.glob("results/**/*.json", recursive=True)):
@@ -554,7 +560,9 @@ jobs:
             for run in data.get("runs", []):
                 rows.append({
                     "instance": instance,
+                    "source_sha": os.environ.get("GITHUB_SHA", ""),
                     "run": run.get("run", ""),
+                    "seed": run.get("seed", ""),
                     "runtime": run.get("runtime", ""),
                     "makespan": run.get("makespan", ""),
                     "drone_violation": run.get("drone_violation", ""),
@@ -570,7 +578,9 @@ jobs:
                 f,
                 fieldnames=[
                     "instance",
+                    "source_sha",
                     "run",
+                    "seed",
                     "runtime",
                     "makespan",
                     "drone_violation",
@@ -592,3 +602,16 @@ jobs:
         name: tabu-200-summary
         path: summary_200.csv
         retention-days: 30
+
+    - name: Compare Multilevel Tabu vs Tabu (best, mean and runtime)
+      continue-on-error: true
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: python3 scripts/compare_multilevel_tabu.py --remote --group 200 --output comparison
+    - name: Upload comparison when both algorithms have results
+      uses: actions/upload-artifact@v4
+      with:
+        name: compare-ml-vs-tabu-200
+        path: comparison/
+        if-no-files-found: warn
+        retention-days: 90

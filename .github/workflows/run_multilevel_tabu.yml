@@ -58,8 +58,8 @@ jobs:
           chmod +x multilevel_tabu_cap
           for run in {1..5}; do
             START_TIME=$(date +%s.%N)
-            timeout 25m ./multilevel_tabu_cap instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
-            EXIT_CODE=$?
+            EXIT_CODE=0
+            timeout 25m ./multilevel_tabu_cap instances/${{ matrix.instance }}.txt --seed "$run" > output_run${run}.txt 2>&1 || EXIT_CODE=$?
             END_TIME=$(date +%s.%N)
             echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
             if [ $EXIT_CODE -eq 124 ]; then
@@ -101,10 +101,10 @@ jobs:
                   except:
                     pass
 
-              if "TIMEOUT" in content:
+              if "TIMEOUT" in content or "ERROR_EXIT_CODE" in content:
                 return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
                         "capacity_violation": 0.0,
-                        "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "TIMEOUT"}
+                        "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "ERROR" if "ERROR_EXIT_CODE" in content else "TIMEOUT"}
 
               if "ERROR_EXIT_CODE" in content or not content or "Fitness:" not in content:
                 return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
@@ -130,6 +130,7 @@ jobs:
           for run in range(1, 6):
             result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
             result["run"] = run
+            result["seed"] = run
             runs.append(result)
           with open("results.json", "w") as f:
             json.dump({"instance": instance, "runs": runs}, f, indent=2)
@@ -166,8 +167,8 @@ jobs:
           chmod +x multilevel_tabu_cap
           for run in {1..5}; do
             START_TIME=$(date +%s.%N)
-            timeout 25m ./multilevel_tabu_cap instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
-            EXIT_CODE=$?
+            EXIT_CODE=0
+            timeout 25m ./multilevel_tabu_cap instances/${{ matrix.instance }}.txt --seed "$run" > output_run${run}.txt 2>&1 || EXIT_CODE=$?
             END_TIME=$(date +%s.%N)
             echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
             if [ $EXIT_CODE -eq 124 ]; then
@@ -209,10 +210,10 @@ jobs:
                   except:
                     pass
 
-              if "TIMEOUT" in content:
+              if "TIMEOUT" in content or "ERROR_EXIT_CODE" in content:
                 return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
                         "capacity_violation": 0.0,
-                        "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "TIMEOUT"}
+                        "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "ERROR" if "ERROR_EXIT_CODE" in content else "TIMEOUT"}
 
               if "ERROR_EXIT_CODE" in content or not content or "Fitness:" not in content:
                 return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
@@ -238,6 +239,7 @@ jobs:
           for run in range(1, 6):
             result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
             result["run"] = run
+            result["seed"] = run
             runs.append(result)
           with open("results.json", "w") as f:
             json.dump({"instance": instance, "runs": runs}, f, indent=2)
@@ -274,8 +276,8 @@ jobs:
           chmod +x multilevel_tabu_cap
           for run in {1..5}; do
             START_TIME=$(date +%s.%N)
-            timeout 20m ./multilevel_tabu_cap instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
-            EXIT_CODE=$?
+            EXIT_CODE=0
+            timeout 20m ./multilevel_tabu_cap instances/${{ matrix.instance }}.txt --seed "$run" > output_run${run}.txt 2>&1 || EXIT_CODE=$?
             END_TIME=$(date +%s.%N)
             echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
             if [ $EXIT_CODE -eq 124 ]; then
@@ -305,7 +307,7 @@ jobs:
               if "TIMEOUT" in content or "ERROR_EXIT_CODE" in content or not content or "Fitness:" not in content:
                 return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
                         "capacity_violation": 0.0,
-                        "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "TIMEOUT"}
+                        "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "ERROR" if "ERROR_EXIT_CODE" in content else "TIMEOUT"}
               makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
               drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
               capacity_viol = find_metric_last(r'Capacity violation:\s*([0-9.+\-eE]+)', content)
@@ -324,6 +326,7 @@ jobs:
           for run in range(1, 6):
             result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
             result["run"] = run
+            result["seed"] = run
             runs.append(result)
           with open("results.json", "w") as f:
             json.dump({"instance": instance, "runs": runs}, f, indent=2)
@@ -360,8 +363,8 @@ jobs:
           chmod +x multilevel_tabu_cap
           for run in {1..5}; do
             START_TIME=$(date +%s.%N)
-            timeout 20m ./multilevel_tabu_cap instances/${{ matrix.instance }}.txt > output_run${run}.txt 2>&1
-            EXIT_CODE=$?
+            EXIT_CODE=0
+            timeout 20m ./multilevel_tabu_cap instances/${{ matrix.instance }}.txt --seed "$run" > output_run${run}.txt 2>&1 || EXIT_CODE=$?
             END_TIME=$(date +%s.%N)
             echo "$(echo "$END_TIME - $START_TIME" | bc)" > runtime_run${run}.txt
             if [ $EXIT_CODE -eq 124 ]; then
@@ -391,7 +394,7 @@ jobs:
               if "TIMEOUT" in content or "ERROR_EXIT_CODE" in content or not content or "Fitness:" not in content:
                 return {"runtime": round(runtime, 3), "makespan": 0.0, "drone_violation": 0.0,
                         "capacity_violation": 0.0,
-                        "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "TIMEOUT"}
+                        "waiting_violation": 0.0, "fitness": float('inf'), "feasible": "ERROR" if "ERROR_EXIT_CODE" in content else "TIMEOUT"}
               makespan = find_metric_last(r'Makespan:\s*([0-9.+\-eE]+)', content)
               drone_viol = find_metric_last(r'Drone violation:\s*([0-9.+\-eE]+)', content)
               capacity_viol = find_metric_last(r'Capacity violation:\s*([0-9.+\-eE]+)', content)
@@ -410,6 +413,7 @@ jobs:
           for run in range(1, 6):
             result = parse_output(f"output_run{run}.txt", f"runtime_run{run}.txt")
             result["run"] = run
+            result["seed"] = run
             runs.append(result)
           with open("results.json", "w") as f:
             json.dump({"instance": instance, "runs": runs}, f, indent=2)
@@ -427,6 +431,7 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - name: Download all results
         uses: actions/download-artifact@v4
         continue-on-error: true
@@ -455,7 +460,7 @@ jobs:
 
           with open("MULTILEVEL_TABU_RESULTS.csv", "w", newline="") as f:
             cols = [
-              "Instance", "Size", "Replica", "Run", "Runtime_s", "Makespan",
+              "Instance", "Source_sha", "Size", "Replica", "Run", "Seed", "Runtime_s", "Makespan",
               "Drone_Violation", "Capacity_Violation", "Waiting_Violation", "Fitness", "Feasible",
             ]
             writer = csv.DictWriter(f, fieldnames=cols)
@@ -470,9 +475,11 @@ jobs:
               for run_data in data["runs"]:
                 writer.writerow({
                   "Instance": instance,
+                  "Source_sha": os.environ.get("GITHUB_SHA", ""),
                   "Size": size,
                   "Replica": replica,
                   "Run": run_data["run"],
+                  "Seed": run_data["seed"],
                   "Runtime_s": run_data["runtime"],
                   "Makespan": run_data["makespan"],
                   "Drone_Violation": run_data["drone_violation"],
@@ -492,4 +499,17 @@ jobs:
         with:
           name: multilevel-tabu-results
           path: MULTILEVEL_TABU_RESULTS.csv
+          retention-days: 90
+
+      - name: Compare Multilevel Tabu vs Tabu (best, mean and runtime)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/compare_multilevel_tabu.py --remote --group 50_100 --output comparison
+      - name: Upload comparison when both algorithms have results
+        uses: actions/upload-artifact@v4
+        with:
+          name: compare-ml-vs-tabu-50_100
+          path: comparison/
+          if-no-files-found: warn
           retention-days: 90
